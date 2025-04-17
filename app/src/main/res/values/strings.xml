@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">beta</string>
+    <string name="accessibility_service_name">My Accessibility Service</string>
+    <string name="accessibility_service_description">Provides screen capture functionality for the app.</string>
+</resources>
