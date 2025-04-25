@@ -6,155 +6,198 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.provider.Settings
+import android.util.DisplayMetrics
 import android.util.Log
 import android.widget.Button
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.activity.result.contract.ActivityResultContracts // Import for ActivityResultContracts
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
 
-    private val MEDIA_PROJECTION_REQUEST_CODE = 100
-    private val OVERLAY_PERMISSION_REQUEST_CODE = 101
-    private val STORAGE_PERMISSION_REQUEST_CODE = 102 // Added constant for storage permission
-    private lateinit var startCaptureButton: Button
+    private lateinit var captureScreenButton: Button
+    private lateinit var textRecognitionButton: Button
     private lateinit var mediaProjectionManager: MediaProjectionManager
+    private val screenCaptureRequestCode = 100
+    private var isCapturing = false // Track capture state
 
-    // Declare the ActivityResultLauncher for storage permission
-    private val storagePermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-            if (isGranted) {
-                Log.d("MainActivity", "storagePermissionLauncher: Storage permission granted")
-                checkOverlayPermissionAndStartCapture() // Proceed to check overlay permission
+    // Declare the screenCaptureResult as a lateinit var
+    private lateinit var screenCaptureResult: ActivityResultLauncher<Intent>
+
+    /*// Activity result launcher for screen capture
+    private var screenCaptureResult =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                Log.d("MainActivity", "Media projection successful, starting service")
+                // Start the ScreenCaptureService
+                val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                    putExtra("resultCode", result.resultCode)
+                    putExtra("resultData", result.data)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
+                isCapturing = true
             } else {
-                Log.w("MainActivity", "storagePermissionLauncher: Storage permission denied by user")
-                Toast.makeText(
-                    this,
-                    "Write external storage permission is required",
-                    Toast.LENGTH_SHORT
-                ).show()
+                Log.e("MainActivity", "Media projection failed")
+                Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
+                isCapturing = false
             }
-        }
+        }*/
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        startCaptureButton = findViewById(R.id.startCaptureButton)
+        // Initialize UI elements
+        captureScreenButton = findViewById(R.id.captureScreenButton)
+        textRecognitionButton = findViewById(R.id.textRecognitionButton)
+
+        // Get MediaProjectionManager
         mediaProjectionManager =
             getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
-        startCaptureButton.setOnClickListener {
+        // Initialize ActivityResultLauncher
+        screenCaptureResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                Log.d("MainActivity", "Media projection successful, starting service")
+
+                // Get display metrics here to pass it along to the service
+                val displayMetrics = DisplayMetrics()
+                windowManager.defaultDisplay.getMetrics(displayMetrics)
+
+                // Start the ScreenCaptureService with the metrics after receiving result from projection intent
+                val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                    putExtra("resultCode", result.resultCode)
+                    putExtra("resultData", result.data)
+                    putExtra("width", displayMetrics.widthPixels)
+                    putExtra("height", displayMetrics.heightPixels)
+                    putExtra("density", displayMetrics.densityDpi)
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
+                isCapturing = true
+            } else {
+                Log.e("MainActivity", "Media projection failed")
+                Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
+                isCapturing = false
+            }
+        }
+
+        // Set click listener for the capture screen button
+        captureScreenButton.setOnClickListener {
             checkPermissionsAndStartCapture()
         }
+
+        // Set click listener for the text recognition button
+        textRecognitionButton.setOnClickListener {
+            val intent = Intent(this, TextRecognitionActivity::class.java)
+            startActivity(intent)
+        }
+        (application as MyApplication).registerActivity(this)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        (application as MyApplication).unregisterActivity(this)
     }
 
     private fun checkPermissionsAndStartCapture() {
-        Log.d("MainActivity", "checkPermissionsAndStartCapture: Checking storage permission")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) { // Android 11+
-            if (!Environment.isExternalStorageManager()) {
-                Log.d("MainActivity", "checkPermissionsAndStartCapture: Storage permission not granted, requesting")
-                requestManageStoragePermission() // Redirect to settings instead
-            } else {
-                Log.d("MainActivity", "checkPermissionsAndStartCapture: Storage permission granted, checking overlay permission")
-                checkOverlayPermissionAndStartCapture()
-            }
-        } else { // Android 10 and below (uses WRITE_EXTERNAL_STORAGE)
-            if (ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.WRITE_EXTERNAL_STORAGE
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                Log.d("MainActivity", "checkPermissionsAndStartCapture: Requesting storage permission")
-                storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            } else {
-                checkOverlayPermissionAndStartCapture()
-            }
-        }
+        /*Log.d("MainActivity", "checkPermissionsAndStartCapture: Checking storage permission")
+        // Check for storage permissions, request if not granted.
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                STORAGE_PERMISSION_CODE
+            )
+        } else {
+            Log.d("MainActivity", "Storage permission granted, checking overlay permission")
+            checkOverlayPermissionAndStartCapture()
+        }*/
+        checkOverlayPermissionAndStartCapture()
     }
-
-
-    private fun requestManageStoragePermission() {
-        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-        intent.data = android.net.Uri.parse("package:$packageName")
-        startActivity(intent)
-    }
-
-
 
     private fun checkOverlayPermissionAndStartCapture() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Log.d("MainActivity", "checkOverlayPermissionAndStartCapture: Checking overlay permission")
-            if (!Settings.canDrawOverlays(this)) {
-                Log.d("MainActivity", "checkOverlayPermissionAndStartCapture: Overlay permission not granted, requesting")
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    android.net.Uri.parse("package:" + packageName)
-                )
-                startActivityForResult(intent, OVERLAY_PERMISSION_REQUEST_CODE)
-            } else {
-                Log.d(
-                    "MainActivity",
-                    "checkOverlayPermissionAndStartCapture: Overlay permission granted, starting media projection"
-                )
-                startMediaProjection()
+        Log.d("MainActivity", "checkOverlayPermissionAndStartCapture: Checking overlay permission")
+        // Check for overlay permission
+        if (!Settings.canDrawOverlays(this)) {
+            // Request overlay permission
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
+            startActivity(intent)
+            Toast.makeText(
+                this,
+                "Please grant overlay permission to use screen capture",
+                Toast.LENGTH_LONG
+            ).show()
         } else {
-            Log.d("MainActivity", "checkOverlayPermissionAndStartCapture: SDK < M, starting media projection")
+            Log.d("MainActivity", "Overlay permission granted, starting media projection")
             startMediaProjection()
         }
     }
 
     private fun startMediaProjection() {
         Log.d("MainActivity", "startMediaProjection: Starting media projection")
-        val createScreenCaptureIntent = mediaProjectionManager.createScreenCaptureIntent()
-        startActivityForResult(
-            createScreenCaptureIntent,
-            MEDIA_PROJECTION_REQUEST_CODE
-        )
-    }
+        val projectionIntent = mediaProjectionManager.createScreenCaptureIntent()  // No need for safe call
+        screenCaptureResult.launch(projectionIntent)  // Only responsible for starting projection
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        Log.d("MainActivity", "onActivityResult: requestCode = $requestCode, resultCode = $resultCode")
-        if (requestCode == MEDIA_PROJECTION_REQUEST_CODE) {
-            if (resultCode == RESULT_OK && data != null) {
-                Log.d("MainActivity", "onActivityResult: Media projection successful, starting service")
-                val serviceIntent = Intent(this, ScreenCaptureService::class.java)
-                serviceIntent.putExtra("resultCode", resultCode)
-                serviceIntent.putExtra("resultData", data)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(serviceIntent)
-                } else {
-                    startService(serviceIntent)
-                }
+        /*// Get display metrics here to pass it along to the service
+        val displayMetrics = DisplayMetrics()
+        windowManager.defaultDisplay.getMetrics(displayMetrics)
+
+        // Start the ScreenCaptureService with the metrics after receiving result from projection intent
+        val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+            putExtra("width", displayMetrics.widthPixels)
+            putExtra("height", displayMetrics.heightPixels)
+            putExtra("density", displayMetrics.densityDpi)
+        }
+
+        // Once you receive the result, start the service from the result handler:
+        screenCaptureResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                Log.d("MainActivity", "Media projection successful, starting service")
+                startForegroundService(serviceIntent)
             } else {
-                Log.w("MainActivity", "onActivityResult: Media projection failed")
+                Log.e("MainActivity", "Media projection failed")
                 Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
             }
-        } else if (requestCode == OVERLAY_PERMISSION_REQUEST_CODE) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                if (!Settings.canDrawOverlays(this)) {
-                    Log.w("MainActivity", "onActivityResult: Overlay permission denied by user")
-                    Toast.makeText(
-                        this,
-                        "Overlay permission is required to capture screen",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                } else {
-                    Log.d("MainActivity", "onActivityResult: Overlay permission granted by user")
-                    startMediaProjection()
-                }
+        }*/
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == STORAGE_PERMISSION_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d("MainActivity", "Storage permission granted in onRequestPermissionsResult")
+                checkOverlayPermissionAndStartCapture()
+            } else {
+                Log.e("MainActivity", "Storage permission denied")
+                Toast.makeText(this, "Storage permission is required", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        Log.d("MainActivity", "onDestroy")
+    companion object {
+        private const val STORAGE_PERMISSION_CODE = 101
     }
 }
