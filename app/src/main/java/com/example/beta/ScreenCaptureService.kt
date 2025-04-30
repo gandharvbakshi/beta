@@ -47,8 +47,12 @@ class ScreenCaptureService : Service() {
 
     // --- Throttling variables ---
     private var lastCaptureTimeMillis: Long = 0
-    private val captureIntervalMillis: Long = TimeUnit.SECONDS.toMillis(1) // 1 second interval
+    private val captureIntervalMillis: Long = TimeUnit.SECONDS.toMillis(8) // 8 second interval
+    // Add the screenshot counter
+    private var screenshotCounter = 0
+    private val maxScreenshots = 4
     // --------------------------
+
 
     override fun onCreate() {
         super.onCreate()
@@ -114,20 +118,6 @@ class ScreenCaptureService : Service() {
             return
         }
 
-        /*// Get display metrics
-        val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val displayMetrics = DisplayMetrics()
-        // Use defaultDisplay for older APIs, or context.display for newer ones
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val display = this.display // Requires API 30+
-            display?.getRealMetrics(displayMetrics)
-        } else {
-            @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getMetrics(displayMetrics)
-        }
-        width = displayMetrics.widthPixels
-        height = displayMetrics.heightPixels
-        density = displayMetrics.densityDpi*/
 
         Log.d("ScreenCaptureService", "Screen dimensions: $width x $height @ $density dpi")
 
@@ -268,6 +258,12 @@ class ScreenCaptureService : Service() {
     }
 
     private fun processImage(image: Image) {
+        if (screenshotCounter >= maxScreenshots) {
+            Log.d("ScreenCaptureService", "Maximum number of screenshots reached. Stopping capture.")
+            //stopCapture() // Call this function to stop capturing if implemented
+            return
+        }
+
         if (width <= 0 || height <= 0) {
             Log.e("ScreenCaptureService", "Cannot process image: Invalid dimensions ($width x $height)")
             return
@@ -292,8 +288,16 @@ class ScreenCaptureService : Service() {
             }
 
             Log.d("ScreenCaptureService", "Bitmap created from image buffer.")
+            // Define a filename for the screenshot being processed
+            val filename = "screenshot_for_upload_${System.currentTimeMillis()}.jpg"
+
             // Use MyApplication to save the bitmap
             (application as? MyApplication)?.saveScreenshot(bitmap)
+            uploadScreenshotAndProcess(this, bitmap, filename)
+
+            // Increment screenshot counter
+            screenshotCounter++
+
 
         } catch (e: OutOfMemoryError) {
             Log.e("ScreenCaptureService", "OutOfMemoryError processing image: ", e)
