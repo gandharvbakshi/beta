@@ -2,7 +2,6 @@ package com.example.beta
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.util.Log
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -22,6 +21,8 @@ import java.security.cert.X509Certificate
 import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.SSLSession
 import java.net.SocketTimeoutException
+import org.json.JSONObject
+import org.json.JSONArray
 
 /*private val client = OkHttpClient.Builder()
     .connectTimeout(10, TimeUnit.SECONDS)
@@ -47,86 +48,98 @@ fun provideOkHttpClient(): OkHttpClient {
                 return true // Disable hostname verification for development
             }
         })
-        .connectTimeout(120, TimeUnit.SECONDS)  // Increased from 10 to 30 seconds
-        .writeTimeout(120, TimeUnit.SECONDS)    // Maintain or adapt based on needs
-        .readTimeout(120, TimeUnit.SECONDS)     // Increase to at least 60 seconds for processing
-        .retryOnConnectionFailure(true)         // Enable retry on connection failure
+        .connectTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 }
 
-private val client = provideOkHttpClient() // Use the secure client configuration
+private val client = provideOkHttpClient()
 
 fun uploadScreenshotAndProcess(context: Context, bitmap: Bitmap, filename: String) {
-    val attemptUpload =
-        {
-            // Create a temporary file for the bitmap
-            val tempFile = File(context.cacheDir, filename)
-            FileOutputStream(tempFile).use { outStream ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outStream)
+    val attemptUpload = {
+        // Create a temporary file for the bitmap
+        val tempFile = File(context.cacheDir, filename)
+        FileOutputStream(tempFile).use { outStream ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outStream)
+        }
+
+        val fileBody = tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", filename, fileBody)
+            .build()
+
+        val request = Request.Builder()
+            .url("https://10.0.2.2:8000/analyze-screenshot") // Updated endpoint
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                e.printStackTrace()
+                Log.e("UploadFailure", "Failed to upload image: ${e.message}")
             }
 
-            val fileBody = tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
-            val requestBody = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart("file", filename, fileBody)
-                .build()
-
-            val request = Request.Builder()
-                .url("https://10.0.2.2:8000/process-image/") // Use your Docker container URL
-                .post(requestBody)
-                .build()
-
-            client.newCall(request).enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    e.printStackTrace()
-                    Log.e("UploadFailure", "Failed to upload image: ${e.message}")
+            override fun onResponse(call: Call, response: Response) {
+                if (!response.isSuccessful) {
+                    Log.e("UploadResponse", "Unexpected response: $response")
+                    return
                 }
 
-                override fun onResponse(call: Call, response: Response) {
-                    if (!response.isSuccessful) {
-                        Log.e("UploadResponse", "Unexpected response: $response")
-                        return
-                    }
-                    val startTime = System.currentTimeMillis()  // Start time to calculate round-trip time
-
-                    response.body?.let { responseBody ->
-                        val inputStream = responseBody.byteStream()
-                        val processedBitmap = BitmapFactory.decodeStream(inputStream)
-
-                        // Check if processedBitmap is null
-                        if (processedBitmap == null) {
-                            Log.e(
-                                "UploadResponse",
-                                "Processed bitmap is null. Please check the backend response."
-                            )
-                            return // Exit early if we can't process the image
+                response.body?.let { responseBody ->
+                    try {
+                        val jsonString = responseBody.string()
+                        val jsonObject = JSONObject(jsonString)
+                        
+                        // Log the entire JSON response
+                        Log.d("JSONResponse", "Received JSON: $jsonString")
+                        
+                        // Extract and log buttons information
+                        val buttonsArray = jsonObject.optJSONArray("buttons")
+                        when (buttonsArray) {
+                            null -> Log.d("ButtonInfo", "No buttons found in the response")
+                            else -> {
+                                for (i in 0 until buttonsArray.length()) {
+                                    val button = buttonsArray.getJSONObject(i)
+                                    val buttonName = button.getString("button_name")
+                                    val boundingBox = button.getJSONArray("bounding_box")
+                                    val actions = button.getJSONArray("actions")
+                                    
+                                    Log.d("ButtonInfo", """
+                                        Button: $buttonName
+                                        Bounding Box: [${boundingBox.getInt(0)}, ${boundingBox.getInt(1)}, ${boundingBox.getInt(2)}, ${boundingBox.getInt(3)}]
+                                        Actions: ${actions.join(",")}
+                                    """.trimIndent())
+                                }
+                            }
                         }
-
-                        val processedFile = File(
-                            context.getExternalFilesDir(null),
-                            "${filename}_with_bounding_box.jpg"
-                        )
-
-                        // Save processed image
-                        FileOutputStream(processedFile).use { outStream ->
-                            processedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outStream)
+                        
+                        // Extract and log image dimensions
+                        val imageDimensions = jsonObject.optJSONObject("image_dimensions")
+                        when (imageDimensions) {
+                            null -> Log.d("ImageDimensions", "No image dimensions found in the response")
+                            else -> {
+                                val width = imageDimensions.getInt("image_width")
+                                val height = imageDimensions.getInt("image_height")
+                                Log.d("ImageDimensions", "Width: $width, Height: $height")
+                            }
                         }
-                        // Log the file path and print confirmation
-                        val endTime = System.currentTimeMillis()  // End time to calculate round-trip time
-                        val totalTime = endTime - startTime
-
-                        Log.d("ImageProcessing", "Processed image with Bounding Box saved successfully: ${processedFile.absolutePath}")
-                        Log.d("ImageTiming", "Round-trip time for image processing: ${totalTime}ms")
+                        
+                    } catch (e: Exception) {
+                        Log.e("JSONParsing", "Error parsing JSON response: ${e.message}")
                     }
                 }
-            })
-        }
+            }
+        })
+    }
 
     val maxAttempts = 3
     for (attempt in 1..maxAttempts) {
         try {
-            attemptUpload() // Call the uploading method
-            break // Break if successful
+            attemptUpload()
+            break
         } catch (e: SocketTimeoutException) {
             if (attempt == maxAttempts) {
                 Log.e("UploadFailure", "Failed after multiple attempts: ${e.message}")
@@ -135,5 +148,4 @@ fun uploadScreenshotAndProcess(context: Context, bitmap: Bitmap, filename: Strin
             }
         }
     }
-
 }
