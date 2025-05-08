@@ -1,8 +1,10 @@
 package com.example.beta
 
 import android.app.*
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
@@ -16,11 +18,12 @@ import android.util.Log
 import android.view.*
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.concurrent.TimeUnit // Import TimeUnit
+import java.util.concurrent.TimeUnit
 
 class ScreenCaptureService : Service() {
 
@@ -44,15 +47,8 @@ class ScreenCaptureService : Service() {
     private var foregroundStarted = false
     private var virtualDisplay: android.hardware.display.VirtualDisplay? = null // Correct type
     private var accessibilityService: MyAccessibilityService? = null
-
-    // --- Throttling variables ---
-    private var lastCaptureTimeMillis: Long = 0
-    private val captureIntervalMillis: Long = TimeUnit.SECONDS.toMillis(8) // 8 second interval
-    // Add the screenshot counter
-    private var screenshotCounter = 0
-    private val maxScreenshots = 4
-    // --------------------------
-
+    private var currentInputText: String? = null
+    private var pendingScreenshot = false
 
     override fun onCreate() {
         super.onCreate()
@@ -71,6 +67,21 @@ class ScreenCaptureService : Service() {
         // Pass the service instance to the Application class
         (application as? MyApplication)?.setScreenCaptureService(this)
         Log.d("ScreenCaptureService", "ScreenCaptureService instance set in MyApplication")
+
+        // Register local broadcast receiver for input text
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            inputReceiver,
+            IntentFilter("com.example.beta.INPUT_RECEIVED")
+        )
+    }
+
+    private val inputReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.example.beta.INPUT_RECEIVED") {
+                currentInputText = intent.getStringExtra("input_text")
+                Log.d("ScreenCaptureService", "Received input text: $currentInputText")
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -149,7 +160,6 @@ class ScreenCaptureService : Service() {
 
         if (virtualDisplay != null) {
             isCapturing = true
-            lastCaptureTimeMillis = 0 // Reset last capture time
             Log.d("ScreenCaptureService", "Screen capture started successfully.")
             Toast.makeText(this, "Screen capture started", Toast.LENGTH_SHORT).show()
         } else {
@@ -191,17 +201,21 @@ class ScreenCaptureService : Service() {
         }
 
         try {
+            // Release existing virtual display if it exists
+            virtualDisplay?.release()
+            
             virtualDisplay = mediaProjection?.createVirtualDisplay(
                 "ScreenCapture",
                 width,
                 height,
                 density,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR or
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC,
                 imageReader?.surface,
-                null, // Callback (optional)
-                handler // Handler for callbacks
+                null, // No callback
+                handler
             )
-            Log.d("ScreenCaptureService", "VirtualDisplay created.")
+            Log.d("ScreenCaptureService", "VirtualDisplay created with dimensions: $width x $height")
         } catch (e: SecurityException) {
             Log.e("ScreenCaptureService", "SecurityException creating VirtualDisplay: ", e)
             Toast.makeText(this, "Permission issue creating virtual display", Toast.LENGTH_SHORT).show()
@@ -224,7 +238,7 @@ class ScreenCaptureService : Service() {
                 width, height, PixelFormat.RGBA_8888, 2 // Max images buffer
             )
             imageReader?.setOnImageAvailableListener(imageAvailableListener, handler)
-            Log.d("ScreenCaptureService", "ImageReader created.")
+            Log.d("ScreenCaptureService", "ImageReader created with dimensions: $width x $height")
         } catch (e: IllegalArgumentException) {
             Log.e("ScreenCaptureService", "IllegalArgumentException creating ImageReader: ", e)
             Toast.makeText(this, "Error setting up screen reader", Toast.LENGTH_SHORT).show()
@@ -234,41 +248,31 @@ class ScreenCaptureService : Service() {
 
     // ImageAvailableListener moved outside createImageReader
     private val imageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
-        var image: Image? = null
-        try {
-            image = reader.acquireLatestImage() // Get the latest image
-            if (image != null) {
-                // --- Throttling Logic ---
-                val currentTime = System.currentTimeMillis()
-                if (currentTime - lastCaptureTimeMillis >= captureIntervalMillis) {
-                    Log.d("ScreenCaptureService", "Interval passed, processing image.")
+        Log.d("ScreenCaptureService", "New image available")
+        if (pendingScreenshot) {
+            pendingScreenshot = false
+            try {
+                val image = reader.acquireLatestImage()
+                if (image != null) {
+                    Log.d("ScreenCaptureService", "Processing pending screenshot")
                     processImage(image)
-                    lastCaptureTimeMillis = currentTime // Update last capture time
+                    image.close()
                 } else {
-                    // Optional: Log skipping frame due to throttling
-                    // Log.v("ScreenCaptureService", "Skipping frame due to throttling.");
+                    Log.e("ScreenCaptureService", "Failed to acquire image for pending screenshot")
                 }
-                // -------------------------
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error processing pending screenshot: ", e)
             }
-        } catch (e: Exception) {
-            Log.e("ScreenCaptureService", "Error acquiring or processing image: ", e)
-        } finally {
-            image?.close() // VERY IMPORTANT: Always close the image
         }
     }
 
     private fun processImage(image: Image) {
-        if (screenshotCounter >= maxScreenshots) {
-            Log.d("ScreenCaptureService", "Maximum number of screenshots reached. Stopping capture.")
-            //stopCapture() // Call this function to stop capturing if implemented
-            return
-        }
-
         if (width <= 0 || height <= 0) {
             Log.e("ScreenCaptureService", "Cannot process image: Invalid dimensions ($width x $height)")
             return
         }
 
+        Log.d("ScreenCaptureService", "Starting image processing with dimensions: $width x $height")
         val planes = image.planes
         val buffer: ByteBuffer = planes[0].buffer
         val pixelStride: Int = planes[0].pixelStride
@@ -277,27 +281,32 @@ class ScreenCaptureService : Service() {
 
         var bitmap: Bitmap? = null
         try {
+            Log.d("ScreenCaptureService", "Creating bitmap from image buffer")
             bitmap = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888)
             bitmap.copyPixelsFromBuffer(buffer)
 
-            // If padding exists, crop the bitmap to the correct width
             if (rowPadding > 0) {
+                Log.d("ScreenCaptureService", "Cropping bitmap to remove padding")
                 val croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
-                bitmap.recycle() // Recycle original bitmap
+                bitmap.recycle()
                 bitmap = croppedBitmap
             }
 
-            Log.d("ScreenCaptureService", "Bitmap created from image buffer.")
-            // Define a filename for the screenshot being processed
+            Log.d("ScreenCaptureService", "Bitmap created successfully")
             val filename = "screenshot_for_upload_${System.currentTimeMillis()}.jpg"
 
-            // Use MyApplication to save the bitmap
+            Log.d("ScreenCaptureService", "Saving screenshot to application")
             (application as? MyApplication)?.saveScreenshot(bitmap)
-            uploadScreenshotAndProcess(this, bitmap, filename)
-
-            // Increment screenshot counter
-            screenshotCounter++
-
+            
+            // Process with input text if available
+            currentInputText?.let { inputText ->
+                Log.d("ScreenCaptureService", "Processing screenshot with input text: $inputText")
+                BackendProcessing.processScreenshotWithInput(this, bitmap, filename, inputText)
+                currentInputText = null // Clear the input text after processing
+            } ?: run {
+                Log.d("ScreenCaptureService", "No input text available, using default processing")
+                BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename)
+            }
 
         } catch (e: OutOfMemoryError) {
             Log.e("ScreenCaptureService", "OutOfMemoryError processing image: ", e)
@@ -347,7 +356,7 @@ class ScreenCaptureService : Service() {
 
         // Add a Stop button to the notification
         val stopSelfIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = ACTION_STOP_CAPTURE // Define a custom action
+            action = ACTION_STOP_CAPTURE
         }
         val stopPendingIntent = PendingIntent.getService(
             this, 0, stopSelfIntent, pendingIntentFlags
@@ -355,13 +364,13 @@ class ScreenCaptureService : Service() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Screen Capture Active")
-            .setContentText("Capturing screen every second...")
-            .setSmallIcon(R.drawable.ic_launcher_foreground) // Replace with your actual icon
-            .setContentIntent(pendingIntent) // Intent when notification is tapped
-            .addAction(R.drawable.ic_launcher_foreground, "Stop Capture", stopPendingIntent) // Add stop action
-            .setOngoing(true) // Makes it non-dismissible
+            .setContentText("Ready to capture screenshots")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentIntent(pendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "Stop Capture", stopPendingIntent)
+            .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setPriority(NotificationCompat.PRIORITY_LOW) // Use LOW for background tasks
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
         try {
@@ -370,13 +379,12 @@ class ScreenCaptureService : Service() {
             Log.d("ScreenCaptureService", "Started foreground service with notification.")
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error starting foreground service: ", e)
-            // Handle specific exceptions like ForegroundServiceStartNotAllowedException on Android 12+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && e is ForegroundServiceStartNotAllowedException) {
                 Toast.makeText(this, "App cannot start capture from background.", Toast.LENGTH_LONG).show()
             } else {
                 Toast.makeText(this, "Could not start capture service.", Toast.LENGTH_SHORT).show()
             }
-            stopSelf() // Stop service if foreground fails
+            stopSelf()
         }
     }
 
@@ -432,6 +440,11 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         Log.d("ScreenCaptureService", "Service destroyed.")
+        try {
+            LocalBroadcastManager.getInstance(this).unregisterReceiver(inputReceiver)
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error unregistering receiver: ", e)
+        }
         stopCapture() // Ensure all resources are released
         // Quit the handler thread's looper safely
         handlerThread?.quitSafely()
@@ -447,5 +460,78 @@ class ScreenCaptureService : Service() {
     companion object {
         const val ACTION_STOP_CAPTURE = "com.example.beta.STOP_CAPTURE"
         // Consider adding actions for START if needed, though currently handled by intent extras
+    }
+
+    // Add method to trigger screenshot manually
+    fun triggerScreenshot() {
+        if (!isCapturing) {
+            Log.e("ScreenCaptureService", "Cannot trigger screenshot: Service not capturing")
+            return
+        }
+        
+        if (imageReader == null) {
+            Log.e("ScreenCaptureService", "Cannot trigger screenshot: ImageReader is null")
+            return
+        }
+
+        if (virtualDisplay == null) {
+            Log.e("ScreenCaptureService", "Cannot trigger screenshot: VirtualDisplay is null")
+            return
+        }
+
+        Log.d("ScreenCaptureService", "Setting pending screenshot flag")
+        pendingScreenshot = true
+        
+        // Use handler to ensure we're on the correct thread
+        handler?.post {
+            try {
+                Log.d("ScreenCaptureService", "Requesting new frame from VirtualDisplay")
+                // Force a new frame to be captured by resizing
+                virtualDisplay?.resize(width, height, density)
+                
+                // Try to acquire the image directly after a short delay
+                handler?.postDelayed({
+                    if (pendingScreenshot) {
+                        Log.d("ScreenCaptureService", "Attempting direct image acquisition")
+                        try {
+                            val image = imageReader?.acquireLatestImage()
+                            if (image != null) {
+                                Log.d("ScreenCaptureService", "Direct image acquisition successful")
+                                processImage(image)
+                                image.close()
+                                pendingScreenshot = false
+                            } else {
+                                Log.e("ScreenCaptureService", "Direct image acquisition failed - image is null")
+                                // Try one more time after another short delay
+                                handler?.postDelayed({
+                                    if (pendingScreenshot) {
+                                        try {
+                                            val retryImage = imageReader?.acquireLatestImage()
+                                            if (retryImage != null) {
+                                                Log.d("ScreenCaptureService", "Retry image acquisition successful")
+                                                processImage(retryImage)
+                                                retryImage.close()
+                                            } else {
+                                                Log.e("ScreenCaptureService", "Retry image acquisition failed - image is null")
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.e("ScreenCaptureService", "Error in retry image acquisition: ", e)
+                                        } finally {
+                                            pendingScreenshot = false
+                                        }
+                                    }
+                                }, 200) // 200ms delay for retry
+                            }
+                        } catch (e: Exception) {
+                            Log.e("ScreenCaptureService", "Error in direct image acquisition: ", e)
+                            pendingScreenshot = false
+                        }
+                    }
+                }, 100) // 100ms delay for first attempt
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error requesting new frame: ", e)
+                pendingScreenshot = false
+            }
+        }
     }
 }

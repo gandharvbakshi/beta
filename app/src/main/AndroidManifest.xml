@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.beta">
 
@@ -15,6 +16,15 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Beta">
+
+        <receiver
+            android:name=".InputBroadcastReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.beta.INPUT_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -46,6 +56,11 @@
             <meta-data android:name="android.service.foreground"
             android:value="true"/>
         </service>
+
+        <service
+            android:name=".OverlayInputService"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 
 </manifest>

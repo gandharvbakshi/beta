@@ -86,6 +86,11 @@ class MainActivity : ComponentActivity() {
                 } else {
                     startService(serviceIntent)
                 }
+
+                // Start the OverlayInputService
+                val overlayIntent = Intent(this, OverlayInputService::class.java)
+                startService(overlayIntent)
+
                 isCapturing = true
             } else {
                 Log.e("MainActivity", "Media projection failed")
