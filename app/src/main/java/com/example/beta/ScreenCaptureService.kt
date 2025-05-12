@@ -49,6 +49,7 @@ class ScreenCaptureService : Service() {
     private var accessibilityService: MyAccessibilityService? = null
     private var currentInputText: String? = null
     private var pendingScreenshot = false
+    private var overlayBounds: android.graphics.Rect? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -266,6 +267,12 @@ class ScreenCaptureService : Service() {
         }
     }
 
+    private fun getOverlayBounds(): android.graphics.Rect? {
+        val app = application as? MyApplication
+        val overlayService = app?.getOverlayInputService()
+        return overlayService?.getOverlayBounds()
+    }
+
     private fun processImage(image: Image) {
         if (width <= 0 || height <= 0) {
             Log.e("ScreenCaptureService", "Cannot process image: Invalid dimensions ($width x $height)")
@@ -290,6 +297,25 @@ class ScreenCaptureService : Service() {
                 val croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
                 bitmap.recycle()
                 bitmap = croppedBitmap
+            }
+
+            // Get overlay bounds and exclude it from the screenshot
+            overlayBounds = getOverlayBounds()
+            if (overlayBounds != null) {
+                Log.d("ScreenCaptureService", "Excluding overlay bounds from screenshot: $overlayBounds")
+                val finalBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(finalBitmap)
+                canvas.drawBitmap(bitmap, 0f, 0f, null)
+                
+                // Clear the overlay area
+                val paint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.TRANSPARENT
+                    xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
+                }
+                canvas.drawRect(overlayBounds!!, paint)
+                
+                bitmap.recycle()
+                bitmap = finalBitmap
             }
 
             Log.d("ScreenCaptureService", "Bitmap created successfully")

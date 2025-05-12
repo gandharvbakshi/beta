@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/accessibility_service_description"
-    android:packageNames="com.example.beta"
-    android:accessibilityEventTypes="typeWindowStateChanged|typeViewFocused|typeWindowContentChanged"
-    android:accessibilityFlags="flagReportViewIds"
+    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityFlags="flagDefault"
+    android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="100"
-    android:canRetrieveWindowContent="true"
-    android:settingsActivity="com.example.beta.MainActivity" />
+    android:canPerformGestures="true"
+    android:settingsActivity="com.example.beta.MainActivity"/>

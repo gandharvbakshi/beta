@@ -61,6 +61,29 @@
             android:name=".OverlayInputService"
             android:enabled="true"
             android:exported="false" />
+
+        <service
+            android:name=".ButtonHighlightService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection"
+            android:permission="android.permission.SYSTEM_ALERT_WINDOW">
+            <meta-data 
+                android:name="android.service.foreground"
+                android:value="true"/>
+        </service>
+
+        <service
+            android:name=".ButtonAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
     </application>
 
 </manifest>

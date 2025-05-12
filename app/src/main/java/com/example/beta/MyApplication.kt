@@ -16,11 +16,17 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
 import android.net.Uri // Ensure Uri is imported
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
 
 class MyApplication : Application() {
 
     private var screenCaptureService: ScreenCaptureService? = null
     private var currentActivity: ComponentActivity? = null
+    private var overlayInputService: OverlayInputService? = null
+    private var buttonHighlightService: ButtonHighlightService? = null
+    private var accessibilityService: AccessibilityService? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -125,6 +131,39 @@ class MyApplication : Application() {
     // Gets the ScreenCaptureService instance (potentially used by AccessibilityService or elsewhere)
     fun getScreenCaptureService(): ScreenCaptureService? {
         return screenCaptureService
+    }
+
+    // Sets the OverlayInputService instance
+    fun setOverlayInputService(service: OverlayInputService?) {
+        this.overlayInputService = service
+        Log.d("MyApplication", "OverlayInputService instance ${if (service == null) "cleared" else "set"}.")
+    }
+
+    // Gets the OverlayInputService instance
+    fun getOverlayInputService(): OverlayInputService? {
+        return overlayInputService
+    }
+
+    // Sets the ButtonHighlightService instance
+    fun setButtonHighlightService(service: ButtonHighlightService?) {
+        this.buttonHighlightService = service
+        Log.d("MyApplication", "ButtonHighlightService ${if (service != null) "set" else "cleared"}")
+    }
+
+    // Gets the ButtonHighlightService instance
+    fun getButtonHighlightService(): ButtonHighlightService? {
+        return buttonHighlightService
+    }
+
+    // Sets the AccessibilityService instance
+    fun setAccessibilityService(service: AccessibilityService?) {
+        accessibilityService = service
+        Log.d("MyApplication", "AccessibilityService ${if (service != null) "set" else "cleared"}")
+    }
+
+    // Gets the AccessibilityService instance
+    fun getAccessibilityService(): AccessibilityService? {
+        return accessibilityService
     }
 
     // --- Activity Lifecycle Management ---

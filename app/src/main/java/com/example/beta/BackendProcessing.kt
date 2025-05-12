@@ -26,12 +26,17 @@ import org.json.JSONArray
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import android.content.Intent
+import android.graphics.Rect
+import android.os.Build
+import android.util.DisplayMetrics
+import android.view.WindowManager
 
 object BackendProcessing {
     private val client = provideOkHttpClient()
     var currentBitmap: Bitmap? = null
     var currentFilename: String? = null
     private var currentInputText: String? = null
+    private var buttonHighlightService: ButtonHighlightService? = null
 
     private fun provideOkHttpClient(): OkHttpClient {
         val trustManager = object : X509TrustManager {
@@ -65,7 +70,49 @@ object BackendProcessing {
     }
 
     fun processScreenshotWithInput(context: Context, bitmap: Bitmap, filename: String, inputText: String) {
-        Log.d("BackendProcessing", "processScreenshotWithInput called with filename: $filename and input: '$inputText'")
+        Log.d("BackendProcessing", "processScreenshotWithInput called with filename: $filename")
+        
+        // Log screenshot dimensions
+        Log.d("BackendProcessing", "Screenshot dimensions - Width: ${bitmap.width}, Height: ${bitmap.height}")
+        
+        // Log screen metrics
+        val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val displayMetrics = DisplayMetrics()
+        windowManager.defaultDisplay.getMetrics(displayMetrics)
+        Log.d("BackendProcessing", """
+            Screen metrics:
+            - Width: ${displayMetrics.widthPixels}
+            - Height: ${displayMetrics.heightPixels}
+            - Density: ${displayMetrics.density}
+            - Scaled Density: ${displayMetrics.scaledDensity}
+            - Density DPI: ${displayMetrics.densityDpi}
+            - X DPI: ${displayMetrics.xdpi}
+            - Y DPI: ${displayMetrics.ydpi}
+        """.trimIndent())
+
+        // Start the ButtonHighlightService if it's not already running
+        if (buttonHighlightService == null) {
+            try {
+                Log.d("BackendProcessing", "Starting ButtonHighlightService")
+                val serviceIntent = Intent(context, ButtonHighlightService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+                // Wait a moment for the service to start
+                Thread.sleep(100)
+                buttonHighlightService = (context.applicationContext as? MyApplication)?.getButtonHighlightService()
+                if (buttonHighlightService == null) {
+                    Log.w("BackendProcessing", "ButtonHighlightService failed to start")
+                } else {
+                    Log.d("BackendProcessing", "ButtonHighlightService started successfully")
+                }
+            } catch (e: Exception) {
+                Log.e("BackendProcessing", "Error starting ButtonHighlightService: ${e.message}", e)
+            }
+        }
+
         val attemptUpload = {
             // Create a temporary file for the bitmap
             val tempFile = File(context.cacheDir, filename)
@@ -79,7 +126,7 @@ object BackendProcessing {
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("file", filename, fileBody)
-                .addFormDataPart("input_text", inputText)
+                .addFormDataPart("input_text", inputText ?: "")
                 .build()
 
             val request = Request.Builder()
@@ -91,11 +138,13 @@ object BackendProcessing {
                 override fun onFailure(call: Call, e: IOException) {
                     e.printStackTrace()
                     Log.e("UploadFailure", "Failed to upload image: ${e.message}")
+                    buttonHighlightService?.clearHighlight()
                 }
 
                 override fun onResponse(call: Call, response: Response) {
                     if (!response.isSuccessful) {
                         Log.e("UploadResponse", "Unexpected response: $response")
+                        buttonHighlightService?.clearHighlight()
                         return
                     }
 
@@ -106,6 +155,89 @@ object BackendProcessing {
                             
                             // Log the entire JSON response
                             Log.d("JSONResponse", "Received JSON: $jsonString")
+                            
+                            // Extract and log app name
+                            val appName = jsonObject.optString("app_name", "Unknown App")
+                            Log.d("AppInfo", "Analyzing app: $appName")
+                            
+                            // Extract and log input text
+                            val inputText = jsonObject.optString("input_text", "")
+                            if (inputText.isNotEmpty()) {
+                                Log.d("InputInfo", "User input: $inputText")
+                            }
+                            
+                            // Extract and log image dimensions
+                            val imageDimensions = jsonObject.optJSONObject("image_dimensions")
+                            when (imageDimensions) {
+                                null -> Log.d("ImageDimensions", "No image dimensions found in the response")
+                                else -> {
+                                    val width = imageDimensions.getInt("image_width")
+                                    val height = imageDimensions.getInt("image_height")
+                                    Log.d("ImageDimensions", "Width: $width, Height: $height")
+                                    
+                                    // Set screenshot dimensions in the highlight service
+                                    buttonHighlightService?.setScreenshotDimensions(width, height)
+                                }
+                            }
+                            
+                            // Extract and handle recommended button
+                            val recommendedButton = jsonObject.optJSONObject("recommended_button")
+                            when (recommendedButton) {
+                                null -> {
+                                    Log.d("Recommendation", "No button recommendation found")
+                                    buttonHighlightService?.clearHighlight()
+                                }
+                                else -> {
+                                    val buttonName = recommendedButton.getString("button_name")
+                                    val confidenceScore = recommendedButton.getDouble("confidence_score")
+                                    val reason = recommendedButton.getString("reason")
+                                    val boundingBox = recommendedButton.getJSONArray("bounding_box")
+                                    
+                                    // Create a Rect from the bounding box coordinates
+                                    val rect = Rect(
+                                        boundingBox.getInt(0),
+                                        boundingBox.getInt(1),
+                                        boundingBox.getInt(2),
+                                        boundingBox.getInt(3)
+                                    )
+                                    
+                                    // Log detailed bounding box information
+                                    Log.d("BackendProcessing", """
+                                        Button Recommendation Details:
+                                        - Name: $buttonName
+                                        - Confidence: $confidenceScore
+                                        - Reason: $reason
+                                        - Raw Bounding Box: [${boundingBox.getInt(0)}, ${boundingBox.getInt(1)}, ${boundingBox.getInt(2)}, ${boundingBox.getInt(3)}]
+                                        - Box Width: ${rect.width()}
+                                        - Box Height: ${rect.height()}
+                                        - Box Center: (${rect.centerX()}, ${rect.centerY()})
+                                        - Screenshot Width: ${bitmap.width}
+                                        - Screenshot Height: ${bitmap.height}
+                                        - Screen Width: ${displayMetrics.widthPixels}
+                                        - Screen Height: ${displayMetrics.heightPixels}
+                                        - Screen Density: ${displayMetrics.density}
+                                    """.trimIndent())
+
+                                    // Update the highlight
+                                    if (buttonHighlightService == null) {
+                                        Log.w("BackendProcessing", "ButtonHighlightService is null when trying to update highlight")
+                                        // Try to restart the service
+                                        try {
+                                            val serviceIntent = Intent(context, ButtonHighlightService::class.java)
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                                context.startForegroundService(serviceIntent)
+                                            } else {
+                                                context.startService(serviceIntent)
+                                            }
+                                            Thread.sleep(100)
+                                            buttonHighlightService = (context.applicationContext as? MyApplication)?.getButtonHighlightService()
+                                        } catch (e: Exception) {
+                                            Log.e("BackendProcessing", "Error restarting ButtonHighlightService: ${e.message}", e)
+                                        }
+                                    }
+                                    buttonHighlightService?.updateHighlight(rect)
+                                }
+                            }
                             
                             // Extract and log buttons information
                             val buttonsArray = jsonObject.optJSONArray("buttons")
@@ -127,19 +259,9 @@ object BackendProcessing {
                                 }
                             }
                             
-                            // Extract and log image dimensions
-                            val imageDimensions = jsonObject.optJSONObject("image_dimensions")
-                            when (imageDimensions) {
-                                null -> Log.d("ImageDimensions", "No image dimensions found in the response")
-                                else -> {
-                                    val width = imageDimensions.getInt("image_width")
-                                    val height = imageDimensions.getInt("image_height")
-                                    Log.d("ImageDimensions", "Width: $width, Height: $height")
-                                }
-                            }
-                            
                         } catch (e: Exception) {
                             Log.e("JSONParsing", "Error parsing JSON response: ${e.message}")
+                            buttonHighlightService?.clearHighlight()
                         }
                     }
                 }
