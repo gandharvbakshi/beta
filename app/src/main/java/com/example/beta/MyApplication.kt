@@ -27,6 +27,7 @@ class MyApplication : Application() {
     private var overlayInputService: OverlayInputService? = null
     private var buttonHighlightService: ButtonHighlightService? = null
     private var accessibilityService: AccessibilityService? = null
+    private var automatedActionService: AutomatedActionService? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -164,6 +165,17 @@ class MyApplication : Application() {
     // Gets the AccessibilityService instance
     fun getAccessibilityService(): AccessibilityService? {
         return accessibilityService
+    }
+
+    // Sets the AutomatedActionService instance
+    fun setAutomatedActionService(service: AutomatedActionService?) {
+        this.automatedActionService = service
+        Log.d("MyApplication", "AutomatedActionService ${if (service != null) "set" else "cleared"}")
+    }
+
+    // Gets the AutomatedActionService instance
+    fun getAutomatedActionService(): AutomatedActionService? {
+        return automatedActionService
     }
 
     // --- Activity Lifecycle Management ---

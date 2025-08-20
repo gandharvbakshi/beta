@@ -15,6 +15,13 @@
         android:id="@+id/textRecognitionButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Text Recognition" />
+        android:text="Text Recognition"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/testAutomatedActionButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Test Automated Actions" />
 
 </LinearLayout>

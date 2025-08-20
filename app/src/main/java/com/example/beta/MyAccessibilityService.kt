@@ -19,15 +19,18 @@ class MyAccessibilityService : AccessibilityService() {
         //Set service info.
         val info = AccessibilityServiceInfo()
         info.eventTypes =
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or AccessibilityEvent.TYPE_VIEW_CLICKED or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED // Added TYPE_WINDOW_STATE_CHANGED
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or AccessibilityEvent.TYPE_VIEW_CLICKED or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_VIEW_FOCUSED or AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-        info.flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS //Added FLAG_REPORT_VIEW_IDS
+        info.flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
         serviceInfo = info
         // Get the ScreenCaptureService instance.
         (application as? MyApplication)?.let {
             screenCaptureService = it.getScreenCaptureService()
             screenCaptureService?.setAccessibilityService(this) // Pass the accessibility service instance
         }
+        
+        // Register this service with the application
+        (application as? MyApplication)?.setAccessibilityService(this)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {

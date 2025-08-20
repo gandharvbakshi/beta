@@ -37,6 +37,7 @@ object BackendProcessing {
     var currentFilename: String? = null
     private var currentInputText: String? = null
     private var buttonHighlightService: ButtonHighlightService? = null
+    private var automatedActionService: AutomatedActionService? = null
 
     private fun provideOkHttpClient(): OkHttpClient {
         val trustManager = object : X509TrustManager {
@@ -110,6 +111,29 @@ object BackendProcessing {
                 }
             } catch (e: Exception) {
                 Log.e("BackendProcessing", "Error starting ButtonHighlightService: ${e.message}", e)
+            }
+        }
+
+        // Start the AutomatedActionService if it's not already running
+        if (automatedActionService == null) {
+            try {
+                Log.d("BackendProcessing", "Starting AutomatedActionService")
+                val serviceIntent = Intent(context, AutomatedActionService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+                // Wait a moment for the service to start
+                Thread.sleep(100)
+                automatedActionService = (context.applicationContext as? MyApplication)?.getAutomatedActionService()
+                if (automatedActionService == null) {
+                    Log.w("BackendProcessing", "AutomatedActionService failed to start")
+                } else {
+                    Log.d("BackendProcessing", "AutomatedActionService started successfully")
+                }
+            } catch (e: Exception) {
+                Log.e("BackendProcessing", "Error starting AutomatedActionService: ${e.message}", e)
             }
         }
 
@@ -236,6 +260,14 @@ object BackendProcessing {
                                         }
                                     }
                                     buttonHighlightService?.updateHighlight(rect)
+
+                                    // Execute automated action based on the recommendation
+                                    if (automatedActionService != null) {
+                                        Log.d("BackendProcessing", "Executing automated action for recommendation")
+                                        automatedActionService.executeAutomatedAction(recommendedButton)
+                                    } else {
+                                        Log.w("BackendProcessing", "AutomatedActionService is null, cannot execute automated action")
+                                    }
                                 }
                             }
                             

@@ -109,6 +109,14 @@ class MainActivity : ComponentActivity() {
             val intent = Intent(this, TextRecognitionActivity::class.java)
             startActivity(intent)
         }
+
+        // Add button for testing automated actions
+        val testAutomatedActionButton = findViewById<Button>(R.id.testAutomatedActionButton)
+        testAutomatedActionButton.setOnClickListener {
+            val intent = Intent(this, AutomatedActionTestActivity::class.java)
+            startActivity(intent)
+        }
+
         (application as MyApplication).registerActivity(this)
     }
 
