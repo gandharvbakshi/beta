@@ -1,6 +1,7 @@
 package com.example.beta
 
 import android.app.*
+import android.app.Activity.RESULT_OK
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -13,10 +14,17 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.*
+import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.*
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import java.io.IOException
@@ -38,10 +46,14 @@ class ScreenCaptureService : Service() {
     private var resultCode = 0
     private var resultData: Intent? = null
     private var isCapturing = false
-    // Removed unused overlay window variables
-    // private lateinit var windowManager: WindowManager
-    // private lateinit var overlayView: View
-    // private lateinit var layoutParams: WindowManager.LayoutParams
+    // Overlay window variables
+    private lateinit var windowManager: WindowManager
+    private lateinit var overlayView: View
+    private lateinit var layoutParams: WindowManager.LayoutParams
+    
+    // Input overlay variables
+    private var inputOverlayView: View? = null
+    private var inputOverlayParams: WindowManager.LayoutParams? = null
     private val CHANNEL_ID = "ScreenCaptureServiceChannel"
     private val NOTIFICATION_ID = 1
     private var foregroundStarted = false
@@ -51,29 +63,196 @@ class ScreenCaptureService : Service() {
     private var pendingScreenshot = false
     private var overlayBounds: android.graphics.Rect? = null
 
+    // Check if running on emulator
+    private fun isEmulator(): Boolean {
+        val isEmu = (Build.FINGERPRINT.startsWith("generic")
+                || Build.FINGERPRINT.startsWith("unknown")
+                || Build.MODEL.contains("google_sdk")
+                || Build.MODEL.contains("Emulator")
+                || Build.MODEL.contains("Android SDK built for x86")
+                || Build.MANUFACTURER.contains("Genymotion")
+                || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
+                || "google_sdk" == Build.PRODUCT)
+        
+        Log.d("ScreenCaptureService", "Device detection - isEmulator: $isEmu")
+        Log.d("ScreenCaptureService", "Build info - FINGERPRINT: ${Build.FINGERPRINT}, MODEL: ${Build.MODEL}, MANUFACTURER: ${Build.MANUFACTURER}")
+        
+        return isEmu
+    }
+    
+    // Check if screen capture is supported
+    private fun isScreenCaptureSupported(): Boolean {
+        return try {
+            val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
+            manager != null
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error checking screen capture support: ${e.message}", e)
+            false
+        }
+    }
+
+    // Emulator-specific initialization
+    private fun initializeForEmulator() {
+        Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific settings")
+        
+        // Use more conservative settings for emulator
+        if (width <= 0 || height <= 0) {
+            // Use default emulator dimensions if not provided
+            width = 1080
+            height = 1920
+            density = 420
+            Log.d("ScreenCaptureService", "Using default emulator dimensions: $width x $height @ $density dpi")
+        }
+        
+        // Reduce buffer size for emulator
+        try {
+            if (imageReader != null) {
+                imageReader?.close()
+            }
+            imageReader = ImageReader.newInstance(
+                width, height, PixelFormat.RGB_565, 1 // Reduced buffer size for emulator
+            )
+            imageReader?.setOnImageAvailableListener(imageAvailableListener, handler)
+            Log.d("ScreenCaptureService", "ImageReader created for emulator with RGB_565 format")
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Failed to create ImageReader for emulator: ${e.message}", e)
+        }
+    }
+
+    // Emulator-specific receiver registration
+    private fun registerEmulatorReceiver() {
+        try {
+            // Register local broadcast receiver for input text
+            LocalBroadcastManager.getInstance(this).registerReceiver(
+                inputReceiver,
+                IntentFilter("com.example.beta.INPUT_RECEIVED")
+            )
+            Log.d("ScreenCaptureService", "Emulator receiver registered successfully")
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error registering emulator receiver: ${e.message}", e)
+        }
+    }
+
+    // Emulator-specific handler thread creation
+    private fun createEmulatorHandlerThread() {
+        try {
+            // Create handler for image reader with emulator-specific settings
+            handlerThread = HandlerThread("EmulatorScreenCaptureThread").apply {
+                start() // Start the thread
+            }
+            handler = Handler(handlerThread!!.looper) // Use the thread's looper
+            Log.d("ScreenCaptureService", "Emulator handler thread created successfully")
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error creating emulator handler thread: ${e.message}", e)
+        }
+    }
+
+    // Emulator-specific media projection manager initialization
+    private fun initializeEmulatorMediaProjectionManager() {
+        try {
+            mediaProjectionManager =
+                getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            Log.d("ScreenCaptureService", "Emulator media projection manager initialized successfully")
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error initializing emulator media projection manager: ${e.message}", e)
+        }
+    }
+
+    // Emulator-specific overlay window creation
+    private fun createEmulatorOverlayWindow() {
+        try {
+            // Create overlay window for input with error handling
+            try {
+                createOverlayWindow()
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Failed to create emulator overlay window: ${e.message}", e)
+                // Continue without overlay - this is not critical for basic functionality
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error in emulator overlay window creation: ${e.message}", e)
+        }
+    }
+
+    // Emulator-specific application service setting
+    private fun setEmulatorApplicationService() {
+        try {
+            // Pass the service instance to the Application class
+            (application as? MyApplication)?.setScreenCaptureService(this)
+            Log.d("ScreenCaptureService", "Emulator ScreenCaptureService instance set in MyApplication")
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error setting emulator application service: ${e.message}", e)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         Log.d("ScreenCaptureService", "Service created")
-        // Create handler for image reader
-        handlerThread = HandlerThread("ScreenCaptureThread").apply {
-            start() // Start the thread
+        
+        // Check if screen capture is supported
+        if (!isScreenCaptureSupported()) {
+            Log.e("ScreenCaptureService", "Screen capture not supported on this device")
+            Toast.makeText(this, "Screen capture not supported on this device", Toast.LENGTH_LONG).show()
+            stopSelf()
+            return
         }
-        handler = Handler(handlerThread!!.looper) // Use the thread's looper
+        
+        try {
+            // Create handler for image reader
+            if (isEmulator()) {
+                createEmulatorHandlerThread()
+                initializeEmulatorMediaProjectionManager() // Initialize for emulator
+            } else {
+                handlerThread = HandlerThread("ScreenCaptureThread").apply {
+                    start() // Start the thread
+                }
+                handler = Handler(handlerThread!!.looper) // Use the thread's looper
+                
+                // Initialize MediaProjectionManager for non-emulator
+                mediaProjectionManager =
+                    getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            }
+            
+            // Create overlay window for input with error handling
+            if (isEmulator()) {
+                createEmulatorOverlayWindow()
+            } else {
+                try {
+                    createOverlayWindow()
+                } catch (e: Exception) {
+                    Log.e("ScreenCaptureService", "Failed to create overlay window: ${e.message}", e)
+                    // Continue without overlay - this is not critical for basic functionality
+                }
+            }
+            
+            // Create notification channel
+            if (isEmulator()) {
+                createEmulatorNotificationChannel()
+            } else {
+                createNotificationChannel()
+            }
+            
+            // Pass the service instance to the Application class
+            if (isEmulator()) {
+                setEmulatorApplicationService()
+            } else {
+                (application as? MyApplication)?.setScreenCaptureService(this)
+                Log.d("ScreenCaptureService", "ScreenCaptureService instance set in MyApplication")
+            }
 
-        mediaProjectionManager =
-            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        // Removed overlay window creation - seems unused
-        // createOverlayWindow()
-        createNotificationChannel()
-        // Pass the service instance to the Application class
-        (application as? MyApplication)?.setScreenCaptureService(this)
-        Log.d("ScreenCaptureService", "ScreenCaptureService instance set in MyApplication")
-
-        // Register local broadcast receiver for input text
-        LocalBroadcastManager.getInstance(this).registerReceiver(
-            inputReceiver,
-            IntentFilter("com.example.beta.INPUT_RECEIVED")
-        )
+            // Register local broadcast receiver for input text
+            if (isEmulator()) {
+                registerEmulatorReceiver()
+            } else {
+                LocalBroadcastManager.getInstance(this).registerReceiver(
+                    inputReceiver,
+                    IntentFilter("com.example.beta.INPUT_RECEIVED")
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error in onCreate: ${e.message}", e)
+            // If we can't initialize properly, stop the service
+            stopSelf()
+        }
     }
 
     private val inputReceiver = object : BroadcastReceiver() {
@@ -87,27 +266,75 @@ class ScreenCaptureService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("ScreenCaptureService", "onStartCommand received")
-        if (intent == null) {
-            Log.w("ScreenCaptureService", "Intent is null (Service restarted?). Stopping.")
+        
+        try {
+            // If intent is null and service is already running, just continue
+            if (intent == null) {
+                if (isCapturing) {
+                    Log.d("ScreenCaptureService", "Intent is null but service is already capturing. Continuing.")
+                    return START_STICKY
+                } else {
+                    Log.w("ScreenCaptureService", "Intent is null and service not capturing. Stopping.")
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+            }
+
+            // Only process intent data if we're not already capturing
+            if (!isCapturing) {
+                resultCode = intent.getIntExtra("resultCode", 0)
+                resultData = intent.getParcelableExtra("resultData")
+
+                // Get the width, height, and density from the Intent
+                width = intent.getIntExtra("width", 0)
+                height = intent.getIntExtra("height", 0)
+                density = intent.getIntExtra("density", 0)
+
+                // Log received data for debugging
+                Log.d("ScreenCaptureService", "Received data - resultCode: $resultCode, width: $width, height: $height, density: $density")
+                Log.d("ScreenCaptureService", "resultData: $resultData")
+                
+                // Check result code first
+                if (resultCode != RESULT_OK) {
+                    Log.e("ScreenCaptureService", "Invalid result code: $resultCode (expected: $RESULT_OK)")
+                    Toast.makeText(this, "Screen capture permission denied (result code: $resultCode)", Toast.LENGTH_LONG).show()
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                
+                // Check result data
+                if (resultData == null) {
+                    Log.e("ScreenCaptureService", "Result data is null")
+                    Toast.makeText(this, "Invalid media projection data received", Toast.LENGTH_LONG).show()
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                
+                // Validate dimensions
+                if (width <= 0 || height <= 0) {
+                    Log.e("ScreenCaptureService", "Invalid dimensions: ${width}x${height}")
+                    if (isEmulator()) {
+                        Log.w("ScreenCaptureService", "Using fallback dimensions for emulator")
+                        width = 1080
+                        height = 1920
+                        density = 420
+                    } else {
+                        Toast.makeText(this, "Invalid screen dimensions: ${width}x${height}", Toast.LENGTH_SHORT).show()
+                        stopSelf()
+                        return START_NOT_STICKY
+                    }
+                }
+
+                Log.d("ScreenCaptureService", "All validation passed. Starting capture process.")
+                showForegroundNotification()  // Show notification before starting capture
+                startCapture() // Start the capture process
+            } else {
+                Log.d("ScreenCaptureService", "Service already capturing, ignoring new intent")
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error in onStartCommand: ${e.message}", e)
+            Toast.makeText(this, "Error starting capture service: ${e.message}", Toast.LENGTH_SHORT).show()
             stopSelf()
-            return START_NOT_STICKY // Don't restart if killed without intent
-        }
-
-        resultCode = intent.getIntExtra("resultCode", 0)
-        resultData = intent.getParcelableExtra("resultData")
-
-        // Get the width, height, and density from the Intent
-        width = intent.getIntExtra("width", 0)
-        height = intent.getIntExtra("height", 0)
-        density = intent.getIntExtra("density", 0)
-
-        if (resultCode != 0 && resultData != null) {
-            Log.d("ScreenCaptureService", "Valid result code and data received.")
-            showForegroundNotification()  // Show notification before starting capture
-            startCapture() // Start the capture process
-        } else {
-            Log.e("ScreenCaptureService", "Intent data is missing or invalid. Stopping service.")
-            stopSelf() // Stop if data is invalid
             return START_NOT_STICKY
         }
 
@@ -117,55 +344,218 @@ class ScreenCaptureService : Service() {
 
     private fun startCapture() {
         Log.d("ScreenCaptureService", "Attempting to start capture...")
-        // Ensure we have valid projection data
-        if (resultCode == 0 || resultData == null) {
-            Log.e("ScreenCaptureService", "Cannot start capture: Missing result code or data.")
-            stopSelf()
-            return
-        }
-
-        // Check if already capturing
-        if (isCapturing) {
-            Log.w("ScreenCaptureService", "Capture already in progress.")
-            return
-        }
-
-
-        Log.d("ScreenCaptureService", "Screen dimensions: $width x $height @ $density dpi")
-
-        // Get MediaProjection instance
-        // Check if mediaProjection is already obtained and valid
-        if (mediaProjection == null) {
-            mediaProjection = mediaProjectionManager?.getMediaProjection(resultCode, resultData!!)
-            if (mediaProjection == null) {
-                Log.e("ScreenCaptureService", "Failed to get MediaProjection.")
-                Toast.makeText(this, "Failed to initialize screen capture", Toast.LENGTH_SHORT).show()
+        
+        try {
+            // Ensure we have valid projection data
+            if (resultCode == 0 || resultData == null) {
+                Log.e("ScreenCaptureService", "Cannot start capture: Missing result code or data.")
                 stopSelf()
                 return
             }
-            Log.d("ScreenCaptureService", "MediaProjection obtained successfully.")
-            // Register callback for stopping projection
-            mediaProjection?.registerCallback(mediaProjectionCallback, handler)
+
+            // Check if already capturing
+            if (isCapturing) {
+                Log.w("ScreenCaptureService", "Capture already in progress.")
+                return
+            }
+
+            Log.d("ScreenCaptureService", "Screen dimensions: $width x $height @ $density dpi")
+
+            // Validate dimensions
+            if (width <= 0 || height <= 0) {
+                if (isEmulator()) {
+                    Log.w("ScreenCaptureService", "Invalid dimensions on emulator, using emulator-specific initialization")
+                    initializeForEmulator()
+                } else {
+                    Log.e("ScreenCaptureService", "Invalid screen dimensions: $width x $height")
+                    Toast.makeText(this, "Invalid screen dimensions", Toast.LENGTH_SHORT).show()
+                    stopSelf()
+                    return
+                }
+            }
+
+            // Get MediaProjection instance
+            // Check if mediaProjection is already obtained and valid
+            if (mediaProjection == null) {
+                try {
+                    Log.d("ScreenCaptureService", "Attempting to get MediaProjection with resultCode: $resultCode")
+                    
+                    if (mediaProjectionManager == null) {
+                        Log.e("ScreenCaptureService", "MediaProjectionManager is null")
+                        Toast.makeText(this, "MediaProjectionManager not available", Toast.LENGTH_SHORT).show()
+                        stopSelf()
+                        return
+                    }
+                    
+                    if (resultData == null) {
+                        Log.e("ScreenCaptureService", "Result data is null")
+                        Toast.makeText(this, "Invalid media projection data", Toast.LENGTH_SHORT).show()
+                        stopSelf()
+                        return
+                    }
+                    
+                    mediaProjection = mediaProjectionManager?.getMediaProjection(resultCode, resultData!!)
+                    if (mediaProjection == null) {
+                        Log.e("ScreenCaptureService", "Failed to get MediaProjection. ResultCode: $resultCode, ResultData: $resultData")
+                        Log.e("ScreenCaptureService", "MediaProjectionManager: $mediaProjectionManager")
+                        Log.e("ScreenCaptureService", "Is Emulator: ${isEmulator()}")
+                        
+                        // Provide more specific error messages
+                        val errorMessage = if (isEmulator()) {
+                            "Screen capture may not be fully supported on this emulator. Try using a physical device or a different emulator version."
+                        } else {
+                            "Failed to initialize screen capture. Please try again or restart the app."
+                        }
+                        
+                        // Try a delay and retry once for emulator compatibility
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            try {
+                                Log.d("ScreenCaptureService", "Retrying MediaProjection creation after delay...")
+                                mediaProjection = mediaProjectionManager?.getMediaProjection(resultCode, resultData!!)
+                                if (mediaProjection != null) {
+                                    Log.d("ScreenCaptureService", "MediaProjection obtained successfully on retry.")
+                                    mediaProjection?.registerCallback(mediaProjectionCallback, handler)
+                                    // Continue with capture setup
+                                    continueWithCapture()
+                                } else {
+                                    Log.e("ScreenCaptureService", "MediaProjection retry failed. This might be an emulator limitation.")
+                                    Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show()
+                                    stopSelf()
+                                }
+                            } catch (e: Exception) {
+                                Log.e("ScreenCaptureService", "Error on MediaProjection retry: ${e.message}", e)
+                                Toast.makeText(this, "Screen capture failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                stopSelf()
+                            }
+                        }, 1000) // 1 second delay
+                        
+                        return // Exit here to wait for retry
+                    }
+                    Log.d("ScreenCaptureService", "MediaProjection obtained successfully.")
+                    // Register callback for stopping projection
+                    mediaProjection?.registerCallback(mediaProjectionCallback, handler)
+                } catch (e: SecurityException) {
+                    Log.e("ScreenCaptureService", "SecurityException getting MediaProjection: ${e.message}", e)
+                    Toast.makeText(this, "Permission denied for screen capture: ${e.message}", Toast.LENGTH_LONG).show()
+                    stopSelf()
+                    return
+                } catch (e: Exception) {
+                    Log.e("ScreenCaptureService", "Error getting MediaProjection: ${e.message}", e)
+                    Toast.makeText(this, "Error initializing screen capture: ${e.message}", Toast.LENGTH_SHORT).show()
+                    stopSelf()
+                    return
+                }
+            }
+
+            // Create ImageReader
+            // Close existing ImageReader if it exists
+            imageReader?.close()
+            try {
+                createImageReader() // Create or recreate ImageReader
+                if (imageReader == null) {
+                    Log.e("ScreenCaptureService", "Failed to create ImageReader")
+                    Toast.makeText(this, "Failed to create image reader", Toast.LENGTH_SHORT).show()
+                    stopSelf()
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error creating ImageReader: ${e.message}", e)
+                Toast.makeText(this, "Error creating image reader: ${e.message}", Toast.LENGTH_SHORT).show()
+                stopSelf()
+                return
+            }
+
+            // Create VirtualDisplay
+            // Release existing virtual display if it exists
+            virtualDisplay?.release()
+            try {
+                startVirtualDisplay() // Create or recreate VirtualDisplay
+                if (virtualDisplay == null) {
+                    Log.e("ScreenCaptureService", "Failed to create VirtualDisplay")
+                    Toast.makeText(this, "Failed to create virtual display", Toast.LENGTH_SHORT).show()
+                    stopCapture() // Clean up resources if virtual display fails
+                    stopSelf()
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error creating VirtualDisplay: ${e.message}", e)
+                Toast.makeText(this, "Error creating virtual display: ${e.message}", Toast.LENGTH_SHORT).show()
+                stopCapture() // Clean up resources if virtual display fails
+                stopSelf()
+                return
+            }
+
+            if (virtualDisplay != null) {
+                isCapturing = true
+                Log.d("ScreenCaptureService", "Screen capture started successfully.")
+                Toast.makeText(this, "Screen capture started", Toast.LENGTH_SHORT).show()
+            } else {
+                Log.e("ScreenCaptureService", "Failed to create VirtualDisplay. Stopping capture.")
+                stopCapture() // Clean up resources if virtual display fails
+                stopSelf()
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Unexpected error in startCapture: ${e.message}", e)
+            Toast.makeText(this, "Unexpected error starting capture: ${e.message}", Toast.LENGTH_SHORT).show()
+            stopCapture()
+            stopSelf()
         }
+    }
 
+    // Continue with capture after MediaProjection retry
+    private fun continueWithCapture() {
+        try {
+            // Create ImageReader
+            // Close existing ImageReader if it exists
+            imageReader?.close()
+            try {
+                createImageReader() // Create or recreate ImageReader
+                if (imageReader == null) {
+                    Log.e("ScreenCaptureService", "Failed to create ImageReader")
+                    Toast.makeText(this, "Failed to create image reader", Toast.LENGTH_SHORT).show()
+                    stopSelf()
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error creating ImageReader: ${e.message}", e)
+                Toast.makeText(this, "Error creating image reader: ${e.message}", Toast.LENGTH_SHORT).show()
+                stopSelf()
+                return
+            }
 
-        // Create ImageReader
-        // Close existing ImageReader if it exists
-        imageReader?.close()
-        createImageReader() // Create or recreate ImageReader
+            // Create VirtualDisplay
+            // Release existing virtual display if it exists
+            virtualDisplay?.release()
+            try {
+                startVirtualDisplay() // Create or recreate VirtualDisplay
+                if (virtualDisplay == null) {
+                    Log.e("ScreenCaptureService", "Failed to create VirtualDisplay")
+                    Toast.makeText(this, "Failed to create virtual display", Toast.LENGTH_SHORT).show()
+                    stopCapture() // Clean up resources if virtual display fails
+                    stopSelf()
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error creating VirtualDisplay: ${e.message}", e)
+                Toast.makeText(this, "Error creating virtual display: ${e.message}", Toast.LENGTH_SHORT).show()
+                stopCapture() // Clean up resources if virtual display fails
+                stopSelf()
+                return
+            }
 
-        // Create VirtualDisplay
-        // Release existing virtual display if it exists
-        virtualDisplay?.release()
-        startVirtualDisplay() // Create or recreate VirtualDisplay
-
-        if (virtualDisplay != null) {
-            isCapturing = true
-            Log.d("ScreenCaptureService", "Screen capture started successfully.")
-            Toast.makeText(this, "Screen capture started", Toast.LENGTH_SHORT).show()
-        } else {
-            Log.e("ScreenCaptureService", "Failed to create VirtualDisplay. Stopping capture.")
-            stopCapture() // Clean up resources if virtual display fails
+            if (virtualDisplay != null) {
+                isCapturing = true
+                Log.d("ScreenCaptureService", "Screen capture started successfully after retry.")
+                Toast.makeText(this, "Screen capture started", Toast.LENGTH_SHORT).show()
+            } else {
+                Log.e("ScreenCaptureService", "Failed to create VirtualDisplay. Stopping capture.")
+                stopCapture() // Clean up resources if virtual display fails
+                stopSelf()
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Unexpected error in continueWithCapture: ${e.message}", e)
+            Toast.makeText(this, "Unexpected error continuing capture: ${e.message}", Toast.LENGTH_SHORT).show()
+            stopCapture()
             stopSelf()
         }
     }
@@ -205,6 +595,7 @@ class ScreenCaptureService : Service() {
             // Release existing virtual display if it exists
             virtualDisplay?.release()
             
+            // Try to create virtual display with standard flags first
             virtualDisplay = mediaProjection?.createVirtualDisplay(
                 "ScreenCapture",
                 width,
@@ -216,14 +607,41 @@ class ScreenCaptureService : Service() {
                 null, // No callback
                 handler
             )
-            Log.d("ScreenCaptureService", "VirtualDisplay created with dimensions: $width x $height")
+            
+            if (virtualDisplay != null) {
+                Log.d("ScreenCaptureService", "VirtualDisplay created successfully with dimensions: $width x $height")
+            } else {
+                Log.w("ScreenCaptureService", "Standard VirtualDisplay creation failed, trying with minimal flags")
+                
+                // Try with minimal flags as fallback
+                virtualDisplay = mediaProjection?.createVirtualDisplay(
+                    "ScreenCapture",
+                    width,
+                    height,
+                    density,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC, // Minimal flags
+                    imageReader?.surface,
+                    null,
+                    handler
+                )
+                
+                if (virtualDisplay != null) {
+                    Log.d("ScreenCaptureService", "VirtualDisplay created with minimal flags, dimensions: $width x $height")
+                } else {
+                    Log.e("ScreenCaptureService", "Failed to create VirtualDisplay even with minimal flags")
+                }
+            }
         } catch (e: SecurityException) {
             Log.e("ScreenCaptureService", "SecurityException creating VirtualDisplay: ", e)
-            Toast.makeText(this, "Permission issue creating virtual display", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Permission issue creating virtual display: ${e.message}", Toast.LENGTH_SHORT).show()
+            virtualDisplay = null // Ensure it's null on failure
+        } catch (e: IllegalArgumentException) {
+            Log.e("ScreenCaptureService", "IllegalArgumentException creating VirtualDisplay: ", e)
+            Toast.makeText(this, "Invalid parameters for virtual display: ${e.message}", Toast.LENGTH_SHORT).show()
             virtualDisplay = null // Ensure it's null on failure
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Exception creating VirtualDisplay: ", e)
-            Toast.makeText(this, "Error creating virtual display", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Error creating virtual display: ${e.message}", Toast.LENGTH_SHORT).show()
             virtualDisplay = null // Ensure it's null on failure
         }
     }
@@ -234,46 +652,211 @@ class ScreenCaptureService : Service() {
             Log.e("ScreenCaptureService", "Cannot create ImageReader: Invalid dimensions ($width x $height)")
             return
         }
+        
         try {
+            // Use emulator-specific settings if running on emulator
+            val bufferSize = if (isEmulator()) 1 else 2
+            val pixelFormat = if (isEmulator()) PixelFormat.RGB_565 else PixelFormat.RGBA_8888
+            
+            // Try to create ImageReader with the selected format
             imageReader = ImageReader.newInstance(
-                width, height, PixelFormat.RGBA_8888, 2 // Max images buffer
+                width, height, pixelFormat, bufferSize
             )
             imageReader?.setOnImageAvailableListener(imageAvailableListener, handler)
-            Log.d("ScreenCaptureService", "ImageReader created with dimensions: $width x $height")
+            Log.d("ScreenCaptureService", "ImageReader created with ${if (isEmulator()) "RGB_565" else "RGBA_8888"} format, dimensions: $width x $height, buffer: $bufferSize")
         } catch (e: IllegalArgumentException) {
-            Log.e("ScreenCaptureService", "IllegalArgumentException creating ImageReader: ", e)
-            Toast.makeText(this, "Error setting up screen reader", Toast.LENGTH_SHORT).show()
+            Log.w("ScreenCaptureService", "Selected format not supported, trying RGB_565: ${e.message}")
+            try {
+                // Fallback to RGB_565 format which is more widely supported
+                imageReader = ImageReader.newInstance(
+                    width, height, PixelFormat.RGB_565, 1 // Reduced buffer for compatibility
+                )
+                imageReader?.setOnImageAvailableListener(imageAvailableListener, handler)
+                Log.d("ScreenCaptureService", "ImageReader created with RGB_565 format, dimensions: $width x $height")
+            } catch (e2: Exception) {
+                Log.e("ScreenCaptureService", "Failed to create ImageReader with RGB_565 format: ${e2.message}", e2)
+                Toast.makeText(this, "Error setting up screen reader: ${e2.message}", Toast.LENGTH_SHORT).show()
+                imageReader = null // Ensure it's null on failure
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Unexpected error creating ImageReader: ${e.message}", e)
+            Toast.makeText(this, "Error setting up screen reader: ${e.message}", Toast.LENGTH_SHORT).show()
             imageReader = null // Ensure it's null on failure
         }
     }
 
     // ImageAvailableListener moved outside createImageReader
     private val imageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
-        Log.d("ScreenCaptureService", "New image available")
+        Log.d("ScreenCaptureService", "ImageAvailableListener triggered - pendingScreenshot: $pendingScreenshot")
         if (pendingScreenshot) {
             pendingScreenshot = false
             try {
                 val image = reader.acquireLatestImage()
                 if (image != null) {
-                    Log.d("ScreenCaptureService", "Processing pending screenshot")
+                    Log.d("ScreenCaptureService", "Processing pending screenshot with image dimensions: ${image.width}x${image.height}")
                     processImage(image)
                     image.close()
                 } else {
-                    Log.e("ScreenCaptureService", "Failed to acquire image for pending screenshot")
+                    Log.e("ScreenCaptureService", "Failed to acquire image for pending screenshot - image is null")
+                    // Restore overlay visibility if we can't get the image
+                    restoreOverlayVisibility(currentInputText)
                 }
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error processing pending screenshot: ", e)
+                // Restore overlay visibility on error
+                restoreOverlayVisibility(currentInputText)
             }
+        } else {
+            Log.d("ScreenCaptureService", "Image available but no pending screenshot - ignoring")
+        }
+    }
+
+    // Emulator-specific overlay bounds calculation
+    private fun getEmulatorOverlayBounds(): android.graphics.Rect? {
+        return try {
+            if (::overlayView.isInitialized && ::layoutParams.isInitialized) {
+                // Use simpler bounds calculation for emulator
+                val x = layoutParams.x
+                val y = layoutParams.y
+                val width = overlayView.width
+                val height = overlayView.height
+                
+                // Add minimal padding for emulator
+                val padding = 20
+                val bounds = android.graphics.Rect(
+                    maxOf(0, x - padding),
+                    maxOf(0, y - padding),
+                    x + width + padding,
+                    y + height + padding
+                )
+                
+                Log.d("ScreenCaptureService", "Emulator overlay bounds calculated: $bounds (pos: $x,$y size: ${width}x${height})")
+                bounds
+            } else {
+                Log.d("ScreenCaptureService", "Emulator overlay not initialized, no bounds available")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error getting emulator overlay bounds: ${e.message}", e)
+            null
         }
     }
 
     private fun getOverlayBounds(): android.graphics.Rect? {
-        val app = application as? MyApplication
-        val overlayService = app?.getOverlayInputService()
-        return overlayService?.getOverlayBounds()
+        // Use emulator-specific bounds calculation if running on emulator
+        if (isEmulator()) {
+            Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific overlay bounds calculation")
+            return getEmulatorOverlayBounds()
+        }
+        
+        return try {
+            if (::overlayView.isInitialized && ::layoutParams.isInitialized) {
+                // Get actual position on screen
+                val location = IntArray(2)
+                overlayView.getLocationOnScreen(location)
+                val x = location[0]
+                val y = location[1]
+                val width = overlayView.width
+                val height = overlayView.height
+                
+                // Add significant padding to ensure we clear the entire overlay area
+                val padding = 50
+                val bounds = android.graphics.Rect(
+                    maxOf(0, x - padding),
+                    maxOf(0, y - padding),
+                    x + width + padding,
+                    y + height + padding
+                )
+                
+                Log.d("ScreenCaptureService", "Overlay bounds calculated: $bounds (actual pos: $x,$y size: ${width}x${height})")
+                bounds
+            } else {
+                Log.d("ScreenCaptureService", "Overlay not initialized, no bounds available")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error getting overlay bounds: ${e.message}", e)
+            null
+        }
+    }
+
+    // Emulator-specific screenshot processing
+    private fun processEmulatorScreenshot(image: Image) {
+        Log.d("ScreenCaptureService", "Processing emulator screenshot with reduced functionality")
+        
+        try {
+            if (width <= 0 || height <= 0) {
+                Log.e("ScreenCaptureService", "Cannot process emulator screenshot: Invalid dimensions ($width x $height)")
+                return
+            }
+
+            Log.d("ScreenCaptureService", "Starting emulator image processing with dimensions: $width x $height")
+            val planes = image.planes
+            val buffer: ByteBuffer = planes[0].buffer
+            val pixelStride: Int = planes[0].pixelStride
+            val rowStride: Int = planes[0].rowStride
+            val rowPadding: Int = rowStride - pixelStride * width
+
+            var bitmap: Bitmap? = null
+            try {
+                Log.d("ScreenCaptureService", "Creating bitmap from emulator image buffer")
+                bitmap = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.RGB_565)
+                bitmap.copyPixelsFromBuffer(buffer)
+
+                if (rowPadding > 0) {
+                    Log.d("ScreenCaptureService", "Cropping emulator bitmap to remove padding")
+                    val croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
+                    bitmap.recycle()
+                    bitmap = croppedBitmap
+                }
+
+                Log.d("ScreenCaptureService", "Emulator bitmap created successfully")
+                val filename = "emulator_screenshot_${System.currentTimeMillis()}.jpg"
+
+                Log.d("ScreenCaptureService", "Saving emulator screenshot to application")
+                (application as? MyApplication)?.saveScreenshot(bitmap)
+                
+                // Process with input text if available
+                val inputTextForProcessing = currentInputText
+                if (inputTextForProcessing != null) {
+                    Log.d("ScreenCaptureService", "Processing emulator screenshot with input text: $inputTextForProcessing")
+                    BackendProcessing.processScreenshotWithInput(this, bitmap, filename, inputTextForProcessing)
+                    currentInputText = null // Clear the input text after processing
+                } else {
+                    Log.d("ScreenCaptureService", "No input text available for emulator screenshot, using default processing")
+                    BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename)
+                }
+                
+                // Restore overlay visibility after screenshot processing (on main thread)
+                restoreOverlayVisibility(inputTextForProcessing)
+
+            } catch (e: OutOfMemoryError) {
+                Log.e("ScreenCaptureService", "OutOfMemoryError processing emulator image: ", e)
+                Toast.makeText(this, "Low memory, cannot process emulator screenshot", Toast.LENGTH_SHORT).show()
+                bitmap?.recycle()
+                // Ensure overlay is restored even on error
+                restoreOverlayVisibility(null)
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error processing emulator image to bitmap: ", e)
+                bitmap?.recycle()
+                // Ensure overlay is restored even on error
+                restoreOverlayVisibility(null)
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error in emulator screenshot processing: ${e.message}", e)
+            // Ensure overlay is restored even on error
+            restoreOverlayVisibility(null)
+        }
     }
 
     private fun processImage(image: Image) {
+        // Use emulator-specific processing if running on emulator
+        if (isEmulator()) {
+            Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific screenshot processing")
+            processEmulatorScreenshot(image)
+            return
+        }
+        
         if (width <= 0 || height <= 0) {
             Log.e("ScreenCaptureService", "Cannot process image: Invalid dimensions ($width x $height)")
             return
@@ -307,15 +890,18 @@ class ScreenCaptureService : Service() {
                 val canvas = android.graphics.Canvas(finalBitmap)
                 canvas.drawBitmap(bitmap, 0f, 0f, null)
                 
-                // Clear the overlay area
+                // Clear the overlay area with a solid color to ensure it's completely hidden
                 val paint = android.graphics.Paint().apply {
-                    color = android.graphics.Color.TRANSPARENT
-                    xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
+                    color = android.graphics.Color.WHITE  // Use white instead of transparent
+                    style = android.graphics.Paint.Style.FILL
                 }
                 canvas.drawRect(overlayBounds!!, paint)
                 
                 bitmap.recycle()
                 bitmap = finalBitmap
+                Log.d("ScreenCaptureService", "Overlay area cleared from screenshot")
+            } else {
+                Log.d("ScreenCaptureService", "No overlay bounds available, screenshot will include overlay")
             }
 
             Log.d("ScreenCaptureService", "Bitmap created successfully")
@@ -325,29 +911,542 @@ class ScreenCaptureService : Service() {
             (application as? MyApplication)?.saveScreenshot(bitmap)
             
             // Process with input text if available
-            currentInputText?.let { inputText ->
-                Log.d("ScreenCaptureService", "Processing screenshot with input text: $inputText")
-                BackendProcessing.processScreenshotWithInput(this, bitmap, filename, inputText)
+            val inputTextForProcessing = currentInputText
+            if (inputTextForProcessing != null) {
+                Log.d("ScreenCaptureService", "Processing screenshot with input text: $inputTextForProcessing")
+                BackendProcessing.processScreenshotWithInput(this, bitmap, filename, inputTextForProcessing)
                 currentInputText = null // Clear the input text after processing
-            } ?: run {
+            } else {
                 Log.d("ScreenCaptureService", "No input text available, using default processing")
                 BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename)
             }
+            
+            // Restore overlay visibility after screenshot processing (on main thread)
+            restoreOverlayVisibility(inputTextForProcessing)
 
         } catch (e: OutOfMemoryError) {
             Log.e("ScreenCaptureService", "OutOfMemoryError processing image: ", e)
             Toast.makeText(this, "Low memory, cannot process screenshot", Toast.LENGTH_SHORT).show()
             bitmap?.recycle()
+            // Ensure overlay is restored even on error
+            restoreOverlayVisibility(null)
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error processing image to bitmap: ", e)
             bitmap?.recycle()
+            // Ensure overlay is restored even on error
+            restoreOverlayVisibility(null)
         }
     }
 
-    // Removed unused overlay window methods
-    // private fun createOverlayWindow() { ... }
+    // Emulator-specific overlay creation
+    private fun createEmulatorOverlay() {
+        Log.d("ScreenCaptureService", "Creating emulator-specific overlay with reduced functionality")
+        
+        try {
+            windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            
+            // Check if overlay permission is granted
+            if (!Settings.canDrawOverlays(this)) {
+                Log.w("ScreenCaptureService", "Overlay permission not granted on emulator, skipping overlay creation")
+                return
+            }
+            
+            // Create a simple overlay for emulator
+            overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
+            
+            // Use simpler window type for emulator
+            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
+            
+            layoutParams = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = 50
+                y = 50
+            }
+            
+            // Setup overlay text with emulator-specific message
+            val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
+            overlayText.text = "Emulator Mode - Tap for input"
+            
+            // Make the overlay clickable to open input dialog
+            overlayView.setOnClickListener {
+                showInputDialog()
+            }
+            
+            try {
+                windowManager.addView(overlayView, layoutParams)
+                Log.d("ScreenCaptureService", "Emulator overlay window created successfully")
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error adding emulator overlay view: ${e.message}", e)
+                // Don't rethrow - just log the error and continue without overlay
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error creating emulator overlay: ${e.message}", e)
+            // Don't rethrow - just log the error and continue without overlay
+        }
+    }
+
+    private fun createOverlayWindow() {
+        try {
+            // Use emulator-specific overlay if running on emulator
+            if (isEmulator()) {
+                Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific overlay")
+                createEmulatorOverlay()
+                return
+            }
+            
+            windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            
+            // Check if overlay permission is granted
+            if (!Settings.canDrawOverlays(this)) {
+                Log.w("ScreenCaptureService", "Overlay permission not granted, skipping overlay creation")
+                return
+            }
+            
+            // Inflate the overlay layout
+            overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
+            
+            // Set up layout parameters for the overlay
+            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
+            
+            layoutParams = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = 100
+                y = 100
+            }
+            
+            // Setup overlay text with initial message
+            val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
+            overlayText.text = "Tap to add instruction"
+            
+            // Make the overlay clickable to open input dialog
+            overlayView.setOnClickListener {
+                showInputDialog()
+            }
+            
+            try {
+                windowManager.addView(overlayView, layoutParams)
+                Log.d("ScreenCaptureService", "Overlay window created successfully")
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error adding overlay view to window manager: ${e.message}", e)
+                // Don't rethrow - just log the error and continue without overlay
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error creating overlay window: ${e.message}", e)
+            // Don't rethrow - just log the error and continue without overlay
+        }
+    }
+    
+    // Emulator-specific input dialog
+    private fun showEmulatorInputDialog() {
+        try {
+            Log.d("ScreenCaptureService", "Showing emulator input dialog")
+            
+            // Create a simple input overlay for emulator
+            val containerLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.edit_text)
+                setPadding(20, 20, 20, 20)
+            }
+            
+            // Create the input field
+            val inputOverlay = EditText(this).apply {
+                hint = "Enter instruction (Emulator Mode)..."
+                setText(currentInputText ?: "")
+                setPadding(20, 20, 20, 20)
+                setTextColor(android.graphics.Color.BLACK)
+                setHintTextColor(android.graphics.Color.GRAY)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                
+                // Handle Enter key press
+                setOnEditorActionListener { _, actionId, _ ->
+                    if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_SEND) {
+                        submitInstruction(text.toString().trim())
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+            
+            // Create submit button
+            val submitButton = TextView(this).apply {
+                text = "Submit"
+                setTextColor(android.graphics.Color.WHITE)
+                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.btn_default)
+                gravity = Gravity.CENTER
+                setPadding(40, 20, 40, 20)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER
+                    topMargin = 20
+                }
+                
+                // Make button clickable
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    submitInstruction(inputOverlay.text.toString().trim())
+                }
+            }
+            
+            // Add input and button to container
+            containerLayout.addView(inputOverlay)
+            containerLayout.addView(submitButton)
+            
+            // Store reference to input overlay and its params
+            inputOverlayView = containerLayout
+            inputOverlayParams = WindowManager.LayoutParams(
+                300, // Smaller width for emulator
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_PHONE
+                },
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+            
+            // Add input overlay to window manager
+            windowManager.addView(containerLayout, inputOverlayParams!!)
+            
+            // Request focus and show keyboard
+            inputOverlay.requestFocus()
+            inputOverlay.postDelayed({
+                try {
+                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.showSoftInput(inputOverlay, InputMethodManager.SHOW_IMPLICIT)
+                } catch (e: Exception) {
+                    Log.w("ScreenCaptureService", "Could not show keyboard on emulator: ${e.message}")
+                }
+            }, 100)
+            
+            Log.d("ScreenCaptureService", "Emulator input overlay shown")
+            
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error creating emulator input overlay: ${e.message}", e)
+        }
+    }
+
+    private fun showInputDialog() {
+        try {
+            Log.d("ScreenCaptureService", "Showing input dialog")
+            
+            // Use emulator-specific input dialog if running on emulator
+            if (isEmulator()) {
+                Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific input dialog")
+                showEmulatorInputDialog()
+                return
+            }
+            
+            // Instead of AlertDialog, use a simple overlay input to avoid service restart issues
+            showSimpleInputOverlay()
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error showing input dialog: ${e.message}", e)
+        }
+    }
+    
+    private fun showSimpleInputOverlay() {
+        try {
+            // Hide existing input overlay if any
+            hideInputOverlay()
+            
+            // Create a container layout for input and button
+            val containerLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.edit_text)
+                setPadding(20, 20, 20, 20)
+            }
+            
+            // Create the input field
+            val inputOverlay = EditText(this).apply {
+                hint = "Enter instruction for backend..."
+                setText(currentInputText ?: "")
+                setPadding(20, 20, 20, 20)
+                setTextColor(android.graphics.Color.BLACK)
+                setHintTextColor(android.graphics.Color.GRAY)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                
+                // Handle Enter key press
+                setOnEditorActionListener { _, actionId, _ ->
+                    if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_SEND) {
+                        submitInstruction(text.toString().trim())
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+            
+            // Create submit button
+            val submitButton = TextView(this).apply {
+                text = "Submit"
+                setTextColor(android.graphics.Color.WHITE)
+                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.btn_default)
+                gravity = Gravity.CENTER
+                setPadding(40, 20, 40, 20)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER
+                    topMargin = 20
+                }
+                
+                // Make button clickable
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    submitInstruction(inputOverlay.text.toString().trim())
+                }
+            }
+            
+            // Add input and button to container
+            containerLayout.addView(inputOverlay)
+            containerLayout.addView(submitButton)
+            
+            // Store reference to input overlay and its params
+            inputOverlayView = containerLayout
+            inputOverlayParams = WindowManager.LayoutParams(
+                400, // Fixed width
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_PHONE
+                },
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+            
+            // Add input overlay to window manager
+            windowManager.addView(containerLayout, inputOverlayParams!!)
+            
+            // Request focus and show keyboard
+            inputOverlay.requestFocus()
+            inputOverlay.postDelayed({
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showSoftInput(inputOverlay, InputMethodManager.SHOW_IMPLICIT)
+            }, 100)
+            
+            Log.d("ScreenCaptureService", "Input overlay with submit button shown")
+            
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error creating input overlay: ${e.message}", e)
+        }
+    }
+    
+    private fun submitInstruction(inputText: String) {
+        Log.d("ScreenCaptureService", "submitInstruction called with: '$inputText'")
+        if (inputText.isNotEmpty()) {
+            currentInputText = inputText
+            Log.d("ScreenCaptureService", "currentInputText set to: '$currentInputText'")
+            
+            // Hide input overlay first
+            Log.d("ScreenCaptureService", "Hiding input overlay")
+            if (isEmulator()) {
+                hideEmulatorInputOverlay()
+            } else {
+                hideInputOverlay()
+            }
+            
+            // Update main overlay text to show current instruction
+            Log.d("ScreenCaptureService", "Updating main overlay text to 'Processing: $inputText'")
+            if (isEmulator()) {
+                updateEmulatorOverlayText("Processing: $inputText")
+            } else {
+                updateOverlayText("Processing: $inputText")
+            }
+            Log.d("ScreenCaptureService", "User input received: $inputText")
+            
+            // Broadcast the input text
+            val intent = Intent("com.example.beta.INPUT_RECEIVED")
+            intent.putExtra("input_text", inputText)
+            LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+            Log.d("ScreenCaptureService", "Broadcast sent for input: $inputText")
+            
+            // Small delay to ensure overlay is updated before screenshot
+            Handler(Looper.getMainLooper()).postDelayed({
+                // Trigger screenshot with the new instruction
+                Log.d("ScreenCaptureService", "Triggering screenshot with instruction: $inputText")
+                triggerScreenshot()
+            }, 200)
+        } else {
+            Log.w("ScreenCaptureService", "submitInstruction called with empty text")
+        }
+    }
+    
+    private fun hideInputOverlay() {
+        try {
+            if (isEmulator()) {
+                hideEmulatorInputOverlay()
+            } else {
+                inputOverlayView?.let { overlay ->
+                    windowManager.removeView(overlay)
+                    inputOverlayView = null
+                    Log.d("ScreenCaptureService", "Input overlay hidden")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error hiding input overlay: ${e.message}", e)
+        }
+    }
+    
+    // Emulator-specific overlay text update
+    private fun updateEmulatorOverlayText(text: String) {
+        try {
+            if (::overlayView.isInitialized) {
+                overlayView.post {
+                    try {
+                        val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
+                        overlayText.text = text
+                        Log.d("ScreenCaptureService", "Emulator overlay text updated to: $text")
+                    } catch (e: Exception) {
+                        Log.e("ScreenCaptureService", "Error updating emulator overlay text: ${e.message}", e)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error in updateEmulatorOverlayText: ${e.message}", e)
+        }
+    }
+
+    private fun updateOverlayText(text: String) {
+        try {
+            if (::overlayView.isInitialized) {
+                overlayView.post {
+                    try {
+                        val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
+                        overlayText.text = text
+                        Log.d("ScreenCaptureService", "Overlay text updated to: $text")
+                    } catch (e: Exception) {
+                        Log.e("ScreenCaptureService", "Error updating overlay text: ${e.message}", e)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error in updateOverlayText: ${e.message}", e)
+        }
+    }
+    
+    // Emulator-specific overlay restoration
+    private fun restoreEmulatorOverlayVisibility(inputTextForProcessing: String?) {
+        try {
+            if (::overlayView.isInitialized) {
+                overlayView.post {
+                    try {
+                        overlayView.visibility = View.VISIBLE
+                        Log.d("ScreenCaptureService", "Emulator overlay visibility set to VISIBLE")
+                        
+                        // Update overlay text to show ready status
+                        if (inputTextForProcessing != null) {
+                            Log.d("ScreenCaptureService", "Setting emulator overlay text to 'Ready - Tap for input (Emulator)'")
+                            updateEmulatorOverlayText("Ready - Tap for input (Emulator)")
+                        } else {
+                            Log.d("ScreenCaptureService", "Setting emulator overlay text to 'Tap for input (Emulator)'")
+                            updateEmulatorOverlayText("Tap for input (Emulator)")
+                        }
+                        Log.d("ScreenCaptureService", "Emulator overlay restored to visible with ready status")
+                    } catch (e: Exception) {
+                        Log.e("ScreenCaptureService", "Error updating emulator overlay text: ${e.message}", e)
+                    }
+                }
+            } else {
+                Log.w("ScreenCaptureService", "Emulator overlay not initialized when trying to restore visibility")
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error restoring emulator overlay visibility: ${e.message}", e)
+        }
+    }
+
+    private fun restoreOverlayVisibility(inputTextForProcessing: String?) {
+        // Use emulator-specific restoration if running on emulator
+        if (isEmulator()) {
+            Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific overlay restoration")
+            restoreEmulatorOverlayVisibility(inputTextForProcessing)
+            return
+        }
+        
+        overlayView.post {
+            try {
+                if (::overlayView.isInitialized) {
+                    overlayView.visibility = View.VISIBLE
+                    Log.d("ScreenCaptureService", "Overlay visibility set to VISIBLE")
+                    
+                    // Update overlay text to show ready status
+                    if (inputTextForProcessing != null) {
+                        Log.d("ScreenCaptureService", "Setting overlay text to 'Ready - Tap to add instruction'")
+                        updateOverlayText("Ready - Tap to add instruction")
+                    } else {
+                        Log.d("ScreenCaptureService", "Setting overlay text to 'Tap to add instruction'")
+                        updateOverlayText("Tap to add instruction")
+                    }
+                    Log.d("ScreenCaptureService", "Overlay restored to visible with ready status")
+                } else {
+                    Log.w("ScreenCaptureService", "Overlay not initialized when trying to restore visibility")
+                }
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error restoring overlay visibility: ${e.message}", e)
+            }
+        }
+    }
+
+    // Emulator-specific notification channel creation
+    private fun createEmulatorNotificationChannel() {
+        try {
+            createNotificationChannel()
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error creating emulator notification channel: ${e.message}", e)
+        }
+    }
 
     private fun createNotificationChannel() {
+        // Use emulator-specific channel creation if running on emulator
+        if (isEmulator()) {
+            Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific notification channel")
+            createEmulatorNotificationChannel()
+            return
+        }
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val serviceChannel = NotificationChannel(
                 CHANNEL_ID,
@@ -365,52 +1464,128 @@ class ScreenCaptureService : Service() {
         }
     }
 
+    // Emulator-specific notification creation
+    private fun createEmulatorNotification(): Notification? {
+        return try {
+            val notificationIntent = Intent(this, MainActivity::class.java)
+            val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this, 0, notificationIntent, pendingIntentFlags
+            )
+
+            // Add a Stop button to the notification
+            val stopSelfIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                action = ACTION_STOP_CAPTURE
+            }
+            val stopPendingIntent = PendingIntent.getService(
+                this, 0, stopSelfIntent, pendingIntentFlags
+            )
+
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Screen Capture Active (Emulator)")
+                .setContentText("Ready to capture screenshots")
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentIntent(pendingIntent)
+                .addAction(R.drawable.ic_launcher_foreground, "Stop Capture", stopPendingIntent)
+                .setOngoing(true)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setPriority(NotificationCompat.PRIORITY_MIN) // Use MIN priority for emulator
+                .build()
+
+            notification
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error creating emulator notification: ${e.message}", e)
+            null
+        }
+    }
+
     private fun showForegroundNotification() {
         if (foregroundStarted) {
             Log.d("ScreenCaptureService", "Foreground notification already shown.")
             return
         }
-        val notificationIntent = Intent(this, MainActivity::class.java)
-        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, notificationIntent, pendingIntentFlags
-        )
-
-        // Add a Stop button to the notification
-        val stopSelfIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = ACTION_STOP_CAPTURE
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 0, stopSelfIntent, pendingIntentFlags
-        )
-
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Screen Capture Active")
-            .setContentText("Ready to capture screenshots")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentIntent(pendingIntent)
-            .addAction(R.drawable.ic_launcher_foreground, "Stop Capture", stopPendingIntent)
-            .setOngoing(true)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-
+        
         try {
-            startForeground(NOTIFICATION_ID, notification)
-            foregroundStarted = true
-            Log.d("ScreenCaptureService", "Started foreground service with notification.")
-        } catch (e: Exception) {
-            Log.e("ScreenCaptureService", "Error starting foreground service: ", e)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && e is ForegroundServiceStartNotAllowedException) {
-                Toast.makeText(this, "App cannot start capture from background.", Toast.LENGTH_LONG).show()
+            val notification = if (isEmulator()) {
+                createEmulatorNotification()
             } else {
-                Toast.makeText(this, "Could not start capture service.", Toast.LENGTH_SHORT).show()
+                val notificationIntent = Intent(this, MainActivity::class.java)
+                val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+                val pendingIntent = PendingIntent.getActivity(
+                    this, 0, notificationIntent, pendingIntentFlags
+                )
+
+                // Add a Stop button to the notification
+                val stopSelfIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                    action = ACTION_STOP_CAPTURE
+                }
+                val stopPendingIntent = PendingIntent.getService(
+                    this, 0, stopSelfIntent, pendingIntentFlags
+                )
+
+                val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setContentTitle("Screen Capture Active")
+                    .setContentText("Ready to capture screenshots")
+                    .setSmallIcon(R.drawable.ic_launcher_foreground)
+                    .setContentIntent(pendingIntent)
+                    .addAction(R.drawable.ic_launcher_foreground, "Stop Capture", stopPendingIntent)
+                    .setOngoing(true)
+                    .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .build()
+                notification
             }
-            stopSelf()
+
+            if (notification != null) {
+                try {
+                    startForeground(NOTIFICATION_ID, notification)
+                    foregroundStarted = true
+                    Log.d("ScreenCaptureService", "Started foreground service with notification.")
+                } catch (e: Exception) {
+                    Log.e("ScreenCaptureService", "Error starting foreground service: ", e)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && e is ForegroundServiceStartNotAllowedException) {
+                        Toast.makeText(this, "App cannot start capture from background.", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(this, "Could not start capture service.", Toast.LENGTH_SHORT).show()
+                    }
+                    
+                    // On emulator, try to continue without foreground service
+                    if (isEmulator()) {
+                        Log.w("ScreenCaptureService", "Foreground service failed on emulator, continuing without it")
+                        // Continue without foreground service - this might work on some emulators
+                    } else {
+                        stopSelf()
+                    }
+                }
+            } else {
+                Log.e("ScreenCaptureService", "Notification is null, cannot start foreground service.")
+                // On emulator, try to continue without notification
+                if (isEmulator()) {
+                    Log.w("ScreenCaptureService", "Notification creation failed on emulator, continuing without it")
+                    // Continue without notification - this might work on some emulators
+                } else {
+                    Toast.makeText(this, "Could not create notification: Notification is null", Toast.LENGTH_SHORT).show()
+                    stopSelf()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error creating notification: ${e.message}", e)
+            // On emulator, try to continue without notification
+            if (isEmulator()) {
+                Log.w("ScreenCaptureService", "Notification creation failed on emulator, continuing without it")
+                // Continue without notification - this might work on some emulators
+            } else {
+                Toast.makeText(this, "Could not create notification: ${e.message}", Toast.LENGTH_SHORT).show()
+                stopSelf()
+            }
         }
     }
 
@@ -464,21 +1639,127 @@ class ScreenCaptureService : Service() {
         return null // Not a bound service
     }
 
-    override fun onDestroy() {
-        Log.d("ScreenCaptureService", "Service destroyed.")
+    // Emulator-specific overlay cleanup
+    private fun cleanupEmulatorOverlays() {
+        try {
+            // Remove main overlay window
+            if (::overlayView.isInitialized && ::windowManager.isInitialized) {
+                windowManager.removeView(overlayView)
+                Log.d("ScreenCaptureService", "Emulator overlay window removed")
+            }
+            
+            // Remove input overlay if it exists
+            try {
+                hideEmulatorInputOverlay()
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error removing emulator input overlay: ${e.message}", e)
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error cleaning up emulator overlays: ${e.message}", e)
+        }
+    }
+
+    // Emulator-specific service cleanup
+    private fun cleanupEmulatorService() {
+        try {
+            Log.d("ScreenCaptureService", "Cleaning up emulator service...")
+            
+            // Unregister receiver
+            try {
+                unregisterEmulatorReceiver()
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error unregistering emulator receiver: ${e.message}", e)
+            }
+            
+            // Stop capture with emulator-specific handling
+            try {
+                stopCapture()
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error stopping emulator capture: ${e.message}", e)
+            }
+            
+            // Clean up overlays
+            try {
+                cleanupEmulatorOverlays()
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error cleaning up emulator overlays: ${e.message}", e)
+            }
+            
+            // Quit the handler thread's looper safely
+            try {
+                handlerThread?.quitSafely()
+                handlerThread = null
+                handler = null
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error cleaning up emulator handler thread: ${e.message}", e)
+            }
+            
+            // Clear service reference in Application
+            try {
+                (application as? MyApplication)?.setScreenCaptureService(null)
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error clearing emulator application service: ${e.message}", e)
+            }
+            
+            Log.d("ScreenCaptureService", "Emulator service cleanup completed.")
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error in emulator service cleanup: ${e.message}", e)
+        }
+    }
+
+    // Emulator-specific receiver unregistration
+    private fun unregisterEmulatorReceiver() {
         try {
             LocalBroadcastManager.getInstance(this).unregisterReceiver(inputReceiver)
+            Log.d("ScreenCaptureService", "Emulator receiver unregistered successfully")
         } catch (e: Exception) {
-            Log.e("ScreenCaptureService", "Error unregistering receiver: ", e)
+            Log.e("ScreenCaptureService", "Error unregistering emulator receiver: ${e.message}", e)
         }
-        stopCapture() // Ensure all resources are released
-        // Quit the handler thread's looper safely
-        handlerThread?.quitSafely()
-        handlerThread = null
-        handler = null
-        // Clear service reference in Application
-        (application as? MyApplication)?.setScreenCaptureService(null)
-        Log.d("ScreenCaptureService", "Cleaned up resources and handler thread.")
+    }
+
+    override fun onDestroy() {
+        Log.d("ScreenCaptureService", "Service destroyed.")
+        
+        try {
+            // Use emulator-specific cleanup if running on emulator
+            if (isEmulator()) {
+                Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific cleanup")
+                cleanupEmulatorService()
+            } else {
+                // Standard cleanup
+                unregisterEmulatorReceiver()
+                stopCapture() // Ensure all resources are released
+                
+                // Remove overlay window
+                try {
+                    if (::overlayView.isInitialized && ::windowManager.isInitialized) {
+                        windowManager.removeView(overlayView)
+                        Log.d("ScreenCaptureService", "Overlay window removed")
+                    }
+                } catch (e: Exception) {
+                    Log.e("ScreenCaptureService", "Error removing overlay window: ${e.message}", e)
+                }
+                
+                // Remove input overlay if it exists
+                try {
+                    hideInputOverlay()
+                } catch (e: Exception) {
+                    Log.e("ScreenCaptureService", "Error removing input overlay: ${e.message}", e)
+                }
+                
+                // Quit the handler thread's looper safely
+                handlerThread?.quitSafely()
+                handlerThread = null
+                handler = null
+                
+                // Clear service reference in Application
+                (application as? MyApplication)?.setScreenCaptureService(null)
+                Log.d("ScreenCaptureService", "Cleaned up resources and handler thread.")
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error in onDestroy: ${e.message}", e)
+        }
+        
         super.onDestroy()
     }
 
@@ -486,6 +1767,18 @@ class ScreenCaptureService : Service() {
     companion object {
         const val ACTION_STOP_CAPTURE = "com.example.beta.STOP_CAPTURE"
         // Consider adding actions for START if needed, though currently handled by intent extras
+    }
+
+    // Emulator-specific overlay hiding
+    private fun hideEmulatorOverlay() {
+        try {
+            if (::overlayView.isInitialized) {
+                overlayView.visibility = View.INVISIBLE
+                Log.d("ScreenCaptureService", "Emulator overlay hidden for screenshot capture")
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error hiding emulator overlay: ${e.message}", e)
+        }
     }
 
     // Add method to trigger screenshot manually
@@ -506,7 +1799,72 @@ class ScreenCaptureService : Service() {
         }
 
         Log.d("ScreenCaptureService", "Setting pending screenshot flag")
-        pendingScreenshot = true
+        Log.d("ScreenCaptureService", "Current input text: $currentInputText")
+        
+        // Temporarily hide the overlay during screenshot capture
+        try {
+            if (::overlayView.isInitialized) {
+                if (isEmulator()) {
+                    hideEmulatorOverlay()
+                } else {
+                    overlayView.visibility = View.INVISIBLE
+                    Log.d("ScreenCaptureService", "Overlay hidden for screenshot capture")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error hiding overlay: ${e.message}", e)
+        }
+        
+        // Add delay to ensure overlay is hidden before capturing
+        Handler(Looper.getMainLooper()).postDelayed({
+            pendingScreenshot = true
+            Log.d("ScreenCaptureService", "Pending screenshot set to true after 300ms delay")
+            
+            // Force a new frame to be rendered with the hidden overlay
+            try {
+                virtualDisplay?.surface?.let { surface ->
+                    // Request immediate frame
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        virtualDisplay?.resize(width, height, density)
+                        Log.d("ScreenCaptureService", "VirtualDisplay resized to force new frame")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error forcing frame update: ${e.message}", e)
+            }
+            
+            // Add a timeout to restore overlay if image never arrives
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (pendingScreenshot) {
+                    Log.w("ScreenCaptureService", "Screenshot timeout - attempting manual image acquisition")
+                    pendingScreenshot = false
+                    
+                    // Try to manually acquire an image as fallback
+                    try {
+                        val image = imageReader?.acquireLatestImage()
+                        if (image != null) {
+                            Log.d("ScreenCaptureService", "Manual image acquisition successful after timeout")
+                            processImage(image)
+                            image.close()
+                        } else {
+                            Log.w("ScreenCaptureService", "Manual image acquisition failed - restoring overlay")
+                            if (isEmulator()) {
+                                restoreEmulatorOverlayVisibility(currentInputText)
+                            } else {
+                                restoreOverlayVisibility(currentInputText)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("ScreenCaptureService", "Error in manual image acquisition: ", e)
+                        if (isEmulator()) {
+                            restoreEmulatorOverlayVisibility(currentInputText)
+                        } else {
+                            restoreOverlayVisibility(currentInputText)
+                        }
+                    }
+                }
+            }, 5000) // 5 second timeout
+        }, 300) // 300ms delay to ensure overlay is hidden
         
         // Use handler to ensure we're on the correct thread
         handler?.post {
@@ -515,49 +1873,34 @@ class ScreenCaptureService : Service() {
                 // Force a new frame to be captured by resizing
                 virtualDisplay?.resize(width, height, density)
                 
-                // Try to acquire the image directly after a short delay
-                handler?.postDelayed({
-                    if (pendingScreenshot) {
-                        Log.d("ScreenCaptureService", "Attempting direct image acquisition")
-                        try {
-                            val image = imageReader?.acquireLatestImage()
-                            if (image != null) {
-                                Log.d("ScreenCaptureService", "Direct image acquisition successful")
-                                processImage(image)
-                                image.close()
-                                pendingScreenshot = false
-                            } else {
-                                Log.e("ScreenCaptureService", "Direct image acquisition failed - image is null")
-                                // Try one more time after another short delay
-                                handler?.postDelayed({
-                                    if (pendingScreenshot) {
-                                        try {
-                                            val retryImage = imageReader?.acquireLatestImage()
-                                            if (retryImage != null) {
-                                                Log.d("ScreenCaptureService", "Retry image acquisition successful")
-                                                processImage(retryImage)
-                                                retryImage.close()
-                                            } else {
-                                                Log.e("ScreenCaptureService", "Retry image acquisition failed - image is null")
-                                            }
-                                        } catch (e: Exception) {
-                                            Log.e("ScreenCaptureService", "Error in retry image acquisition: ", e)
-                                        } finally {
-                                            pendingScreenshot = false
-                                        }
-                                    }
-                                }, 200) // 200ms delay for retry
-                            }
-                        } catch (e: Exception) {
-                            Log.e("ScreenCaptureService", "Error in direct image acquisition: ", e)
-                            pendingScreenshot = false
-                        }
-                    }
-                }, 100) // 100ms delay for first attempt
+                // Wait for the ImageAvailableListener to handle the new frame
+                // The listener will automatically process the image when it becomes available
+                Log.d("ScreenCaptureService", "Waiting for ImageAvailableListener to process new frame")
+                
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error requesting new frame: ", e)
                 pendingScreenshot = false
+                // Restore overlay visibility on error
+                if (isEmulator()) {
+                    restoreEmulatorOverlayVisibility(currentInputText)
+                } else {
+                    restoreOverlayVisibility(currentInputText)
+                }
             }
         }
     }
+
+    // Emulator-specific input overlay hiding
+    private fun hideEmulatorInputOverlay() {
+        try {
+            inputOverlayView?.let { overlay ->
+                windowManager.removeView(overlay)
+                inputOverlayView = null
+                Log.d("ScreenCaptureService", "Emulator input overlay hidden")
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error hiding emulator input overlay: ${e.message}", e)
+        }
+    }
 }
+

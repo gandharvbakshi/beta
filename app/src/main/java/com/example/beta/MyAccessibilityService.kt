@@ -29,8 +29,7 @@ class MyAccessibilityService : AccessibilityService() {
             screenCaptureService?.setAccessibilityService(this) // Pass the accessibility service instance
         }
         
-        // Register this service with the application
-        (application as? MyApplication)?.setAccessibilityService(this)
+        // setAccessibilityService method removed - not available in current version
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {

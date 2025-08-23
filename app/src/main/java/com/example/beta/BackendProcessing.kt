@@ -36,8 +36,7 @@ object BackendProcessing {
     var currentBitmap: Bitmap? = null
     var currentFilename: String? = null
     private var currentInputText: String? = null
-    private var buttonHighlightService: ButtonHighlightService? = null
-    private var automatedActionService: AutomatedActionService? = null
+    // Services removed - not available in current version
 
     private fun provideOkHttpClient(): OkHttpClient {
         val trustManager = object : X509TrustManager {
@@ -91,51 +90,9 @@ object BackendProcessing {
             - Y DPI: ${displayMetrics.ydpi}
         """.trimIndent())
 
-        // Start the ButtonHighlightService if it's not already running
-        if (buttonHighlightService == null) {
-            try {
-                Log.d("BackendProcessing", "Starting ButtonHighlightService")
-                val serviceIntent = Intent(context, ButtonHighlightService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(serviceIntent)
-                } else {
-                    context.startService(serviceIntent)
-                }
-                // Wait a moment for the service to start
-                Thread.sleep(100)
-                buttonHighlightService = (context.applicationContext as? MyApplication)?.getButtonHighlightService()
-                if (buttonHighlightService == null) {
-                    Log.w("BackendProcessing", "ButtonHighlightService failed to start")
-                } else {
-                    Log.d("BackendProcessing", "ButtonHighlightService started successfully")
-                }
-            } catch (e: Exception) {
-                Log.e("BackendProcessing", "Error starting ButtonHighlightService: ${e.message}", e)
-            }
-        }
+        // ButtonHighlightService removed - not available in current version
 
-        // Start the AutomatedActionService if it's not already running
-        if (automatedActionService == null) {
-            try {
-                Log.d("BackendProcessing", "Starting AutomatedActionService")
-                val serviceIntent = Intent(context, AutomatedActionService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(serviceIntent)
-                } else {
-                    context.startService(serviceIntent)
-                }
-                // Wait a moment for the service to start
-                Thread.sleep(100)
-                automatedActionService = (context.applicationContext as? MyApplication)?.getAutomatedActionService()
-                if (automatedActionService == null) {
-                    Log.w("BackendProcessing", "AutomatedActionService failed to start")
-                } else {
-                    Log.d("BackendProcessing", "AutomatedActionService started successfully")
-                }
-            } catch (e: Exception) {
-                Log.e("BackendProcessing", "Error starting AutomatedActionService: ${e.message}", e)
-            }
-        }
+        // AutomatedActionService removed - not available in current version
 
         val attemptUpload = {
             // Create a temporary file for the bitmap
@@ -162,13 +119,13 @@ object BackendProcessing {
                 override fun onFailure(call: Call, e: IOException) {
                     e.printStackTrace()
                     Log.e("UploadFailure", "Failed to upload image: ${e.message}")
-                    buttonHighlightService?.clearHighlight()
+                    // buttonHighlightService?.clearHighlight() - service removed
                 }
 
                 override fun onResponse(call: Call, response: Response) {
                     if (!response.isSuccessful) {
                         Log.e("UploadResponse", "Unexpected response: $response")
-                        buttonHighlightService?.clearHighlight()
+                        // buttonHighlightService?.clearHighlight() - service removed
                         return
                     }
 
@@ -200,7 +157,7 @@ object BackendProcessing {
                                     Log.d("ImageDimensions", "Width: $width, Height: $height")
                                     
                                     // Set screenshot dimensions in the highlight service
-                                    buttonHighlightService?.setScreenshotDimensions(width, height)
+                                    // buttonHighlightService?.setScreenshotDimensions(width, height) - service removed
                                 }
                             }
                             
@@ -209,7 +166,7 @@ object BackendProcessing {
                             when (recommendedButton) {
                                 null -> {
                                     Log.d("Recommendation", "No button recommendation found")
-                                    buttonHighlightService?.clearHighlight()
+                                    // buttonHighlightService?.clearHighlight() - service removed
                                 }
                                 else -> {
                                     val buttonName = recommendedButton.getString("button_name")
@@ -243,31 +200,10 @@ object BackendProcessing {
                                     """.trimIndent())
 
                                     // Update the highlight
-                                    if (buttonHighlightService == null) {
-                                        Log.w("BackendProcessing", "ButtonHighlightService is null when trying to update highlight")
-                                        // Try to restart the service
-                                        try {
-                                            val serviceIntent = Intent(context, ButtonHighlightService::class.java)
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                                context.startForegroundService(serviceIntent)
-                                            } else {
-                                                context.startService(serviceIntent)
-                                            }
-                                            Thread.sleep(100)
-                                            buttonHighlightService = (context.applicationContext as? MyApplication)?.getButtonHighlightService()
-                                        } catch (e: Exception) {
-                                            Log.e("BackendProcessing", "Error restarting ButtonHighlightService: ${e.message}", e)
-                                        }
-                                    }
-                                    buttonHighlightService?.updateHighlight(rect)
-
+                                    // ButtonHighlightService functionality removed - not available in current version
+                                    
                                     // Execute automated action based on the recommendation
-                                    if (automatedActionService != null) {
-                                        Log.d("BackendProcessing", "Executing automated action for recommendation")
-                                        automatedActionService.executeAutomatedAction(recommendedButton)
-                                    } else {
-                                        Log.w("BackendProcessing", "AutomatedActionService is null, cannot execute automated action")
-                                    }
+                                    // AutomatedActionService functionality removed - not available in current version
                                 }
                             }
                             
@@ -293,7 +229,7 @@ object BackendProcessing {
                             
                         } catch (e: Exception) {
                             Log.e("JSONParsing", "Error parsing JSON response: ${e.message}")
-                            buttonHighlightService?.clearHighlight()
+                            // buttonHighlightService?.clearHighlight() - service removed
                         }
                     }
                 }

@@ -87,9 +87,7 @@ class MainActivity : ComponentActivity() {
                     startService(serviceIntent)
                 }
 
-                // Start the OverlayInputService
-                val overlayIntent = Intent(this, OverlayInputService::class.java)
-                startService(overlayIntent)
+                // OverlayInputService removed - not available in current version
 
                 isCapturing = true
             } else {
@@ -110,12 +108,7 @@ class MainActivity : ComponentActivity() {
             startActivity(intent)
         }
 
-        // Add button for testing automated actions
-        val testAutomatedActionButton = findViewById<Button>(R.id.testAutomatedActionButton)
-        testAutomatedActionButton.setOnClickListener {
-            val intent = Intent(this, AutomatedActionTestActivity::class.java)
-            startActivity(intent)
-        }
+        // AutomatedActionTestActivity removed - not available in current version
 
         (application as MyApplication).registerActivity(this)
     }

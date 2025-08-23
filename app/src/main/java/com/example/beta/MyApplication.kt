@@ -24,10 +24,11 @@ class MyApplication : Application() {
 
     private var screenCaptureService: ScreenCaptureService? = null
     private var currentActivity: ComponentActivity? = null
-    private var overlayInputService: OverlayInputService? = null
-    private var buttonHighlightService: ButtonHighlightService? = null
-    private var accessibilityService: AccessibilityService? = null
-    private var automatedActionService: AutomatedActionService? = null
+    // OverlayInputService removed - not available in current version
+    // Services removed - not available in current version
+    // private var buttonHighlightService: ButtonHighlightService? = null
+    // private var accessibilityService: AccessibilityService? = null
+    // private var automatedActionService: AutomatedActionService? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -134,49 +135,13 @@ class MyApplication : Application() {
         return screenCaptureService
     }
 
-    // Sets the OverlayInputService instance
-    fun setOverlayInputService(service: OverlayInputService?) {
-        this.overlayInputService = service
-        Log.d("MyApplication", "OverlayInputService instance ${if (service == null) "cleared" else "set"}.")
-    }
+    // OverlayInputService methods removed - service not available in current version
 
-    // Gets the OverlayInputService instance
-    fun getOverlayInputService(): OverlayInputService? {
-        return overlayInputService
-    }
+    // ButtonHighlightService methods removed - service not available in current version
 
-    // Sets the ButtonHighlightService instance
-    fun setButtonHighlightService(service: ButtonHighlightService?) {
-        this.buttonHighlightService = service
-        Log.d("MyApplication", "ButtonHighlightService ${if (service != null) "set" else "cleared"}")
-    }
+    // AccessibilityService methods removed - service not available in current version
 
-    // Gets the ButtonHighlightService instance
-    fun getButtonHighlightService(): ButtonHighlightService? {
-        return buttonHighlightService
-    }
-
-    // Sets the AccessibilityService instance
-    fun setAccessibilityService(service: AccessibilityService?) {
-        accessibilityService = service
-        Log.d("MyApplication", "AccessibilityService ${if (service != null) "set" else "cleared"}")
-    }
-
-    // Gets the AccessibilityService instance
-    fun getAccessibilityService(): AccessibilityService? {
-        return accessibilityService
-    }
-
-    // Sets the AutomatedActionService instance
-    fun setAutomatedActionService(service: AutomatedActionService?) {
-        this.automatedActionService = service
-        Log.d("MyApplication", "AutomatedActionService ${if (service != null) "set" else "cleared"}")
-    }
-
-    // Gets the AutomatedActionService instance
-    fun getAutomatedActionService(): AutomatedActionService? {
-        return automatedActionService
-    }
+    // AutomatedActionService methods removed - service not available in current version
 
     // --- Activity Lifecycle Management ---
     // Note: Holding direct activity references in Application can cause leaks.

@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE" />
+    <!-- BIND_ACCESSIBILITY_SERVICE permission removed - accessibility services not available in current version -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 
     <application
@@ -19,13 +19,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Beta">
 
-        <receiver
-            android:name=".InputBroadcastReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.example.beta.INPUT_RECEIVED" />
-            </intent-filter>
-        </receiver>
+        <!-- InputBroadcastReceiver removed - not available in current version -->
 
         <activity
             android:name=".MainActivity"
@@ -36,10 +30,7 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".AutomatedActionTestActivity"
-            android:exported="false"
-            android:label="Test Automated Actions" />
+        <!-- AutomatedActionTestActivity removed - not available in current version -->
 
         <service
             android:name=".MyAccessibilityService"
@@ -64,43 +55,13 @@
             android:value="true"/>
         </service>
 
-        <service
-            android:name=".OverlayInputService"
-            android:enabled="true"
-            android:exported="false" />
+        <!-- OverlayInputService removed - not available in current version -->
 
-        <service
-            android:name=".ButtonHighlightService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection"
-            android:permission="android.permission.SYSTEM_ALERT_WINDOW">
-            <meta-data 
-                android:name="android.service.foreground"
-                android:value="true"/>
-        </service>
+        <!-- ButtonHighlightService removed - not available in current version -->
 
-        <service
-            android:name=".ButtonAccessibilityService"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config" />
-        </service>
+        <!-- ButtonAccessibilityService removed - not available in current version -->
 
-        <service
-            android:name=".AutomatedActionService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection">
-            <meta-data 
-                android:name="android.service.foreground"
-                android:value="true"/>
-        </service>
+        <!-- AutomatedActionService removed - not available in current version -->
     </application>
 
 </manifest>
