@@ -139,7 +139,25 @@ class MyApplication : Application() {
 
     // ButtonHighlightService methods removed - service not available in current version
 
-    // AccessibilityService methods removed - service not available in current version
+    // AccessibilityService methods
+    private var accessibilityService: MyAccessibilityService? = null
+    
+    fun setAccessibilityService(service: MyAccessibilityService?) {
+        this.accessibilityService = service
+        Log.d("MyApplication", "AccessibilityService instance ${if (service == null) "cleared" else "set"}.")
+        if (service != null) {
+            Log.d("MyApplication", "AccessibilityService registered - Service class: ${service.javaClass.simpleName}")
+        }
+    }
+    
+    fun getAccessibilityService(): MyAccessibilityService? {
+        val service = accessibilityService
+        Log.d("MyApplication", "getAccessibilityService called - Service available: ${service != null}")
+        if (service != null) {
+            Log.d("MyApplication", "Returning AccessibilityService: ${service.javaClass.simpleName}")
+        }
+        return service
+    }
 
     // AutomatedActionService methods removed - service not available in current version
 

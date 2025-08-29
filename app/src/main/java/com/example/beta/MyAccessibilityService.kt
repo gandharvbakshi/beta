@@ -8,10 +8,22 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
+import android.os.Handler
+import android.os.Looper
+import android.view.accessibility.AccessibilityWindowInfo
 
 class MyAccessibilityService : AccessibilityService() {
 
     private var screenCaptureService: ScreenCaptureService? = null
+    
+    // Get the currently active app package
+    val activeAppPackage: String?
+        get() = try {
+            rootInActiveWindow?.packageName?.toString()
+        } catch (e: Exception) {
+            Log.e("MyAccessibilityService", "Error getting active app package: ${e.message}", e)
+            null
+        }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -21,22 +33,63 @@ class MyAccessibilityService : AccessibilityService() {
         info.eventTypes =
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or AccessibilityEvent.TYPE_VIEW_CLICKED or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_VIEW_FOCUSED or AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-        info.flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
+        info.flags = AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or 
+                     AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or 
+                     AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
+                     AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         serviceInfo = info
-        // Get the ScreenCaptureService instance.
+        
+        // Verify the flag is actually set at runtime
+        val hasWin = (serviceInfo.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) != 0
+        Log.d("MyAccessibilityService", "Has RETRIEVE_INTERACTIVE_WINDOWS: $hasWin  flags=${serviceInfo.flags}")
+        if (!hasWin) {
+            Log.e("MyAccessibilityService", "CRITICAL: FLAG_RETRIEVE_INTERACTIVE_WINDOWS not set! This will prevent window access.")
+        }
+        // Register this accessibility service with MyApplication
         (application as? MyApplication)?.let {
-            screenCaptureService = it.getScreenCaptureService()
-            screenCaptureService?.setAccessibilityService(this) // Pass the accessibility service instance
+            it.setAccessibilityService(this)
         }
         
-        // setAccessibilityService method removed - not available in current version
+        // Connect to ScreenCaptureService if it's available
+        val myApp = application as? MyApplication
+        myApp?.getScreenCaptureService()?.let { screenCaptureService ->
+            screenCaptureService.setAccessibilityService(this)
+            Log.d("MyAccessibilityService", "Connected to ScreenCaptureService")
+        } ?: run {
+            Log.d("MyAccessibilityService", "ScreenCaptureService not available yet, will connect when available")
+        }
+    }
+    
+    // Method to allow ScreenCaptureService to connect to this service
+    fun connectScreenCaptureService(service: ScreenCaptureService?) {
+        screenCaptureService = service
+        Log.d("MyAccessibilityService", "ScreenCaptureService connected: ${service != null}")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        // IGNORE EVENTS FROM YOUR OWN APP
+        if (event.packageName == "com.example.beta") {
+            Log.d("MyAccessibilityService", "Ignoring own app event: ${event.eventType}")
+            return  // Skip processing
+        }
+        
+        // ONLY PROCESS BLINKIT EVENTS
+        if (event.packageName == "com.grofers.customerapp") {
+            Log.d("MyAccessibilityService", "Blinkit event detected: ${event.eventType}")
+            // Tree view is now ONLY triggered manually from overlay submit button
+        }
+        
         Log.d(
             "MyAccessibilityService",
             "onAccessibilityEvent: eventType = ${event.eventType}, event = ${event}"
         ) //Added event
+
+        // Log ScreenCaptureService status for debugging
+        if (screenCaptureService == null) {
+            Log.d("MyAccessibilityService", "ScreenCaptureService status: null (waiting for connection)")
+        } else {
+            Log.d("MyAccessibilityService", "ScreenCaptureService status: connected")
+        }
 
         // Check for relevant events to trigger screenshot
         when (event.eventType) {
@@ -82,5 +135,308 @@ class MyAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d("MyAccessibilityService", "onDestroy")
+        
+        // Unregister this accessibility service from MyApplication
+        try {
+            (application as? MyApplication)?.setAccessibilityService(null)
+        } catch (e: Exception) {
+            Log.e("MyAccessibilityService", "Error unregistering accessibility service: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Public method to manually trigger Blinkit tree view (for testing)
+     */
+    fun showBlinkitTree() {
+        Log.d("MyAccessibilityService", "🔍 MANUALLY TRIGGERING BLINKIT TREE VIEW")
+        logBlinkitTree()
+    }
+
+    /**
+     * Helper method to find the Blinkit app root by scanning all windows
+     * This is more reliable than rootInActiveWindow when our overlay is active
+     */
+    private fun findBlinkitAppRoot(): AccessibilityNodeInfo? {
+        try {
+            Log.d("MyAccessibilityService", "Scanning all windows for Blinkit app...")
+            
+            // Get all windows
+            val allWindows = windows ?: return null
+            Log.d("MyAccessibilityService", "Found ${allWindows.size} windows")
+            
+            // Use the improved scanning approach
+            for (window in allWindows) {
+                if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                    val root = window.root ?: continue
+                    val packageName = root.packageName?.toString() ?: continue
+                    Log.d("MyAccessibilityService", "Window type: ${window.type}, Package: $packageName")
+                    
+                    if (packageName == "com.grofers.customerapp") {
+                        Log.d("MyAccessibilityService", "Found Blinkit app in application window")
+                        return root
+                    }
+                }
+            }
+            
+            Log.d("MyAccessibilityService", "Blinkit app not found in any application window")
+            return null
+            
+        } catch (e: Exception) {
+            Log.e("MyAccessibilityService", "Error scanning windows: ${e.message}", e)
+            return null
+        }
+    }
+
+    /**
+     * Creates a rich tree visualization of the Blinkit app's accessibility tree
+     */
+    private fun logBlinkitTree() {
+        Log.d("MyAccessibilityService", "=== ENTERING logBlinkitTree METHOD ===")
+        
+        // Debug accessibility service state
+        Log.d("MyAccessibilityService", "Accessibility Service State:")
+        Log.d("MyAccessibilityService", "  • Service Info: ${serviceInfo}")
+        Log.d("MyAccessibilityService", "  • Flags: ${serviceInfo?.flags}")
+        Log.d("MyAccessibilityService", "  • Event Types: ${serviceInfo?.eventTypes}")
+        Log.d("MyAccessibilityService", "  • Feedback Type: ${serviceInfo?.feedbackType}")
+        
+        try {
+            Log.d("MyAccessibilityService", "Trying to find Blinkit app root...")
+            
+            // First try rootInActiveWindow
+            var rootNode = rootInActiveWindow
+            Log.d("MyAccessibilityService", "rootInActiveWindow result: ${rootNode != null}")
+            
+            // If rootInActiveWindow is null, try scanning all windows
+            if (rootNode == null) {
+                Log.d("MyAccessibilityService", "rootInActiveWindow is null - trying window scanning...")
+                rootNode = findBlinkitAppRoot()
+                
+                if (rootNode != null) {
+                    Log.d("MyAccessibilityService", "Found Blinkit app via window scanning")
+                } else {
+                    Log.w("MyAccessibilityService", "Blinkit app not found in any window - waiting and retrying...")
+                    
+                    // Wait 500ms and try both methods again
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        Log.d("MyAccessibilityService", "Retrying after delay...")
+                        
+                        // Try rootInActiveWindow first
+                        var retryNode = rootInActiveWindow
+                        if (retryNode == null) {
+                            // Try window scanning
+                            retryNode = findBlinkitAppRoot()
+                        }
+                        
+                        if (retryNode != null) {
+                            Log.d("MyAccessibilityService", "Retry successful - found Blinkit app")
+                            processBlinkitTree(retryNode)
+                        } else {
+                            Log.w("MyAccessibilityService", "Retry failed - still no Blinkit app found")
+                        }
+                    }, 500)
+                    
+                    Log.d("MyAccessibilityService", "=== EXITING logBlinkitTree METHOD (will retry) ===")
+                    return
+                }
+            }
+            
+            // Process the tree if we have a root node
+            if (rootNode != null) {
+                processBlinkitTree(rootNode)
+            }
+            
+        } catch (e: Exception) {
+            Log.e("MyAccessibilityService", "Error creating tree view: ${e.message}", e)
+            e.printStackTrace()
+        }
+        
+        Log.d("MyAccessibilityService", "=== EXITING logBlinkitTree METHOD ===")
+    }
+    
+    /**
+     * Helper method to process the Blinkit tree once we have a valid root node
+     */
+    private fun processBlinkitTree(rootNode: AccessibilityNodeInfo) {
+        try {
+            Log.d("MyAccessibilityService", "Checking package name...")
+            val packageName = rootNode.packageName?.toString()
+            Log.d("MyAccessibilityService", "Current package name: $packageName")
+            
+            if (packageName != "com.grofers.customerapp") {
+                Log.d("MyAccessibilityService", "Not Blinkit app - current package: $packageName")
+                return
+            }
+            
+            Log.d("MyAccessibilityService", "Blinkit app detected - proceeding with tree view")
+            
+            Log.d("MyAccessibilityService", "🌳 BLINKIT ACCESSIBILITY TREE")
+            Log.d("MyAccessibilityService", "=" * 50)
+            
+            // Log root node info
+            Log.d("MyAccessibilityService", "Logging root node info...")
+            logNodeInfo(rootNode, 0, "ROOT")
+            
+            // Get tree summary first
+            Log.d("MyAccessibilityService", "Getting tree summary...")
+            val summary = getTreeSummary(rootNode)
+            Log.d("MyAccessibilityService", "Tree summary calculated successfully")
+            
+            Log.d("MyAccessibilityService", "📊 TREE SUMMARY:")
+            Log.d("MyAccessibilityService", "  • Total Nodes: ${summary.totalNodes}")
+            Log.d("MyAccessibilityService", "  • Buttons: ${summary.buttonCount}")
+            Log.d("MyAccessibilityService", "  • TextViews: ${summary.textViewCount}")
+            Log.d("MyAccessibilityService", "  • ImageViews: ${summary.imageViewCount}")
+            Log.d("MyAccessibilityService", "  • Clickable Elements: ${summary.clickableCount}")
+            Log.d("MyAccessibilityService", "  • Max Depth: ${summary.maxDepth}")
+            
+            Log.d("MyAccessibilityService", "")
+            Log.d("MyAccessibilityService", "🔍 DETAILED TREE STRUCTURE:")
+            
+            // Traverse and log the tree
+            Log.d("MyAccessibilityService", "Starting tree traversal...")
+            traverseAndLogTree(rootNode, 0)
+            Log.d("MyAccessibilityService", "Tree traversal completed")
+            
+            Log.d("MyAccessibilityService", "=" * 50)
+            Log.d("MyAccessibilityService", "=== TREE VIEW COMPLETED SUCCESSFULLY ===")
+            
+        } catch (e: Exception) {
+            Log.e("MyAccessibilityService", "Error processing Blinkit tree: ${e.message}", e)
+            e.printStackTrace()
+        }
+    }
+    
+    /**
+     * Data class to hold tree summary information
+     */
+    private data class TreeSummary(
+        val totalNodes: Int,
+        val buttonCount: Int,
+        val textViewCount: Int,
+        val imageViewCount: Int,
+        val clickableCount: Int,
+        val maxDepth: Int
+    )
+    
+    /**
+     * Gets a summary of the tree structure
+     */
+    private fun getTreeSummary(rootNode: AccessibilityNodeInfo): TreeSummary {
+        var totalNodes = 0
+        var buttonCount = 0
+        var textViewCount = 0
+        var imageViewCount = 0
+        var clickableCount = 0
+        var maxDepth = 0
+        
+        fun countNodes(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 15) return // Prevent infinite recursion
+            
+            totalNodes++
+            maxDepth = maxOf(maxDepth, depth)
+            
+            val className = node.className?.toString() ?: ""
+            when {
+                className.contains("Button") -> buttonCount++
+                className.contains("TextView") -> textViewCount++
+                className.contains("ImageView") -> imageViewCount++
+            }
+            
+            if (node.isClickable) clickableCount++
+            
+            // Count children
+            for (i in 0 until node.childCount) {
+                try {
+                    val child = node.getChild(i)
+                    if (child != null) {
+                        countNodes(child, depth + 1)
+                        child.recycle()
+                    }
+                } catch (e: Exception) {
+                    // Ignore errors in counting
+                }
+            }
+        }
+        
+        countNodes(rootNode, 0)
+        return TreeSummary(totalNodes, buttonCount, textViewCount, imageViewCount, clickableCount, maxDepth)
+    }
+    
+    /**
+     * Traverses the accessibility tree and logs each node with proper indentation
+     */
+    private fun traverseAndLogTree(node: AccessibilityNodeInfo, depth: Int) {
+        if (depth > 10) return // Prevent infinite recursion
+        
+        val indent = "  ".repeat(depth)
+        
+        // Log current node
+        logNodeInfo(node, depth, "NODE")
+        
+        // Traverse children
+        for (i in 0 until node.childCount) {
+            try {
+                val child = node.getChild(i)
+                if (child != null) {
+                    traverseAndLogTree(child, depth + 1)
+                    child.recycle() // Important: recycle child nodes
+                }
+            } catch (e: Exception) {
+                Log.e("MyAccessibilityService", "Error traversing child $i: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * Logs detailed information about a specific node
+     */
+    private fun logNodeInfo(node: AccessibilityNodeInfo, depth: Int, prefix: String) {
+        val indent = "  ".repeat(depth)
+        
+        try {
+            val className = node.className?.toString() ?: "Unknown"
+            val text = node.text?.toString() ?: ""
+            val contentDesc = node.contentDescription?.toString() ?: ""
+            val viewId = node.viewIdResourceName ?: ""
+            val isClickable = node.isClickable
+            val isEnabled = node.isEnabled
+            val isVisible = node.isVisibleToUser
+            
+            Log.d("MyAccessibilityService", "$indent$prefix [$className]")
+            
+            if (text.isNotEmpty()) {
+                Log.d("MyAccessibilityService", "$indent  📝 Text: \"$text\"")
+            }
+            
+            if (contentDesc.isNotEmpty()) {
+                Log.d("MyAccessibilityService", "$indent  🏷️  ContentDesc: \"$contentDesc\"")
+            }
+            
+            if (viewId.isNotEmpty()) {
+                Log.d("MyAccessibilityService", "$indent  🆔 ViewID: $viewId")
+            }
+            
+            Log.d("MyAccessibilityService", "$indent  ⚡ Clickable: $isClickable, Enabled: $isEnabled, Visible: $isVisible")
+            
+            // Log additional properties for important elements
+            if (className.contains("Button") || className.contains("TextView") || className.contains("ImageView")) {
+                val bounds = android.graphics.Rect()
+                node.getBoundsInScreen(bounds)
+                Log.d("MyAccessibilityService", "$indent  📍 Bounds: [${bounds.left},${bounds.top}] -> [${bounds.right},${bounds.bottom}]")
+            }
+            
+        } catch (e: Exception) {
+            Log.e("MyAccessibilityService", "$indent$prefix Error getting node info: ${e.message}")
+        }
+    }
+    
+    /**
+     * Extension function to repeat a string
+     */
+    private operator fun String.times(count: Int): String {
+        return buildString {
+            repeat(count) { append(this@times) }
+        }
     }
 }

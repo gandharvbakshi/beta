@@ -239,6 +239,18 @@ class ScreenCaptureService : Service() {
                 Log.d("ScreenCaptureService", "ScreenCaptureService instance set in MyApplication")
             }
 
+            // Try to connect to accessibility service if it's available
+            Handler(Looper.getMainLooper()).postDelayed({
+                // Try to connect to accessibility service if it's available
+                val accessibilityService = (application as? MyApplication)?.getAccessibilityService()
+                if (accessibilityService != null) {
+                    accessibilityService.connectScreenCaptureService(this)
+                    Log.d("ScreenCaptureService", "Connected to existing AccessibilityService")
+                } else {
+                    Log.d("ScreenCaptureService", "No AccessibilityService available yet - will connect when it becomes available")
+                }
+            }, 1000) // 1 second delay to ensure accessibility service has time to start
+
             // Register local broadcast receiver for input text
             if (isEmulator()) {
                 registerEmulatorReceiver()
@@ -967,7 +979,8 @@ class ScreenCaptureService : Service() {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
@@ -978,6 +991,10 @@ class ScreenCaptureService : Service() {
             // Setup overlay text with emulator-specific message
             val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
             overlayText.text = "Emulator Mode - Tap for input"
+            
+            // Make the overlay non-focusable so it doesn't steal focus from Blinkit
+            overlayView.isFocusable = false
+            overlayView.isFocusableInTouchMode = false
             
             // Make the overlay clickable to open input dialog
             overlayView.setOnClickListener {
@@ -1031,7 +1048,8 @@ class ScreenCaptureService : Service() {
                 type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
@@ -1042,6 +1060,10 @@ class ScreenCaptureService : Service() {
             // Setup overlay text with initial message
             val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
             overlayText.text = "Tap to add instruction"
+            
+            // Make the overlay non-focusable so it doesn't steal focus from Blinkit
+            overlayView.isFocusable = false
+            overlayView.isFocusableInTouchMode = false
             
             // Make the overlay clickable to open input dialog
             overlayView.setOnClickListener {
@@ -1277,6 +1299,8 @@ class ScreenCaptureService : Service() {
     
     private fun submitInstruction(inputText: String) {
         Log.d("ScreenCaptureService", "submitInstruction called with: '$inputText'")
+        Log.d("ScreenCaptureService", "=== STARTING SUBMIT INSTRUCTION PROCESS ===")
+        
         if (inputText.isNotEmpty()) {
             currentInputText = inputText
             Log.d("ScreenCaptureService", "currentInputText set to: '$currentInputText'")
@@ -1298,6 +1322,31 @@ class ScreenCaptureService : Service() {
             }
             Log.d("ScreenCaptureService", "User input received: $inputText")
             
+            // Add delay to ensure overlay is hidden before capturing
+            Handler(Looper.getMainLooper()).postDelayed({
+                // TRIGGER BLINKIT TREE VIEW NOW - overlay is hidden, so Blinkit should be active
+                Log.d("ScreenCaptureService", "=== TRIGGERING BLINKIT TREE VIEW (overlay hidden) ===")
+                try {
+                    val myApp = application as? MyApplication
+                    val accessibilityService = myApp?.getAccessibilityService()
+                    
+                    if (accessibilityService != null) {
+                        Log.d("ScreenCaptureService", "Triggering Blinkit tree view after overlay hidden")
+                        accessibilityService.showBlinkitTree()
+                        Log.d("ScreenCaptureService", "Blinkit tree view method called successfully")
+                    } else {
+                        Log.w("ScreenCaptureService", "Accessibility service not available for tree view")
+                    }
+                } catch (e: Exception) {
+                    Log.e("ScreenCaptureService", "Error triggering Blinkit tree view: ${e.message}", e)
+                    e.printStackTrace()
+                }
+                Log.d("ScreenCaptureService", "=== FINISHED TREE VIEW ATTEMPT ===")
+                
+                pendingScreenshot = true
+                Log.d("ScreenCaptureService", "Pending screenshot set to true after 300ms delay")
+            }, 300) // 300ms delay to ensure overlay is hidden
+            
             // Broadcast the input text
             val intent = Intent("com.example.beta.INPUT_RECEIVED")
             intent.putExtra("input_text", inputText)
@@ -1310,9 +1359,33 @@ class ScreenCaptureService : Service() {
                 Log.d("ScreenCaptureService", "Triggering screenshot with instruction: $inputText")
                 triggerScreenshot()
             }, 200)
+            
+            // Add additional delay for tree view after overlay is hidden
+            Handler(Looper.getMainLooper()).postDelayed({
+                // TRIGGER BLINKIT TREE VIEW after overlay is hidden
+                Log.d("ScreenCaptureService", "=== TRIGGERING BLINKIT TREE VIEW (delayed) ===")
+                try {
+                    val myApp = application as? MyApplication
+                    val accessibilityService = myApp?.getAccessibilityService()
+                    
+                    if (accessibilityService != null) {
+                        Log.d("ScreenCaptureService", "Triggering Blinkit tree view with delay")
+                        accessibilityService.showBlinkitTree()
+                        Log.d("ScreenCaptureService", "Blinkit tree view method called successfully")
+                    } else {
+                        Log.w("ScreenCaptureService", "Accessibility service not available for tree view")
+                    }
+                } catch (e: Exception) {
+                    Log.e("ScreenCaptureService", "Error triggering Blinkit tree view: ${e.message}", e)
+                    e.printStackTrace()
+                }
+                Log.d("ScreenCaptureService", "=== FINISHED TREE VIEW ATTEMPT ===")
+            }, 800) // 800ms delay to ensure overlay is fully hidden
         } else {
             Log.w("ScreenCaptureService", "submitInstruction called with empty text")
         }
+        
+        Log.d("ScreenCaptureService", "=== FINISHED SUBMIT INSTRUCTION PROCESS ===")
     }
     
     private fun hideInputOverlay() {
