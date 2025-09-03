@@ -62,6 +62,8 @@ class ScreenCaptureService : Service() {
     private var currentInputText: String? = null
     private var pendingScreenshot = false
     private var overlayBounds: android.graphics.Rect? = null
+    private var currentTreeData: String? = null
+    private var currentAppName: String? = null
 
     // Check if running on emulator
     private fun isEmulator(): Boolean {
@@ -705,7 +707,6 @@ class ScreenCaptureService : Service() {
             try {
                 val image = reader.acquireLatestImage()
                 if (image != null) {
-                    Log.d("ScreenCaptureService", "Processing pending screenshot with image dimensions: ${image.width}x${image.height}")
                     processImage(image)
                     image.close()
                 } else {
@@ -828,16 +829,25 @@ class ScreenCaptureService : Service() {
                 Log.d("ScreenCaptureService", "Saving emulator screenshot to application")
                 (application as? MyApplication)?.saveScreenshot(bitmap)
                 
-                // Process with input text if available
-                val inputTextForProcessing = currentInputText
-                if (inputTextForProcessing != null) {
-                    Log.d("ScreenCaptureService", "Processing emulator screenshot with input text: $inputTextForProcessing")
-                    BackendProcessing.processScreenshotWithInput(this, bitmap, filename, inputTextForProcessing)
-                    currentInputText = null // Clear the input text after processing
-                } else {
-                    Log.d("ScreenCaptureService", "No input text available for emulator screenshot, using default processing")
-                    BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename)
-                }
+                            // Process with input text if available
+            val inputTextForProcessing = currentInputText
+            if (inputTextForProcessing != null) {
+                Log.d("ScreenCaptureService", "Processing emulator screenshot with input text: $inputTextForProcessing")
+                BackendProcessing.processScreenshotWithInput(
+                    this, 
+                    bitmap, 
+                    filename, 
+                    inputTextForProcessing,
+                    currentAppName,
+                    currentTreeData
+                )
+                currentInputText = null // Clear the input text after processing
+                currentTreeData = null // Clear the tree data after processing
+                currentAppName = null // Clear the app name after processing
+            } else {
+                Log.d("ScreenCaptureService", "No input text available for emulator screenshot, using default processing with app: $currentAppName, treeData length: ${currentTreeData?.length ?: 0}")
+                BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename, currentAppName, currentTreeData)
+            }
                 
                 // Restore overlay visibility after screenshot processing (on main thread)
                 restoreOverlayVisibility(inputTextForProcessing)
@@ -926,11 +936,20 @@ class ScreenCaptureService : Service() {
             val inputTextForProcessing = currentInputText
             if (inputTextForProcessing != null) {
                 Log.d("ScreenCaptureService", "Processing screenshot with input text: $inputTextForProcessing")
-                BackendProcessing.processScreenshotWithInput(this, bitmap, filename, inputTextForProcessing)
+                BackendProcessing.processScreenshotWithInput(
+                    this, 
+                    bitmap, 
+                    filename, 
+                    inputTextForProcessing,
+                    currentAppName,
+                    currentTreeData
+                )
                 currentInputText = null // Clear the input text after processing
+                currentTreeData = null // Clear the tree data after processing
+                currentAppName = null // Clear the app name after processing
             } else {
-                Log.d("ScreenCaptureService", "No input text available, using default processing")
-                BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename)
+                Log.d("ScreenCaptureService", "No input text available, using default processing with app: $currentAppName, treeData length: ${currentTreeData?.length ?: 0}")
+                BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename, currentAppName, currentTreeData)
             }
             
             // Restore overlay visibility after screenshot processing (on main thread)
@@ -1299,14 +1318,11 @@ class ScreenCaptureService : Service() {
     
     private fun submitInstruction(inputText: String) {
         Log.d("ScreenCaptureService", "submitInstruction called with: '$inputText'")
-        Log.d("ScreenCaptureService", "=== STARTING SUBMIT INSTRUCTION PROCESS ===")
         
         if (inputText.isNotEmpty()) {
             currentInputText = inputText
-            Log.d("ScreenCaptureService", "currentInputText set to: '$currentInputText'")
             
             // Hide input overlay first
-            Log.d("ScreenCaptureService", "Hiding input overlay")
             if (isEmulator()) {
                 hideEmulatorInputOverlay()
             } else {
@@ -1314,73 +1330,59 @@ class ScreenCaptureService : Service() {
             }
             
             // Update main overlay text to show current instruction
-            Log.d("ScreenCaptureService", "Updating main overlay text to 'Processing: $inputText'")
             if (isEmulator()) {
                 updateEmulatorOverlayText("Processing: $inputText")
             } else {
                 updateOverlayText("Processing: $inputText")
             }
-            Log.d("ScreenCaptureService", "User input received: $inputText")
-            
-            // Add delay to ensure overlay is hidden before capturing
-            Handler(Looper.getMainLooper()).postDelayed({
-                // TRIGGER BLINKIT TREE VIEW NOW - overlay is hidden, so Blinkit should be active
-                Log.d("ScreenCaptureService", "=== TRIGGERING BLINKIT TREE VIEW (overlay hidden) ===")
-                try {
-                    val myApp = application as? MyApplication
-                    val accessibilityService = myApp?.getAccessibilityService()
-                    
-                    if (accessibilityService != null) {
-                        Log.d("ScreenCaptureService", "Triggering Blinkit tree view after overlay hidden")
-                        accessibilityService.showBlinkitTree()
-                        Log.d("ScreenCaptureService", "Blinkit tree view method called successfully")
-                    } else {
-                        Log.w("ScreenCaptureService", "Accessibility service not available for tree view")
-                    }
-                } catch (e: Exception) {
-                    Log.e("ScreenCaptureService", "Error triggering Blinkit tree view: ${e.message}", e)
-                    e.printStackTrace()
-                }
-                Log.d("ScreenCaptureService", "=== FINISHED TREE VIEW ATTEMPT ===")
-                
-                pendingScreenshot = true
-                Log.d("ScreenCaptureService", "Pending screenshot set to true after 300ms delay")
-            }, 300) // 300ms delay to ensure overlay is hidden
             
             // Broadcast the input text
             val intent = Intent("com.example.beta.INPUT_RECEIVED")
             intent.putExtra("input_text", inputText)
             LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
-            Log.d("ScreenCaptureService", "Broadcast sent for input: $inputText")
             
-            // Small delay to ensure overlay is updated before screenshot
+            // Wait for overlay to be hidden, then trigger tree view
             Handler(Looper.getMainLooper()).postDelayed({
-                // Trigger screenshot with the new instruction
-                Log.d("ScreenCaptureService", "Triggering screenshot with instruction: $inputText")
-                triggerScreenshot()
-            }, 200)
-            
-            // Add additional delay for tree view after overlay is hidden
-            Handler(Looper.getMainLooper()).postDelayed({
-                // TRIGGER BLINKIT TREE VIEW after overlay is hidden
-                Log.d("ScreenCaptureService", "=== TRIGGERING BLINKIT TREE VIEW (delayed) ===")
                 try {
                     val myApp = application as? MyApplication
                     val accessibilityService = myApp?.getAccessibilityService()
                     
                     if (accessibilityService != null) {
-                        Log.d("ScreenCaptureService", "Triggering Blinkit tree view with delay")
                         accessibilityService.showBlinkitTree()
-                        Log.d("ScreenCaptureService", "Blinkit tree view method called successfully")
+                        
+                        // Wait for tree data to be captured, then trigger screenshot
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            // Get the captured tree data and app name
+                            val treeData = accessibilityService.getLastTreeData()
+                            val appName = accessibilityService.getLastAppName()
+                            
+                            Log.d("ScreenCaptureService", "Tree data captured - length: ${treeData.length}, app: $appName")
+                            
+                            // Store the data for backend processing
+                            currentTreeData = treeData
+                            currentAppName = appName
+                            
+                            // Now trigger screenshot with tree data ready
+                            pendingScreenshot = true
+                            triggerScreenshot()
+                            
+                        }, 800) // Wait 800ms for tree data to be captured
+                        
                     } else {
                         Log.w("ScreenCaptureService", "Accessibility service not available for tree view")
+                        // Fallback: trigger screenshot without tree data
+                        pendingScreenshot = true
+                        triggerScreenshot()
                     }
                 } catch (e: Exception) {
                     Log.e("ScreenCaptureService", "Error triggering Blinkit tree view: ${e.message}", e)
                     e.printStackTrace()
+                    // Fallback: trigger screenshot without tree data
+                    pendingScreenshot = true
+                    triggerScreenshot()
                 }
-                Log.d("ScreenCaptureService", "=== FINISHED TREE VIEW ATTEMPT ===")
-            }, 800) // 800ms delay to ensure overlay is fully hidden
+                
+            }, 500) // 500ms delay to ensure overlay is hidden
         } else {
             Log.w("ScreenCaptureService", "submitInstruction called with empty text")
         }

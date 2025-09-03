@@ -36,6 +36,9 @@ object BackendProcessing {
     var currentBitmap: Bitmap? = null
     var currentFilename: String? = null
     private var currentInputText: String? = null
+    private var currentAppName: String? = null
+    private var currentTreeData: String? = null
+    
     // Services removed - not available in current version
 
     private fun provideOkHttpClient(): OkHttpClient {
@@ -63,32 +66,23 @@ object BackendProcessing {
             .build()
     }
 
-    fun uploadScreenshotAndProcess(context: Context, bitmap: Bitmap, filename: String) {
+    fun uploadScreenshotAndProcess(context: Context, bitmap: Bitmap, filename: String, appName: String? = null, treeData: String? = null) {
         Log.d("BackendProcessing", "uploadScreenshotAndProcess called with filename: $filename")
         currentBitmap = bitmap
         currentFilename = filename
+        currentAppName = appName
+        currentTreeData = treeData
     }
 
-    fun processScreenshotWithInput(context: Context, bitmap: Bitmap, filename: String, inputText: String) {
+    fun processScreenshotWithInput(context: Context, bitmap: Bitmap, filename: String, inputText: String, appName: String? = null, treeData: String? = null) {
         Log.d("BackendProcessing", "processScreenshotWithInput called with filename: $filename")
+        
+        // Store the additional data
+        currentAppName = appName
+        currentTreeData = treeData
         
         // Log screenshot dimensions
         Log.d("BackendProcessing", "Screenshot dimensions - Width: ${bitmap.width}, Height: ${bitmap.height}")
-        
-        // Log screen metrics
-        val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val displayMetrics = DisplayMetrics()
-        windowManager.defaultDisplay.getMetrics(displayMetrics)
-        Log.d("BackendProcessing", """
-            Screen metrics:
-            - Width: ${displayMetrics.widthPixels}
-            - Height: ${displayMetrics.heightPixels}
-            - Density: ${displayMetrics.density}
-            - Scaled Density: ${displayMetrics.scaledDensity}
-            - Density DPI: ${displayMetrics.densityDpi}
-            - X DPI: ${displayMetrics.xdpi}
-            - Y DPI: ${displayMetrics.ydpi}
-        """.trimIndent())
 
         // ButtonHighlightService removed - not available in current version
 
@@ -97,18 +91,29 @@ object BackendProcessing {
         val attemptUpload = {
             // Create a temporary file for the bitmap
             val tempFile = File(context.cacheDir, filename)
-            Log.d("BackendProcessing", "Creating temporary file at: ${tempFile.absolutePath}")
             FileOutputStream(tempFile).use { outStream ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outStream)
             }
-            Log.d("BackendProcessing", "Bitmap compressed and saved to temporary file")
 
             val fileBody = tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
-            val requestBody = MultipartBody.Builder()
+            val requestBodyBuilder = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("file", filename, fileBody)
                 .addFormDataPart("input_text", inputText ?: "")
-                .build()
+            
+            // Add app name if available
+            if (!currentAppName.isNullOrEmpty()) {
+                requestBodyBuilder.addFormDataPart("app_name", currentAppName!!)
+                Log.d("BackendProcessing", "Including app name: $currentAppName")
+            }
+            
+            // Add tree data if available
+            if (!currentTreeData.isNullOrEmpty()) {
+                requestBodyBuilder.addFormDataPart("detailed_tree_data", currentTreeData!!)
+                Log.d("BackendProcessing", "Including detailed tree data (length: ${currentTreeData!!.length})")
+            }
+            
+            val requestBody = requestBodyBuilder.build()
 
             val request = Request.Builder()
                 .url("https://10.0.2.2:8000/analyze-screenshot")
@@ -134,70 +139,81 @@ object BackendProcessing {
                             val jsonString = responseBody.string()
                             val jsonObject = JSONObject(jsonString)
                             
-                            // Log the entire JSON response
-                            Log.d("JSONResponse", "Received JSON: $jsonString")
-                            
                             // Extract and log app name
                             val appName = jsonObject.optString("app_name", "Unknown App")
-                            Log.d("AppInfo", "Analyzing app: $appName")
+                            Log.d("BackendProcessing", "Processing response for app: $appName")
                             
                             // Extract and log input text
                             val inputText = jsonObject.optString("input_text", "")
-                            if (inputText.isNotEmpty()) {
-                                Log.d("InputInfo", "User input: $inputText")
-                            }
                             
                             // Extract and log image dimensions
                             val imageDimensions = jsonObject.optJSONObject("image_dimensions")
                             when (imageDimensions) {
-                                null -> Log.d("ImageDimensions", "No image dimensions found in the response")
+                                null -> { /* No image dimensions in response */ }
                                 else -> {
                                     val width = imageDimensions.getInt("image_width")
                                     val height = imageDimensions.getInt("image_height")
-                                    Log.d("ImageDimensions", "Width: $width, Height: $height")
-                                    
-                                    // Set screenshot dimensions in the highlight service
-                                    // buttonHighlightService?.setScreenshotDimensions(width, height) - service removed
+                                    Log.d("BackendProcessing", "Image dimensions: ${width}x${height}")
                                 }
                             }
                             
-                            // Extract and handle recommended button
-                            val recommendedButton = jsonObject.optJSONObject("recommended_button")
-                            when (recommendedButton) {
+                            // Extract and handle recommended action (new format)
+                            val recommendedAction = jsonObject.optJSONObject("recommended_action")
+                            when (recommendedAction) {
                                 null -> {
-                                    Log.d("Recommendation", "No button recommendation found")
+                                    Log.d("Recommendation", "No action recommendation found")
                                     // buttonHighlightService?.clearHighlight() - service removed
                                 }
                                 else -> {
-                                    val buttonName = recommendedButton.getString("button_name")
-                                    val confidenceScore = recommendedButton.getDouble("confidence_score")
-                                    val reason = recommendedButton.getString("reason")
-                                    val boundingBox = recommendedButton.getJSONArray("bounding_box")
+                                    val actionType = recommendedAction.getString("action_type")
+                                    val actionTarget = recommendedAction.getString("action_target")
+                                    val confidenceScore = recommendedAction.getDouble("confidence_score")
+                                    val reasoning = recommendedAction.getString("reasoning")
+                                    val boundingBox = recommendedAction.optJSONArray("bounding_box")
                                     
-                                    // Create a Rect from the bounding box coordinates
-                                    val rect = Rect(
-                                        boundingBox.getInt(0),
-                                        boundingBox.getInt(1),
-                                        boundingBox.getInt(2),
-                                        boundingBox.getInt(3)
-                                    )
-                                    
-                                    // Log detailed bounding box information
                                     Log.d("BackendProcessing", """
-                                        Button Recommendation Details:
-                                        - Name: $buttonName
+                                        Action Recommendation Details:
+                                        - Action Type: $actionType
+                                        - Action Target: $actionTarget
                                         - Confidence: $confidenceScore
-                                        - Reason: $reason
-                                        - Raw Bounding Box: [${boundingBox.getInt(0)}, ${boundingBox.getInt(1)}, ${boundingBox.getInt(2)}, ${boundingBox.getInt(3)}]
-                                        - Box Width: ${rect.width()}
-                                        - Box Height: ${rect.height()}
-                                        - Box Center: (${rect.centerX()}, ${rect.centerY()})
-                                        - Screenshot Width: ${bitmap.width}
-                                        - Screenshot Height: ${bitmap.height}
-                                        - Screen Width: ${displayMetrics.widthPixels}
-                                        - Screen Height: ${displayMetrics.heightPixels}
-                                        - Screen Density: ${displayMetrics.density}
+                                        - Reasoning: $reasoning
                                     """.trimIndent())
+                                    
+                                    // Log bounding box if available
+                                    if (boundingBox != null) {
+                                        val rect = Rect(
+                                            boundingBox.getInt(0),
+                                            boundingBox.getInt(1),
+                                            boundingBox.getInt(2),
+                                            boundingBox.getInt(3)
+                                        )
+                                        
+                                                                                 // Get display metrics for screen information
+                                         val displayMetrics = DisplayMetrics()
+                                         val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                             val windowMetrics = windowManager.currentWindowMetrics
+                                             val bounds = windowMetrics.bounds
+                                             displayMetrics.widthPixels = bounds.width()
+                                             displayMetrics.heightPixels = bounds.height()
+                                             displayMetrics.density = context.resources.displayMetrics.density
+                                         } else {
+                                             @Suppress("DEPRECATION")
+                                             windowManager.defaultDisplay.getMetrics(displayMetrics)
+                                         }
+                                        
+                                        Log.d("BackendProcessing", """
+                                            - Raw Bounding Box: [${boundingBox.getInt(0)}, ${boundingBox.getInt(1)}, ${boundingBox.getInt(2)}, ${boundingBox.getInt(3)}]
+                                            - Box Width: ${rect.width()}
+                                            - Box Height: ${rect.height()}
+                                            - Box Center: (${rect.centerX()}, ${rect.centerY()})
+                                            - Screenshot Width: ${bitmap.width}
+                                            - Screenshot Height: ${bitmap.height}
+                                            - Screen Width: ${displayMetrics.widthPixels}
+                                            - Screen Height: ${displayMetrics.heightPixels}
+                                            - Screen Density: ${displayMetrics.density}
+                                        """.trimIndent())
+                                    }
 
                                     // Update the highlight
                                     // ButtonHighlightService functionality removed - not available in current version
@@ -210,19 +226,13 @@ object BackendProcessing {
                             // Extract and log buttons information
                             val buttonsArray = jsonObject.optJSONArray("buttons")
                             when (buttonsArray) {
-                                null -> Log.d("ButtonInfo", "No buttons found in the response")
+                                null -> { /* No buttons in response */ }
                                 else -> {
+                                    Log.d("BackendProcessing", "Found ${buttonsArray.length()} buttons in response")
                                     for (i in 0 until buttonsArray.length()) {
                                         val button = buttonsArray.getJSONObject(i)
                                         val buttonName = button.getString("button_name")
-                                        val boundingBox = button.getJSONArray("bounding_box")
-                                        val actions = button.getJSONArray("actions")
-                                        
-                                        Log.d("ButtonInfo", """
-                                            Button: $buttonName
-                                            Bounding Box: [${boundingBox.getInt(0)}, ${boundingBox.getInt(1)}, ${boundingBox.getInt(2)}, ${boundingBox.getInt(3)}]
-                                            Actions: ${actions.join(",")}
-                                        """.trimIndent())
+                                        Log.d("BackendProcessing", "Button: $buttonName")
                                     }
                                 }
                             }

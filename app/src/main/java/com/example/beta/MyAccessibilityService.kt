@@ -15,6 +15,8 @@ import android.view.accessibility.AccessibilityWindowInfo
 class MyAccessibilityService : AccessibilityService() {
 
     private var screenCaptureService: ScreenCaptureService? = null
+    private var lastTreeData: String = ""
+    private var lastAppName: String = ""
     
     // Get the currently active app package
     val activeAppPackage: String?
@@ -24,6 +26,12 @@ class MyAccessibilityService : AccessibilityService() {
             Log.e("MyAccessibilityService", "Error getting active app package: ${e.message}", e)
             null
         }
+
+    // Get the last captured tree data
+    fun getLastTreeData(): String = lastTreeData
+    
+    // Get the last app name
+    fun getLastAppName(): String = lastAppName
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -148,7 +156,6 @@ class MyAccessibilityService : AccessibilityService() {
      * Public method to manually trigger Blinkit tree view (for testing)
      */
     fun showBlinkitTree() {
-        Log.d("MyAccessibilityService", "🔍 MANUALLY TRIGGERING BLINKIT TREE VIEW")
         logBlinkitTree()
     }
 
@@ -257,25 +264,30 @@ class MyAccessibilityService : AccessibilityService() {
     /**
      * Helper method to process the Blinkit tree once we have a valid root node
      */
-    private fun processBlinkitTree(rootNode: AccessibilityNodeInfo) {
-        try {
-            Log.d("MyAccessibilityService", "Checking package name...")
-            val packageName = rootNode.packageName?.toString()
-            Log.d("MyAccessibilityService", "Current package name: $packageName")
+                private fun processBlinkitTree(rootNode: AccessibilityNodeInfo) {
+                try {
+                    val packageName = rootNode.packageName?.toString()
+
+                    if (packageName != "com.grofers.customerapp") {
+                        Log.d("MyAccessibilityService", "Not Blinkit app - current package: $packageName")
+                        return
+                    }
+
+                    Log.d("MyAccessibilityService", "Processing Blinkit tree view")
             
-            if (packageName != "com.grofers.customerapp") {
-                Log.d("MyAccessibilityService", "Not Blinkit app - current package: $packageName")
-                return
-            }
+            // Store app name
+            lastAppName = "Blinkit"
             
-            Log.d("MyAccessibilityService", "Blinkit app detected - proceeding with tree view")
+            // Create a StringBuilder to capture tree data
+            val treeBuilder = StringBuilder()
             
-            Log.d("MyAccessibilityService", "🌳 BLINKIT ACCESSIBILITY TREE")
-            Log.d("MyAccessibilityService", "=" * 50)
+            treeBuilder.append("🌳 BLINKIT ACCESSIBILITY TREE\n")
+            treeBuilder.append("=" * 50).append("\n")
             
             // Log root node info
             Log.d("MyAccessibilityService", "Logging root node info...")
             logNodeInfo(rootNode, 0, "ROOT")
+            appendNodeInfo(treeBuilder, rootNode, 0, "ROOT")
             
             // Get tree summary first
             Log.d("MyAccessibilityService", "Getting tree summary...")
@@ -290,16 +302,32 @@ class MyAccessibilityService : AccessibilityService() {
             Log.d("MyAccessibilityService", "  • Clickable Elements: ${summary.clickableCount}")
             Log.d("MyAccessibilityService", "  • Max Depth: ${summary.maxDepth}")
             
+            // Add summary to tree data
+            treeBuilder.append("📊 TREE SUMMARY:\n")
+            treeBuilder.append("  • Total Nodes: ${summary.totalNodes}\n")
+            treeBuilder.append("  • Buttons: ${summary.buttonCount}\n")
+            treeBuilder.append("  • TextViews: ${summary.textViewCount}\n")
+            treeBuilder.append("  • ImageViews: ${summary.imageViewCount}\n")
+            treeBuilder.append("  • Clickable Elements: ${summary.clickableCount}\n")
+            treeBuilder.append("  • Max Depth: ${summary.maxDepth}\n\n")
+            
             Log.d("MyAccessibilityService", "")
             Log.d("MyAccessibilityService", "🔍 DETAILED TREE STRUCTURE:")
+            treeBuilder.append("🔍 DETAILED TREE STRUCTURE:\n")
             
             // Traverse and log the tree
             Log.d("MyAccessibilityService", "Starting tree traversal...")
             traverseAndLogTree(rootNode, 0)
+            traverseAndAppendTree(treeBuilder, rootNode, 0)
             Log.d("MyAccessibilityService", "Tree traversal completed")
             
-            Log.d("MyAccessibilityService", "=" * 50)
-            Log.d("MyAccessibilityService", "=== TREE VIEW COMPLETED SUCCESSFULLY ===")
+            treeBuilder.append("Tree traversal completed\n")
+            treeBuilder.append("=" * 50).append("\n")
+            treeBuilder.append("=== TREE VIEW COMPLETED SUCCESSFULLY ===\n")
+            
+            // Store the tree data
+            lastTreeData = treeBuilder.toString()
+            Log.d("MyAccessibilityService", "Tree data captured - length: ${lastTreeData.length}")
             
         } catch (e: Exception) {
             Log.e("MyAccessibilityService", "Error processing Blinkit tree: ${e.message}", e)
@@ -437,6 +465,72 @@ class MyAccessibilityService : AccessibilityService() {
     private operator fun String.times(count: Int): String {
         return buildString {
             repeat(count) { append(this@times) }
+        }
+    }
+    
+    /**
+     * Traverses the accessibility tree and appends each node to StringBuilder
+     */
+    private fun traverseAndAppendTree(treeBuilder: StringBuilder, node: AccessibilityNodeInfo, depth: Int) {
+        if (depth > 10) return // Prevent infinite recursion
+        
+        // Append current node
+        appendNodeInfo(treeBuilder, node, depth, "NODE")
+        
+        // Traverse children
+        for (i in 0 until node.childCount) {
+            try {
+                val child = node.getChild(i)
+                if (child != null) {
+                    traverseAndAppendTree(treeBuilder, child, depth + 1)
+                    child.recycle() // Important: recycle child nodes
+                }
+            } catch (e: Exception) {
+                Log.e("MyAccessibilityService", "Error traversing child $i: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * Appends detailed information about a specific node to StringBuilder
+     */
+    private fun appendNodeInfo(treeBuilder: StringBuilder, node: AccessibilityNodeInfo, depth: Int, prefix: String) {
+        val indent = "  ".repeat(depth)
+        
+        try {
+            val className = node.className?.toString() ?: "Unknown"
+            val text = node.text?.toString() ?: ""
+            val contentDesc = node.contentDescription?.toString() ?: ""
+            val viewId = node.viewIdResourceName ?: ""
+            val isClickable = node.isClickable
+            val isEnabled = node.isEnabled
+            val isVisible = node.isVisibleToUser
+            
+            treeBuilder.append("$indent$prefix [$className]\n")
+            
+            if (text.isNotEmpty()) {
+                treeBuilder.append("$indent  📝 Text: \"$text\"\n")
+            }
+            
+            if (contentDesc.isNotEmpty()) {
+                treeBuilder.append("$indent  🏷️  ContentDesc: \"$contentDesc\"\n")
+            }
+            
+            if (viewId.isNotEmpty()) {
+                treeBuilder.append("$indent  🆔 ViewID: $viewId\n")
+            }
+            
+            treeBuilder.append("$indent  ⚡ Clickable: $isClickable, Enabled: $isEnabled, Visible: $isVisible\n")
+            
+            // Append additional properties for important elements
+            if (className.contains("Button") || className.contains("TextView") || className.contains("ImageView")) {
+                val bounds = android.graphics.Rect()
+                node.getBoundsInScreen(bounds)
+                treeBuilder.append("$indent  📍 Bounds: [${bounds.left},${bounds.top}] -> [${bounds.right},${bounds.bottom}]\n")
+            }
+            
+        } catch (e: Exception) {
+            treeBuilder.append("$indent$prefix Error getting node info: ${e.message}\n")
         }
     }
 }
