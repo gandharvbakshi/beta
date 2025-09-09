@@ -38,6 +38,7 @@ object BackendProcessing {
     private var currentInputText: String? = null
     private var currentAppName: String? = null
     private var currentTreeData: String? = null
+    private var actionExecutor: ActionExecutor? = null
     
     // Services removed - not available in current version
 
@@ -74,12 +75,18 @@ object BackendProcessing {
         currentTreeData = treeData
     }
 
-    fun processScreenshotWithInput(context: Context, bitmap: Bitmap, filename: String, inputText: String, appName: String? = null, treeData: String? = null) {
+    fun processScreenshotWithInput(context: Context, bitmap: Bitmap, filename: String, inputText: String, appName: String? = null, treeData: String? = null, accessibilityService: MyAccessibilityService? = null) {
         Log.d("BackendProcessing", "processScreenshotWithInput called with filename: $filename")
         
         // Store the additional data
         currentAppName = appName
         currentTreeData = treeData
+        
+        // Initialize action executor if accessibility service is available
+        if (accessibilityService != null && actionExecutor == null) {
+            actionExecutor = ActionExecutor(accessibilityService)
+            Log.d("BackendProcessing", "ActionExecutor initialized")
+        }
         
         // Log screenshot dimensions
         Log.d("BackendProcessing", "Screenshot dimensions - Width: ${bitmap.width}, Height: ${bitmap.height}")
@@ -157,7 +164,7 @@ object BackendProcessing {
                                 }
                             }
                             
-                            // Extract and handle recommended action (new format)
+                            // Extract and handle recommended action (enhanced format)
                             val recommendedAction = jsonObject.optJSONObject("recommended_action")
                             when (recommendedAction) {
                                 null -> {
@@ -169,57 +176,81 @@ object BackendProcessing {
                                     val actionTarget = recommendedAction.getString("action_target")
                                     val confidenceScore = recommendedAction.getDouble("confidence_score")
                                     val reasoning = recommendedAction.getString("reasoning")
-                                    val boundingBox = recommendedAction.optJSONArray("bounding_box")
+                                    
+                                    // Get bounding box (object format)
+                                    val boundingBox = recommendedAction.optJSONObject("bounding_box")
+                                    val x = boundingBox?.optInt("x", 0) ?: 0
+                                    val y = boundingBox?.optInt("y", 0) ?: 0
+                                    val width = boundingBox?.optInt("width", 0) ?: 0
+                                    val height = boundingBox?.optInt("height", 0) ?: 0
+                                    
+                                    // Get element selector
+                                    val elementSelector = recommendedAction.optJSONObject("element_selector")
+                                    val text = elementSelector?.optString("text", "") ?: ""
+                                    val resourceId = elementSelector?.optString("resource_id", "") ?: ""
+                                    val className = elementSelector?.optString("class_name", "") ?: ""
+                                    val contentDescription = elementSelector?.optString("content_description", "") ?: ""
+                                    val hierarchyPath = elementSelector?.optString("hierarchy_path", "") ?: ""
+                                    
+                                    // Get fallback coordinates
+                                    val fallbackCoordinates = recommendedAction.optJSONObject("fallback_coordinates")
+                                    val fallbackX = fallbackCoordinates?.optInt("x", 0) ?: 0
+                                    val fallbackY = fallbackCoordinates?.optInt("y", 0) ?: 0
+                                    
+                                    Log.d("BackendProcessing", "=== RECOMMENDED ACTION DETAILS ===")
+                                    Log.d("BackendProcessing", "Action Type: $actionType")
+                                    Log.d("BackendProcessing", "Action Target: $actionTarget")
+                                    Log.d("BackendProcessing", "Confidence Score: $confidenceScore")
+                                    Log.d("BackendProcessing", "Reasoning: $reasoning")
+                                    Log.d("BackendProcessing", "Bounding Box: x=$x, y=$y, width=$width, height=$height")
+                                    Log.d("BackendProcessing", "Element Selector:")
+                                    Log.d("BackendProcessing", "  - Text: '$text'")
+                                    Log.d("BackendProcessing", "  - Resource ID: '$resourceId'")
+                                    Log.d("BackendProcessing", "  - Class Name: '$className'")
+                                    Log.d("BackendProcessing", "  - Content Description: '$contentDescription'")
+                                    Log.d("BackendProcessing", "  - Hierarchy Path: '$hierarchyPath'")
+                                    Log.d("BackendProcessing", "Fallback Coordinates: x=$fallbackX, y=$fallbackY")
+                                    Log.d("BackendProcessing", "=== END RECOMMENDED ACTION ===")
+                                    
+                                    // Get display metrics for screen information
+                                    val displayMetrics = DisplayMetrics()
+                                    val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                        val windowMetrics = windowManager.currentWindowMetrics
+                                        val bounds = windowMetrics.bounds
+                                        displayMetrics.widthPixels = bounds.width()
+                                        displayMetrics.heightPixels = bounds.height()
+                                        displayMetrics.density = context.resources.displayMetrics.density
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        windowManager.defaultDisplay.getMetrics(displayMetrics)
+                                    }
                                     
                                     Log.d("BackendProcessing", """
-                                        Action Recommendation Details:
-                                        - Action Type: $actionType
-                                        - Action Target: $actionTarget
-                                        - Confidence: $confidenceScore
-                                        - Reasoning: $reasoning
+                                        Screen Information:
+                                        - Screenshot Width: ${bitmap.width}
+                                        - Screenshot Height: ${bitmap.height}
+                                        - Screen Width: ${displayMetrics.widthPixels}
+                                        - Screen Height: ${displayMetrics.heightPixels}
+                                        - Screen Density: ${displayMetrics.density}
                                     """.trimIndent())
-                                    
-                                    // Log bounding box if available
-                                    if (boundingBox != null) {
-                                        val rect = Rect(
-                                            boundingBox.getInt(0),
-                                            boundingBox.getInt(1),
-                                            boundingBox.getInt(2),
-                                            boundingBox.getInt(3)
-                                        )
-                                        
-                                                                                 // Get display metrics for screen information
-                                         val displayMetrics = DisplayMetrics()
-                                         val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                             val windowMetrics = windowManager.currentWindowMetrics
-                                             val bounds = windowMetrics.bounds
-                                             displayMetrics.widthPixels = bounds.width()
-                                             displayMetrics.heightPixels = bounds.height()
-                                             displayMetrics.density = context.resources.displayMetrics.density
-                                         } else {
-                                             @Suppress("DEPRECATION")
-                                             windowManager.defaultDisplay.getMetrics(displayMetrics)
-                                         }
-                                        
-                                        Log.d("BackendProcessing", """
-                                            - Raw Bounding Box: [${boundingBox.getInt(0)}, ${boundingBox.getInt(1)}, ${boundingBox.getInt(2)}, ${boundingBox.getInt(3)}]
-                                            - Box Width: ${rect.width()}
-                                            - Box Height: ${rect.height()}
-                                            - Box Center: (${rect.centerX()}, ${rect.centerY()})
-                                            - Screenshot Width: ${bitmap.width}
-                                            - Screenshot Height: ${bitmap.height}
-                                            - Screen Width: ${displayMetrics.widthPixels}
-                                            - Screen Height: ${displayMetrics.heightPixels}
-                                            - Screen Density: ${displayMetrics.density}
-                                        """.trimIndent())
-                                    }
 
-                                    // Update the highlight
-                                    // ButtonHighlightService functionality removed - not available in current version
-                                    
-                                    // Execute automated action based on the recommendation
-                                    // AutomatedActionService functionality removed - not available in current version
+                                    // Execute the recommended action
+                                    if (actionExecutor != null) {
+                                        Log.d("BackendProcessing", "Executing recommended action...")
+                                        val actionSuccess = actionExecutor!!.executeAction(recommendedAction)
+                                        Log.d("BackendProcessing", "Action execution result: $actionSuccess")
+                                        
+                                        if (actionSuccess) {
+                                            Log.d("BackendProcessing", "✅ Action executed successfully!")
+                                            // Add a delay to allow UI to respond to the action
+                                            Thread.sleep(1000)
+                                        } else {
+                                            Log.w("BackendProcessing", "❌ Action execution failed")
+                                        }
+                                    } else {
+                                        Log.w("BackendProcessing", "ActionExecutor not available - cannot execute action")
+                                    }
                                 }
                             }
                             

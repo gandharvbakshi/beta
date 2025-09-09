@@ -839,7 +839,8 @@ class ScreenCaptureService : Service() {
                     filename, 
                     inputTextForProcessing,
                     currentAppName,
-                    currentTreeData
+                    currentTreeData,
+                    (application as? MyApplication)?.getAccessibilityService()
                 )
                 currentInputText = null // Clear the input text after processing
                 currentTreeData = null // Clear the tree data after processing
@@ -942,7 +943,8 @@ class ScreenCaptureService : Service() {
                     filename, 
                     inputTextForProcessing,
                     currentAppName,
-                    currentTreeData
+                    currentTreeData,
+                    (application as? MyApplication)?.getAccessibilityService()
                 )
                 currentInputText = null // Clear the input text after processing
                 currentTreeData = null // Clear the tree data after processing
