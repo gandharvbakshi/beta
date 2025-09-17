@@ -61,9 +61,14 @@ class ScreenCaptureService : Service() {
     private var accessibilityService: MyAccessibilityService? = null
     private var currentInputText: String? = null
     private var pendingScreenshot = false
+    private var screenshotEnabled = false // Only take screenshots when explicitly enabled
     private var overlayBounds: android.graphics.Rect? = null
     private var currentTreeData: String? = null
     private var currentAppName: String? = null
+    
+    // Sequential action support
+    private var isActionSequenceActive: Boolean = false
+    private var originalInputText: String? = null
 
     // Check if running on emulator
     private fun isEmulator(): Boolean {
@@ -129,7 +134,12 @@ class ScreenCaptureService : Service() {
                 inputReceiver,
                 IntentFilter("com.example.beta.INPUT_RECEIVED")
             )
-            Log.d("ScreenCaptureService", "Emulator receiver registered successfully")
+            // Register receiver for next action trigger
+            LocalBroadcastManager.getInstance(this).registerReceiver(
+                nextActionReceiver,
+                IntentFilter("com.example.beta.TRIGGER_NEXT_ACTION")
+            )
+            Log.d("ScreenCaptureService", "🔍 DEBUG: Emulator broadcast receivers registered successfully")
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error registering emulator receiver: ${e.message}", e)
         }
@@ -261,6 +271,21 @@ class ScreenCaptureService : Service() {
                     inputReceiver,
                     IntentFilter("com.example.beta.INPUT_RECEIVED")
                 )
+                // Register receiver for next action trigger
+                LocalBroadcastManager.getInstance(this).registerReceiver(
+                    nextActionReceiver,
+                    IntentFilter("com.example.beta.TRIGGER_NEXT_ACTION")
+                )
+                Log.d("ScreenCaptureService", "🔍 DEBUG: Broadcast receivers registered successfully")
+                
+                // Commented out: test broadcast that could inadvertently seed sequences with "test"
+                // Keeping disabled to avoid unintended backend pings and input_text contamination.
+                // If needed for local debugging, guard with BuildConfig.DEBUG and ensure receiver ignores action_number==999.
+                // val testIntent = android.content.Intent("com.example.beta.TRIGGER_NEXT_ACTION")
+                // testIntent.putExtra("original_input", "test")
+                // testIntent.putExtra("action_number", 999)
+                // LocalBroadcastManager.getInstance(this).sendBroadcast(testIntent)
+                // Log.d("ScreenCaptureService", "🔍 DEBUG: Test broadcast sent to verify receiver")
             }
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error in onCreate: ${e.message}", e)
@@ -273,7 +298,28 @@ class ScreenCaptureService : Service() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == "com.example.beta.INPUT_RECEIVED") {
                 currentInputText = intent.getStringExtra("input_text")
-                Log.d("ScreenCaptureService", "Received input text: $currentInputText")
+                // Log.d("ScreenCaptureService", "Received input text: $currentInputText")
+            }
+        }
+    }
+    
+    private val nextActionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            Log.d("ScreenCaptureService", "🔍 DEBUG: Broadcast received - Action: '${intent?.action}', Intent: ${intent}")
+            
+            if (intent?.action == "com.example.beta.TRIGGER_NEXT_ACTION") {
+                val originalInput = intent.getStringExtra("original_input")
+                val actionNumber = intent.getIntExtra("action_number", 0)
+                Log.d("ScreenCaptureService", "🔍 DEBUG: Received next action trigger - Action #$actionNumber for: '$originalInput'")
+                
+                if (originalInput != null) {
+                    Log.d("ScreenCaptureService", "🔍 DEBUG: Triggering next action in sequence...")
+                    triggerNextActionInSequence(originalInput, actionNumber)
+                } else {
+                    Log.w("ScreenCaptureService", "🔍 DEBUG: Original input is null, cannot trigger next action")
+                }
+            } else {
+                Log.d("ScreenCaptureService", "🔍 DEBUG: Broadcast received but not for TRIGGER_NEXT_ACTION: ${intent?.action}")
             }
         }
     }
@@ -830,9 +876,14 @@ class ScreenCaptureService : Service() {
                 (application as? MyApplication)?.saveScreenshot(bitmap)
                 
                             // Process with input text if available
-            val inputTextForProcessing = currentInputText
+            val inputTextForProcessing = if (isActionSequenceActive && originalInputText != null) {
+                originalInputText // Use original input for sequential actions
+            } else {
+                currentInputText // Use current input for single actions
+            }
+            
             if (inputTextForProcessing != null) {
-                Log.d("ScreenCaptureService", "Processing emulator screenshot with input text: $inputTextForProcessing")
+                // Log.d("ScreenCaptureService", "Processing emulator screenshot with input text: $inputTextForProcessing (sequence: $isActionSequenceActive)")
                 BackendProcessing.processScreenshotWithInput(
                     this, 
                     bitmap, 
@@ -842,12 +893,21 @@ class ScreenCaptureService : Service() {
                     currentTreeData,
                     (application as? MyApplication)?.getAccessibilityService()
                 )
-                currentInputText = null // Clear the input text after processing
-                currentTreeData = null // Clear the tree data after processing
-                currentAppName = null // Clear the app name after processing
+                
+                // Only clear data if not in a sequence
+                if (!isActionSequenceActive) {
+                    currentInputText = null // Clear the input text after processing
+                    currentTreeData = null // Clear the tree data after processing
+                    currentAppName = null // Clear the app name after processing
+                }
+                
+                // Disable screenshots after processing
+                disableScreenshots()
             } else {
-                Log.d("ScreenCaptureService", "No input text available for emulator screenshot, using default processing with app: $currentAppName, treeData length: ${currentTreeData?.length ?: 0}")
+                // Log.d("ScreenCaptureService", "No input text available for emulator screenshot, using default processing with app: $currentAppName, treeData length: ${currentTreeData?.length ?: 0}")
                 BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename, currentAppName, currentTreeData)
+                // Disable screenshots after processing
+                disableScreenshots()
             }
                 
                 // Restore overlay visibility after screenshot processing (on main thread)
@@ -934,9 +994,14 @@ class ScreenCaptureService : Service() {
             (application as? MyApplication)?.saveScreenshot(bitmap)
             
             // Process with input text if available
-            val inputTextForProcessing = currentInputText
+            val inputTextForProcessing = if (isActionSequenceActive && originalInputText != null) {
+                originalInputText // Use original input for sequential actions
+            } else {
+                currentInputText // Use current input for single actions
+            }
+            
             if (inputTextForProcessing != null) {
-                Log.d("ScreenCaptureService", "Processing screenshot with input text: $inputTextForProcessing")
+                // Log.d("ScreenCaptureService", "Processing screenshot with input text: $inputTextForProcessing (sequence: $isActionSequenceActive)")
                 BackendProcessing.processScreenshotWithInput(
                     this, 
                     bitmap, 
@@ -946,12 +1011,21 @@ class ScreenCaptureService : Service() {
                     currentTreeData,
                     (application as? MyApplication)?.getAccessibilityService()
                 )
-                currentInputText = null // Clear the input text after processing
-                currentTreeData = null // Clear the tree data after processing
-                currentAppName = null // Clear the app name after processing
+                
+                // Only clear data if not in a sequence
+                if (!isActionSequenceActive) {
+                    currentInputText = null // Clear the input text after processing
+                    currentTreeData = null // Clear the tree data after processing
+                    currentAppName = null // Clear the app name after processing
+                }
+                
+                // Disable screenshots after processing
+                disableScreenshots()
             } else {
-                Log.d("ScreenCaptureService", "No input text available, using default processing with app: $currentAppName, treeData length: ${currentTreeData?.length ?: 0}")
+                // Log.d("ScreenCaptureService", "No input text available, using default processing with app: $currentAppName, treeData length: ${currentTreeData?.length ?: 0}")
                 BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename, currentAppName, currentTreeData)
+                // Disable screenshots after processing
+                disableScreenshots()
             }
             
             // Restore overlay visibility after screenshot processing (on main thread)
@@ -1319,23 +1393,67 @@ class ScreenCaptureService : Service() {
     }
     
     private fun submitInstruction(inputText: String) {
-        Log.d("ScreenCaptureService", "submitInstruction called with: '$inputText'")
+        // Log.d("ScreenCaptureService", "submitInstruction called with: '$inputText'")
         
         if (inputText.isNotEmpty()) {
             currentInputText = inputText
             
-            // Hide input overlay first
-            if (isEmulator()) {
-                hideEmulatorInputOverlay()
-            } else {
-                hideInputOverlay()
-            }
+            // Capture tree data first before starting sequence
+            val myApp = application as? MyApplication
+            val accessibilityService = myApp?.getAccessibilityService()
             
-            // Update main overlay text to show current instruction
-            if (isEmulator()) {
-                updateEmulatorOverlayText("Processing: $inputText")
+            if (accessibilityService != null) {
+                // Capture current tree data and app name
+                accessibilityService.showBlinkitTree()
+                
+                // Wait for tree data to be captured
+                Handler(Looper.getMainLooper()).postDelayed({
+                    val treeData = accessibilityService.getLastTreeData()
+                    val appName = accessibilityService.getLastAppName()
+                    
+                    // Store the data for backend processing
+                    currentTreeData = treeData
+                    currentAppName = appName
+                    
+                    Log.d("ScreenCaptureService", "📤 CAPTURED DATA - Tree length: ${treeData.length}, App: $appName")
+                    
+                    // Start the action sequence with captured data
+                    BackendProcessing.startActionSequence(this, inputText, accessibilityService)
+                    
+                    // Hide input overlay
+                    if (isEmulator()) {
+                        hideEmulatorInputOverlay()
+                    } else {
+                        hideInputOverlay()
+                    }
+                    
+                    // Update main overlay text to show current instruction
+                    if (isEmulator()) {
+                        updateEmulatorOverlayText("Processing: $inputText")
+                    } else {
+                        updateOverlayText("Processing: $inputText")
+                    }
+                    
+                }, 800) // Wait 800ms for tree data to be captured
+                
             } else {
-                updateOverlayText("Processing: $inputText")
+                // Fallback: start sequence without tree data if accessibility service not available
+                Log.w("ScreenCaptureService", "Accessibility service not available, starting sequence without tree data")
+                BackendProcessing.startActionSequence(this, inputText, null)
+                
+                // Hide input overlay
+                if (isEmulator()) {
+                    hideEmulatorInputOverlay()
+                } else {
+                    hideInputOverlay()
+                }
+                
+                // Update main overlay text to show current instruction
+                if (isEmulator()) {
+                    updateEmulatorOverlayText("Processing: $inputText")
+                } else {
+                    updateOverlayText("Processing: $inputText")
+                }
             }
             
             // Broadcast the input text
@@ -1343,53 +1461,116 @@ class ScreenCaptureService : Service() {
             intent.putExtra("input_text", inputText)
             LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
             
-            // Wait for overlay to be hidden, then trigger tree view
+            // Tree data is already captured above, now just trigger screenshot
             Handler(Looper.getMainLooper()).postDelayed({
                 try {
-                    val myApp = application as? MyApplication
-                    val accessibilityService = myApp?.getAccessibilityService()
-                    
-                    if (accessibilityService != null) {
-                        accessibilityService.showBlinkitTree()
-                        
-                        // Wait for tree data to be captured, then trigger screenshot
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            // Get the captured tree data and app name
-                            val treeData = accessibilityService.getLastTreeData()
-                            val appName = accessibilityService.getLastAppName()
-                            
-                            Log.d("ScreenCaptureService", "Tree data captured - length: ${treeData.length}, app: $appName")
-                            
-                            // Store the data for backend processing
-                            currentTreeData = treeData
-                            currentAppName = appName
-                            
-                            // Now trigger screenshot with tree data ready
-                            pendingScreenshot = true
-                            triggerScreenshot()
-                            
-                        }, 800) // Wait 800ms for tree data to be captured
-                        
-                    } else {
-                        Log.w("ScreenCaptureService", "Accessibility service not available for tree view")
-                        // Fallback: trigger screenshot without tree data
-                        pendingScreenshot = true
-                        triggerScreenshot()
-                    }
+                    // Enable screenshots and trigger capture
+                    enableScreenshots()
+                    pendingScreenshot = true
+                    triggerScreenshot()
                 } catch (e: Exception) {
-                    Log.e("ScreenCaptureService", "Error triggering Blinkit tree view: ${e.message}", e)
+                    Log.e("ScreenCaptureService", "Error triggering screenshot: ${e.message}", e)
                     e.printStackTrace()
                     // Fallback: trigger screenshot without tree data
+                    enableScreenshots()
                     pendingScreenshot = true
                     triggerScreenshot()
                 }
                 
             }, 500) // 500ms delay to ensure overlay is hidden
         } else {
-            Log.w("ScreenCaptureService", "submitInstruction called with empty text")
+            // Log.w("ScreenCaptureService", "submitInstruction called with empty text")
         }
         
-        Log.d("ScreenCaptureService", "=== FINISHED SUBMIT INSTRUCTION PROCESS ===")
+        // Log.d("ScreenCaptureService", "=== FINISHED SUBMIT INSTRUCTION PROCESS ===")
+    }
+    
+    private fun triggerNextActionInSequence(originalInput: String, actionNumber: Int) {
+        // Log.d("ScreenCaptureService", "Triggering next action #$actionNumber in sequence for: '$originalInput'")
+        
+        // Store the original input for this sequence
+        originalInputText = originalInput
+        isActionSequenceActive = true
+        
+        // Update overlay to show current action
+        if (isEmulator()) {
+            updateEmulatorOverlayText("Action #$actionNumber: $originalInput")
+        } else {
+            updateOverlayText("Action #$actionNumber: $originalInput")
+        }
+        
+        // Trigger the same sequence as submitInstruction but for the next action
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                val myApp = application as? MyApplication
+                val accessibilityService = myApp?.getAccessibilityService()
+                
+                if (accessibilityService != null) {
+                    accessibilityService.showBlinkitTree()
+                    
+                    // Wait for tree data to be captured, then trigger screenshot
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        // Get the captured tree data and app name
+                        val treeData = accessibilityService.getLastTreeData()
+                        val appName = accessibilityService.getLastAppName()
+                        
+                        // Log.d("ScreenCaptureService", "Next action tree data captured - length: ${treeData.length}, app: $appName")
+                        
+                        // Store the data for backend processing
+                        currentTreeData = treeData
+                        currentAppName = appName
+                        
+                        // Now trigger screenshot with tree data ready
+                        enableScreenshots()
+                        pendingScreenshot = true
+                        triggerScreenshot()
+                        
+                    }, 800) // Wait 800ms for tree data to be captured
+                    
+                } else {
+                    // Log.w("ScreenCaptureService", "Accessibility service not available for next action")
+                    // Fallback: trigger screenshot without tree data
+                    enableScreenshots()
+                    pendingScreenshot = true
+                    triggerScreenshot()
+                }
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error triggering next action tree view: ${e.message}", e)
+                e.printStackTrace()
+                // Fallback: trigger screenshot without tree data
+                enableScreenshots()
+                pendingScreenshot = true
+                triggerScreenshot()
+            }
+            
+        }, 500) // 500ms delay to ensure UI is ready
+    }
+    
+    fun stopActionSequence() {
+        // Log.d("ScreenCaptureService", "Stopping action sequence")
+        isActionSequenceActive = false
+        originalInputText = null
+        BackendProcessing.stopActionSequence()
+    }
+    
+    fun enableScreenshots() {
+        screenshotEnabled = true
+        Log.d("ScreenCaptureService", "🔍 DEBUG: Screenshots enabled")
+    }
+    
+    fun disableScreenshots() {
+        screenshotEnabled = false
+        Log.d("ScreenCaptureService", "🔍 DEBUG: Screenshots disabled")
+    }
+    
+    fun isScreenshotEnabled(): Boolean {
+        return screenshotEnabled
+    }
+    
+    fun storeTreeData(treeData: String, appName: String) {
+        currentTreeData = treeData
+        currentAppName = appName
+        Log.d("ScreenCaptureService", "📤 STORED DATA - Tree length: ${treeData.length}, App: $appName")
     }
     
     private fun hideInputOverlay() {
@@ -1788,6 +1969,7 @@ class ScreenCaptureService : Service() {
     private fun unregisterEmulatorReceiver() {
         try {
             LocalBroadcastManager.getInstance(this).unregisterReceiver(inputReceiver)
+            LocalBroadcastManager.getInstance(this).unregisterReceiver(nextActionReceiver)
             Log.d("ScreenCaptureService", "Emulator receiver unregistered successfully")
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error unregistering emulator receiver: ${e.message}", e)
@@ -1804,7 +1986,13 @@ class ScreenCaptureService : Service() {
                 cleanupEmulatorService()
             } else {
                 // Standard cleanup
-                unregisterEmulatorReceiver()
+                try {
+                    LocalBroadcastManager.getInstance(this).unregisterReceiver(inputReceiver)
+                    LocalBroadcastManager.getInstance(this).unregisterReceiver(nextActionReceiver)
+                    Log.d("ScreenCaptureService", "Receivers unregistered successfully")
+                } catch (e: Exception) {
+                    Log.e("ScreenCaptureService", "Error unregistering receivers: ${e.message}", e)
+                }
                 stopCapture() // Ensure all resources are released
                 
                 // Remove overlay window
@@ -1860,6 +2048,11 @@ class ScreenCaptureService : Service() {
 
     // Add method to trigger screenshot manually
     fun triggerScreenshot() {
+        if (!screenshotEnabled) {
+            // Log.d("ScreenCaptureService", "Screenshot disabled, not taking screenshot")
+            return
+        }
+        
         if (!isCapturing) {
             Log.e("ScreenCaptureService", "Cannot trigger screenshot: Service not capturing")
             return

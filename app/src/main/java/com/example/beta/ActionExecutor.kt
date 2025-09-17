@@ -30,7 +30,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return try {
             val actionType = recommendedAction.getString("action_type")
             val actionTarget = recommendedAction.getString("action_target")
-            val confidenceScore = recommendedAction.getDouble("confidence_score")
+            val confidenceScore = recommendedAction.getDouble("confidence")
             
             Log.d(TAG, "Executing action: $actionType on $actionTarget (confidence: $confidenceScore)")
             
@@ -105,11 +105,20 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 Log.d(TAG, "Focus + click result: $success")
             }
             
+            // Strategy 4: If still failed, try coordinate-based clicking
+            if (!success) {
+                Log.d(TAG, "All accessibility clicks failed, trying coordinate-based click")
+                success = performClickByCoordinates(recommendedAction)
+                Log.d(TAG, "Coordinate click result: $success")
+            }
+            
             Log.d(TAG, "Final click action result: $success")
             success
         } else {
             Log.w(TAG, "Target element not found, trying fallback coordinates")
-            performClickByCoordinates(recommendedAction)
+            val coordinateSuccess = performClickByCoordinates(recommendedAction)
+            Log.d(TAG, "Fallback coordinate click result: $coordinateSuccess")
+            return coordinateSuccess
         }
     }
     
@@ -117,14 +126,89 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         Log.d(TAG, "Attempting to perform scroll action")
         
         val targetNode = findTargetElement(recommendedAction)
-        return if (targetNode != null) {
-            val success = targetNode.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-            Log.d(TAG, "Scroll action result: $success")
-            success
-        } else {
+        if (targetNode == null) {
             Log.w(TAG, "Target element not found for scroll")
-            false
+            return false
         }
+        
+        // Check if the node is scrollable
+        Log.d(TAG, "Target element scrollable check: ${targetNode.isScrollable}")
+        Log.d(TAG, "Target element scroll actions available: ${targetNode.actionList}")
+        
+        if (!targetNode.isScrollable) {
+            Log.w(TAG, "Target element is not scrollable, but trying scroll actions anyway")
+        }
+        
+        // Try different scroll actions
+        val scrollActions = listOf(
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD,
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        )
+        
+        for (action in scrollActions) {
+            val actionName = when (action) {
+                AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> "SCROLL_FORWARD"
+                AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> "SCROLL_BACKWARD"
+                else -> "UNKNOWN"
+            }
+            
+            Log.d(TAG, "Trying scroll action: $actionName")
+            val success = targetNode.performAction(action)
+            Log.d(TAG, "Scroll action $actionName result: $success")
+            
+            if (success) {
+                Log.d(TAG, "Scroll action succeeded with $actionName")
+                return true
+            }
+        }
+        
+        Log.w(TAG, "All accessibility scroll actions failed, trying gesture scroll")
+        
+        // Fallback: Try gesture-based scrolling
+        return performGestureScroll(recommendedAction)
+    }
+    
+    private fun performGestureScroll(recommendedAction: JSONObject): Boolean {
+        Log.d(TAG, "Attempting gesture-based scroll")
+        
+        val targetNode = findTargetElement(recommendedAction)
+        if (targetNode == null) {
+            Log.w(TAG, "Target element not found for gesture scroll")
+            return false
+        }
+        
+        // Get the bounds of the scrollable element
+        val bounds = android.graphics.Rect()
+        targetNode.getBoundsInScreen(bounds)
+        
+        if (bounds.isEmpty) {
+            Log.w(TAG, "Target element has empty bounds")
+            return false
+        }
+        
+        // Create a vertical scroll gesture (swipe up to scroll down)
+        val path = android.graphics.Path()
+        val startY = bounds.centerY() + bounds.height() / 4
+        val endY = bounds.centerY() - bounds.height() / 4
+        val centerX = bounds.centerX()
+        
+        path.moveTo(centerX.toFloat(), startY.toFloat())
+        path.lineTo(centerX.toFloat(), endY.toFloat())
+        
+        val gestureBuilder = android.accessibilityservice.GestureDescription.Builder()
+        gestureBuilder.addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 500))
+        
+        val gesture = gestureBuilder.build()
+        
+        return accessibilityService.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                Log.d(TAG, "Gesture scroll completed successfully")
+            }
+            
+            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                Log.w(TAG, "Gesture scroll was cancelled")
+            }
+        }, null)
     }
     
     private fun performType(recommendedAction: JSONObject): Boolean {
@@ -199,7 +283,57 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             return null
         }
         
-        // Try multiple methods to find the element
+        // First try to parse action_target text for element information
+        val actionTarget = recommendedAction.optString("action_target", "")
+        if (actionTarget.isNotEmpty()) {
+            Log.d(TAG, "Parsing action target: '$actionTarget'")
+            
+            // Try to extract content description from the action target
+            val contentDescPattern = "contentDescription='([^']+)'".toRegex()
+            val contentDescMatch = contentDescPattern.find(actionTarget)
+            if (contentDescMatch != null) {
+                val contentDesc = contentDescMatch.groupValues[1]
+                Log.d(TAG, "Extracted content description: '$contentDesc'")
+                val nodeByDesc = findNodeByContentDescription(rootNode, contentDesc)
+                if (nodeByDesc != null) {
+                    Log.d(TAG, "Found element by extracted content description: '$contentDesc'")
+                    return nodeByDesc
+                }
+            }
+            
+            // Try to extract resource ID from the action target
+            val resourceIdPattern = "id/([^;\\s]+)".toRegex()
+            val resourceIdMatch = resourceIdPattern.find(actionTarget)
+            if (resourceIdMatch != null) {
+                val resourceId = "com.grofers.customerapp:id/${resourceIdMatch.groupValues[1]}"
+                Log.d(TAG, "Extracted resource ID: '$resourceId'")
+                val nodeById = findNodeByResourceId(rootNode, resourceId)
+                if (nodeById != null) {
+                    Log.d(TAG, "Found element by extracted resource ID: '$resourceId'")
+                    return nodeById
+                }
+            }
+            
+            // Try to find by simple text matching
+            if (actionTarget.contains("Categories", ignoreCase = true)) {
+                Log.d(TAG, "Searching for 'Categories' element")
+                val nodeByText = findNodeByContentDescription(rootNode, "Categories")
+                if (nodeByText != null) {
+                    Log.d(TAG, "Found element by text 'Categories'")
+                    // Try to find clickable parent if the found element is not clickable
+                    if (!nodeByText.isClickable) {
+                        val clickableParent = findClickableParent(nodeByText)
+                        if (clickableParent != null) {
+                            Log.d(TAG, "Found clickable parent for Categories element")
+                            return clickableParent
+                        }
+                    }
+                    return nodeByText
+                }
+            }
+        }
+        
+        // Try multiple methods to find the element using element_selector (legacy format)
         val elementSelector = recommendedAction.optJSONObject("element_selector")
         if (elementSelector != null) {
             // Method 1: Try by text content
@@ -212,33 +346,42 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 }
             }
             
-            // Method 2: Try by content description
+            // Method 2: Try by content description (prioritize this over class name)
             val contentDescription = elementSelector.optString("content_description", "")
             if (contentDescription.isNotEmpty()) {
+                Log.d(TAG, "Searching by content description: '$contentDescription'")
                 val nodeByDesc = findNodeByContentDescription(rootNode, contentDescription)
                 if (nodeByDesc != null) {
                     Log.d(TAG, "Found element by content description: '$contentDescription'")
                     return nodeByDesc
+                } else {
+                    Log.d(TAG, "No element found with content description: '$contentDescription'")
                 }
             }
             
             // Method 3: Try by resource ID
             val resourceId = elementSelector.optString("resource_id", "")
             if (resourceId.isNotEmpty()) {
+                Log.d(TAG, "Searching by resource ID: '$resourceId'")
                 val nodeById = findNodeByResourceId(rootNode, resourceId)
                 if (nodeById != null) {
                     Log.d(TAG, "Found element by resource ID: '$resourceId'")
                     return nodeById
+                } else {
+                    Log.d(TAG, "No element found with resource ID: '$resourceId'")
                 }
             }
             
-            // Method 4: Try by class name
+            // Method 4: Try by class name (last resort)
             val className = elementSelector.optString("class_name", "")
             if (className.isNotEmpty()) {
+                Log.d(TAG, "Searching by class name: '$className'")
                 val nodeByClass = findNodeByClassName(rootNode, className)
                 if (nodeByClass != null) {
                     Log.d(TAG, "Found element by class name: '$className'")
                     return nodeByClass
+                } else {
+                    Log.d(TAG, "No element found with class name: '$className'")
                 }
             }
         }
@@ -330,10 +473,13 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     private fun performClickByCoordinates(recommendedAction: JSONObject): Boolean {
         Log.d(TAG, "Attempting click by coordinates")
         
-        val fallbackCoordinates = recommendedAction.optJSONObject("fallback_coordinates")
-        if (fallbackCoordinates != null) {
-            val x = fallbackCoordinates.optInt("x", 0)
-            val y = fallbackCoordinates.optInt("y", 0)
+        // Try both 'coordinates' (backend format) and 'fallback_coordinates' (legacy format)
+        val coordinates = recommendedAction.optJSONObject("coordinates") 
+            ?: recommendedAction.optJSONObject("fallback_coordinates")
+        
+        if (coordinates != null) {
+            val x = coordinates.optInt("x", 0)
+            val y = coordinates.optInt("y", 0)
             
             Log.d(TAG, "Clicking at coordinates: ($x, $y)")
             

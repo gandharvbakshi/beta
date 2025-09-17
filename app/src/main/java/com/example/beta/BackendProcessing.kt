@@ -3,6 +3,7 @@ package com.example.beta
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
@@ -40,6 +41,16 @@ object BackendProcessing {
     private var currentTreeData: String? = null
     private var actionExecutor: ActionExecutor? = null
     
+    // Sequential action tracking
+    private var currentActionNumber: Int = 0
+    private var maxActions: Int = 5 // Safety limit
+    private var isActionSequenceActive: Boolean = false
+    private var originalInputText: String? = null
+    private var sequenceContext: Context? = null
+    
+    // Historical context tracking
+    private val actionHistory = mutableListOf<JSONObject>()
+    
     // Services removed - not available in current version
 
     private fun provideOkHttpClient(): OkHttpClient {
@@ -62,7 +73,8 @@ object BackendProcessing {
             })
             .connectTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(120, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
+            .readTimeout(300, TimeUnit.SECONDS)
+            .callTimeout(300, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
     }
@@ -75,8 +87,108 @@ object BackendProcessing {
         currentTreeData = treeData
     }
 
+    fun startActionSequence(context: Context, inputText: String, accessibilityService: MyAccessibilityService? = null) {
+        // Log.d("BackendProcessing", "Starting action sequence for: '$inputText'")
+        
+        // Reset sequence tracking
+        currentActionNumber = 0
+        isActionSequenceActive = true
+        originalInputText = inputText
+        sequenceContext = context
+        actionHistory.clear() // Reset history for new sequence
+        
+        // Initialize action executor if accessibility service is available
+        if (accessibilityService != null && actionExecutor == null) {
+            actionExecutor = ActionExecutor(accessibilityService)
+            // Log.d("BackendProcessing", "ActionExecutor initialized for sequence")
+        }
+        
+        // Log.d("BackendProcessing", "Action sequence initialized - Action #${currentActionNumber + 1}/$maxActions")
+    }
+    
+    fun stopActionSequence() {
+        // Log.d("BackendProcessing", "Stopping action sequence")
+        isActionSequenceActive = false
+        currentActionNumber = 0
+        originalInputText = null
+        sequenceContext = null
+    }
+    
+    fun isSequenceActive(): Boolean {
+        return isActionSequenceActive
+    }
+    
+    fun getCurrentActionNumber(): Int {
+        return currentActionNumber
+    }
+    
+    fun getMaxActions(): Int {
+        return maxActions
+    }
+    
+    private fun triggerNextAction() {
+        Log.d("BackendProcessing", "🔍 DEBUG: triggerNextAction called")
+        Log.d("BackendProcessing", "🔍 DEBUG: isActionSequenceActive=$isActionSequenceActive, sequenceContext=${sequenceContext != null}, originalInputText=$originalInputText")
+        
+        if (!isActionSequenceActive || sequenceContext == null || originalInputText == null) {
+            Log.w("BackendProcessing", "🔍 DEBUG: Cannot trigger next action - sequence not active or missing data")
+            return
+        }
+        
+        if (currentActionNumber >= maxActions) {
+            Log.w("BackendProcessing", "🔍 DEBUG: Maximum actions reached ($maxActions), stopping sequence")
+            stopActionSequence()
+            return
+        }
+        
+        Log.d("BackendProcessing", "🔍 DEBUG: Triggering next action #${currentActionNumber + 1} in sequence")
+        
+        // Wait a bit for UI to stabilize after the previous action
+        Thread {
+            try {
+                Thread.sleep(1500) // Wait 1.5 seconds for UI to respond
+                
+                // Double-check that sequence is still active after delay
+                if (!isActionSequenceActive) {
+                    Log.w("BackendProcessing", "🔍 DEBUG: Sequence was stopped during delay, aborting next action")
+                    return@Thread
+                }
+                
+                // Trigger the next screenshot and tree capture sequence
+                val intent = android.content.Intent("com.example.beta.TRIGGER_NEXT_ACTION")
+                intent.putExtra("original_input", originalInputText)
+                intent.putExtra("action_number", currentActionNumber + 1)
+                
+                Log.d("BackendProcessing", "🔍 DEBUG: About to send broadcast with:")
+                Log.d("BackendProcessing", "🔍 DEBUG: - Action: com.example.beta.TRIGGER_NEXT_ACTION")
+                Log.d("BackendProcessing", "🔍 DEBUG: - Original input: '$originalInputText'")
+                Log.d("BackendProcessing", "🔍 DEBUG: - Action number: ${currentActionNumber + 1}")
+                Log.d("BackendProcessing", "🔍 DEBUG: - Context: ${sequenceContext?.javaClass?.simpleName}")
+                
+                // Try both local and global broadcast
+                try {
+                    sequenceContext?.sendBroadcast(intent)
+                    Log.d("BackendProcessing", "🔍 DEBUG: Global broadcast sent successfully")
+                } catch (e: Exception) {
+                    Log.e("BackendProcessing", "🔍 DEBUG: Global broadcast failed: ${e.message}")
+                }
+                
+                // Also try local broadcast
+                try {
+                    LocalBroadcastManager.getInstance(sequenceContext!!).sendBroadcast(intent)
+                    Log.d("BackendProcessing", "🔍 DEBUG: Local broadcast sent successfully")
+                } catch (e: Exception) {
+                    Log.e("BackendProcessing", "🔍 DEBUG: Local broadcast failed: ${e.message}")
+                }
+            } catch (e: Exception) {
+                Log.e("BackendProcessing", "Error triggering next action: ${e.message}", e)
+                stopActionSequence() // Stop sequence on error
+            }
+        }.start()
+    }
+    
     fun processScreenshotWithInput(context: Context, bitmap: Bitmap, filename: String, inputText: String, appName: String? = null, treeData: String? = null, accessibilityService: MyAccessibilityService? = null) {
-        Log.d("BackendProcessing", "processScreenshotWithInput called with filename: $filename")
+        // Log.d("BackendProcessing", "processScreenshotWithInput called with filename: $filename")
         
         // Store the additional data
         currentAppName = appName
@@ -85,11 +197,17 @@ object BackendProcessing {
         // Initialize action executor if accessibility service is available
         if (accessibilityService != null && actionExecutor == null) {
             actionExecutor = ActionExecutor(accessibilityService)
-            Log.d("BackendProcessing", "ActionExecutor initialized")
+            // Log.d("BackendProcessing", "ActionExecutor initialized")
+        }
+        
+        // If this is part of an action sequence, increment action number
+        if (isActionSequenceActive) {
+            currentActionNumber++
+            // Log.d("BackendProcessing", "Processing action #$currentActionNumber in sequence")
         }
         
         // Log screenshot dimensions
-        Log.d("BackendProcessing", "Screenshot dimensions - Width: ${bitmap.width}, Height: ${bitmap.height}")
+        // Log.d("BackendProcessing", "Screenshot dimensions - Width: ${bitmap.width}, Height: ${bitmap.height}")
 
         // ButtonHighlightService removed - not available in current version
 
@@ -111,14 +229,38 @@ object BackendProcessing {
             // Add app name if available
             if (!currentAppName.isNullOrEmpty()) {
                 requestBodyBuilder.addFormDataPart("app_name", currentAppName!!)
-                Log.d("BackendProcessing", "Including app name: $currentAppName")
+                Log.d("BackendProcessing", "📤 SENDING TO BACKEND - App name: $currentAppName")
+            } else {
+                Log.w("BackendProcessing", "⚠️ App name is null or empty - not sending to backend")
             }
             
             // Add tree data if available
             if (!currentTreeData.isNullOrEmpty()) {
                 requestBodyBuilder.addFormDataPart("detailed_tree_data", currentTreeData!!)
-                Log.d("BackendProcessing", "Including detailed tree data (length: ${currentTreeData!!.length})")
+                Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Tree data length: ${currentTreeData!!.length}")
+            } else {
+                Log.w("BackendProcessing", "⚠️ Tree data is null or empty - not sending to backend")
             }
+            
+            // Add sequence tracking data
+            if (isActionSequenceActive) {
+                requestBodyBuilder.addFormDataPart("sequence_step", currentActionNumber.toString())
+                requestBodyBuilder.addFormDataPart("max_sequence_steps", maxActions.toString())
+                Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Sequence step: $currentActionNumber/$maxActions")
+                
+                // Add historical context if available
+                if (actionHistory.isNotEmpty()) {
+                    val historyJson = JSONArray()
+                    actionHistory.forEach { action ->
+                        historyJson.put(action)
+                    }
+                    requestBodyBuilder.addFormDataPart("action_history", historyJson.toString())
+                    Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Action history: ${actionHistory.size} actions")
+                }
+            }
+            
+            // Log input text being sent
+            Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Input text: '$inputText'")
             
             val requestBody = requestBodyBuilder.build()
 
@@ -148,10 +290,11 @@ object BackendProcessing {
                             
                             // Extract and log app name
                             val appName = jsonObject.optString("app_name", "Unknown App")
-                            Log.d("BackendProcessing", "Processing response for app: $appName")
+                            Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - App: $appName")
                             
                             // Extract and log input text
                             val inputText = jsonObject.optString("input_text", "")
+                            Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - Input text: '$inputText'")
                             
                             // Extract and log image dimensions
                             val imageDimensions = jsonObject.optJSONObject("image_dimensions")
@@ -160,7 +303,7 @@ object BackendProcessing {
                                 else -> {
                                     val width = imageDimensions.getInt("image_width")
                                     val height = imageDimensions.getInt("image_height")
-                                    Log.d("BackendProcessing", "Image dimensions: ${width}x${height}")
+                                    // Log.d("BackendProcessing", "Image dimensions: ${width}x${height}")
                                 }
                             }
                             
@@ -168,14 +311,14 @@ object BackendProcessing {
                             val recommendedAction = jsonObject.optJSONObject("recommended_action")
                             when (recommendedAction) {
                                 null -> {
-                                    Log.d("Recommendation", "No action recommendation found")
+                                    Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - No action recommendation found")
                                     // buttonHighlightService?.clearHighlight() - service removed
                                 }
                                 else -> {
                                     val actionType = recommendedAction.getString("action_type")
                                     val actionTarget = recommendedAction.getString("action_target")
-                                    val confidenceScore = recommendedAction.getDouble("confidence_score")
-                                    val reasoning = recommendedAction.getString("reasoning")
+                                    val confidenceScore = recommendedAction.getDouble("confidence")
+                                    val reasoning = recommendedAction.optString("reasoning", "No reasoning provided")
                                     
                                     // Get bounding box (object format)
                                     val boundingBox = recommendedAction.optJSONObject("bounding_box")
@@ -197,20 +340,15 @@ object BackendProcessing {
                                     val fallbackX = fallbackCoordinates?.optInt("x", 0) ?: 0
                                     val fallbackY = fallbackCoordinates?.optInt("y", 0) ?: 0
                                     
-                                    Log.d("BackendProcessing", "=== RECOMMENDED ACTION DETAILS ===")
-                                    Log.d("BackendProcessing", "Action Type: $actionType")
-                                    Log.d("BackendProcessing", "Action Target: $actionTarget")
-                                    Log.d("BackendProcessing", "Confidence Score: $confidenceScore")
-                                    Log.d("BackendProcessing", "Reasoning: $reasoning")
-                                    Log.d("BackendProcessing", "Bounding Box: x=$x, y=$y, width=$width, height=$height")
-                                    Log.d("BackendProcessing", "Element Selector:")
-                                    Log.d("BackendProcessing", "  - Text: '$text'")
-                                    Log.d("BackendProcessing", "  - Resource ID: '$resourceId'")
-                                    Log.d("BackendProcessing", "  - Class Name: '$className'")
-                                    Log.d("BackendProcessing", "  - Content Description: '$contentDescription'")
-                                    Log.d("BackendProcessing", "  - Hierarchy Path: '$hierarchyPath'")
-                                    Log.d("BackendProcessing", "Fallback Coordinates: x=$fallbackX, y=$fallbackY")
-                                    Log.d("BackendProcessing", "=== END RECOMMENDED ACTION ===")
+                                    Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - RECOMMENDED ACTION:")
+                                    Log.d("BackendProcessing", "  Action Type: $actionType")
+                                    Log.d("BackendProcessing", "  Action Target: $actionTarget")
+                                    Log.d("BackendProcessing", "  Confidence Score: $confidenceScore")
+                                    Log.d("BackendProcessing", "  Reasoning: $reasoning")
+                                    Log.d("BackendProcessing", "  Element Text: '$text'")
+                                    Log.d("BackendProcessing", "  Resource ID: '$resourceId'")
+                                    Log.d("BackendProcessing", "  Class Name: '$className'")
+                                    Log.d("BackendProcessing", "  Content Description: '$contentDescription'")
                                     
                                     // Get display metrics for screen information
                                     val displayMetrics = DisplayMetrics()
@@ -226,27 +364,72 @@ object BackendProcessing {
                                         windowManager.defaultDisplay.getMetrics(displayMetrics)
                                     }
                                     
-                                    Log.d("BackendProcessing", """
-                                        Screen Information:
-                                        - Screenshot Width: ${bitmap.width}
-                                        - Screenshot Height: ${bitmap.height}
-                                        - Screen Width: ${displayMetrics.widthPixels}
-                                        - Screen Height: ${displayMetrics.heightPixels}
-                                        - Screen Density: ${displayMetrics.density}
-                                    """.trimIndent())
+                                    // Log.d("BackendProcessing", """
+                                    //     Screen Information:
+                                    //     - Screenshot Width: ${bitmap.width}
+                                    //     - Screenshot Height: ${bitmap.height}
+                                    //     - Screen Width: ${displayMetrics.widthPixels}
+                                    //     - Screen Height: ${displayMetrics.heightPixels}
+                                    //     - Screen Density: ${displayMetrics.density}
+                                    // """.trimIndent())
 
                                     // Execute the recommended action
                                     if (actionExecutor != null) {
-                                        Log.d("BackendProcessing", "Executing recommended action...")
+                                        // Check if this was part of a sequence that's no longer active
+                                        // (This prevents late backend responses from executing actions after sequence ended)
+                                        val wasSequenceAction = currentActionNumber > 0
+                                        if (wasSequenceAction && !isActionSequenceActive) {
+                                            Log.w("BackendProcessing", "⚠️ Backend response received but action sequence is no longer active - ignoring action")
+                                            return@onResponse
+                                        }
+                                        
+                                        // Log.d("BackendProcessing", "Executing recommended action...")
+                                        
+                                        // Store action in history before executing
+                                        val actionToStore = JSONObject()
+                                        actionToStore.put("step", currentActionNumber)
+                                        actionToStore.put("action_type", recommendedAction.optString("action_type", "unknown"))
+                                        actionToStore.put("action_target", recommendedAction.optString("action_target", ""))
+                                        actionToStore.put("confidence", recommendedAction.optDouble("confidence", 0.0))
+                                        actionHistory.add(actionToStore)
+                                        
                                         val actionSuccess = actionExecutor!!.executeAction(recommendedAction)
-                                        Log.d("BackendProcessing", "Action execution result: $actionSuccess")
+                                        Log.d("BackendProcessing", "🎯 ACTION EXECUTION RESULT: $actionSuccess")
+                                        
+                                        // Update stored action with execution result
+                                        actionToStore.put("execution_success", actionSuccess)
                                         
                                         if (actionSuccess) {
                                             Log.d("BackendProcessing", "✅ Action executed successfully!")
-                                            // Add a delay to allow UI to respond to the action
-                                            Thread.sleep(1000)
+                                            
+                                            // Check if this is part of an action sequence
+                                            if (isActionSequenceActive) {
+                                                Log.d("BackendProcessing", "🔍 DEBUG: Action #$currentActionNumber completed, checking for next action...")
+                                                
+                                                // Check if the action indicates completion
+                                                val isCompleted = recommendedAction.optBoolean("is_completed", false)
+                                                val taskCompleted = jsonObject.optBoolean("task_completed", false)
+                                                
+                                                Log.d("BackendProcessing", "🔍 DEBUG: is_completed=$isCompleted, task_completed=$taskCompleted")
+                                                
+                                                if (isCompleted || taskCompleted) {
+                                                    Log.d("BackendProcessing", "🏁 TASK COMPLETED! Stopping action sequence.")
+                                                    stopActionSequence()
+                                                } else {
+                                                    Log.d("BackendProcessing", "🔍 DEBUG: Task not completed, triggering next action...")
+                                                    // Trigger the next action in the sequence
+                                                    triggerNextAction()
+                                                }
+                                            } else {
+                                                // Single action mode - just add delay
+                                                Thread.sleep(1000)
+                                            }
                                         } else {
                                             Log.w("BackendProcessing", "❌ Action execution failed")
+                                            if (isActionSequenceActive) {
+                                                // Log.w("BackendProcessing", "Action failed in sequence - stopping sequence")
+                                                stopActionSequence()
+                                            }
                                         }
                                     } else {
                                         Log.w("BackendProcessing", "ActionExecutor not available - cannot execute action")
@@ -259,12 +442,12 @@ object BackendProcessing {
                             when (buttonsArray) {
                                 null -> { /* No buttons in response */ }
                                 else -> {
-                                    Log.d("BackendProcessing", "Found ${buttonsArray.length()} buttons in response")
-                                    for (i in 0 until buttonsArray.length()) {
-                                        val button = buttonsArray.getJSONObject(i)
-                                        val buttonName = button.getString("button_name")
-                                        Log.d("BackendProcessing", "Button: $buttonName")
-                                    }
+                                    // Log.d("BackendProcessing", "Found ${buttonsArray.length()} buttons in response")
+                                    // for (i in 0 until buttonsArray.length()) {
+                                    //     val button = buttonsArray.getJSONObject(i)
+                                    //     val buttonName = button.getString("button_name")
+                                    //     Log.d("BackendProcessing", "Button: $buttonName")
+                                    // }
                                 }
                             }
                             

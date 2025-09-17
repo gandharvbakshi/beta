@@ -110,29 +110,41 @@ class MyAccessibilityService : AccessibilityService() {
     }
 
     private fun performScreenshot() {
-        if (screenCaptureService == null) {
+        // Check if screenshots are enabled via ScreenCaptureService
+        val currentScreenCaptureService = screenCaptureService
+        if (currentScreenCaptureService != null) {
+            if (!currentScreenCaptureService.isScreenshotEnabled()) {
+                // Log.d("MyAccessibilityService", "Screenshots disabled, skipping capture")
+                return
+            }
+        }
+        
+        if (currentScreenCaptureService == null) {
             Log.e("MyAccessibilityService", "ScreenCaptureService is null")
             Toast.makeText(this, "ScreenCaptureService is not available", Toast.LENGTH_SHORT).show()
             return
         }
 
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                //Use method in service.
-                (application as? MyApplication)?.let {
-                    it.captureScreenshot { bitmap ->
-                        if (bitmap != null) {
-                            //  Save the bitmap.
-                            it.saveScreenshot(bitmap)
-                        } else {
-                            Log.e("MyAccessibilityService", "Failed to capture screenshot")
-                        }
-                    }
-                }
-            }
+            // Capture tree data first, then trigger screenshot
+            showBlinkitTree()
+            
+            // Wait a bit for tree data to be captured, then trigger screenshot
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                // Store the captured tree data in ScreenCaptureService
+                val treeData = getLastTreeData()
+                val appName = getLastAppName()
+                
+                // Store data in ScreenCaptureService for backend processing
+                currentScreenCaptureService.storeTreeData(treeData, appName)
+                
+                Log.d("MyAccessibilityService", "📤 CAPTURED DATA - Tree length: ${treeData.length}, App: $appName")
+                
+                currentScreenCaptureService.triggerScreenshot()
+            }, 500) // 500ms delay for tree data capture
+            
         } catch (e: Exception) {
-            Log.e("MyAccessibilityService", "Error capturing screenshot: ${e.message}")
-            Toast.makeText(this, "Error capturing screenshot: ${e.message}", Toast.LENGTH_SHORT).show()
+            Log.e("MyAccessibilityService", "Error triggering screenshot: ${e.message}")
         }
     }
 
