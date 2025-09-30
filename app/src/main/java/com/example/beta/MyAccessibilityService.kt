@@ -62,9 +62,14 @@ class MyAccessibilityService : AccessibilityService() {
         val myApp = application as? MyApplication
         myApp?.getScreenCaptureService()?.let { screenCaptureService ->
             screenCaptureService.setAccessibilityService(this)
+            this.screenCaptureService = screenCaptureService
             Log.d("MyAccessibilityService", "Connected to ScreenCaptureService")
         } ?: run {
             Log.d("MyAccessibilityService", "ScreenCaptureService not available yet, will connect when available")
+            // Try to connect again after a delay
+            Handler(Looper.getMainLooper()).postDelayed({
+                attemptReconnectToScreenCaptureService()
+            }, 2000) // 2 second delay
         }
     }
     
@@ -120,8 +125,17 @@ class MyAccessibilityService : AccessibilityService() {
         }
         
         if (currentScreenCaptureService == null) {
-            Log.e("MyAccessibilityService", "ScreenCaptureService is null")
-            Toast.makeText(this, "ScreenCaptureService is not available", Toast.LENGTH_SHORT).show()
+            Log.d("MyAccessibilityService", "ScreenCaptureService is null - attempting to reconnect")
+            // Try to reconnect to ScreenCaptureService
+            attemptReconnectToScreenCaptureService()
+            return
+        }
+        
+        // Check if the service can actually capture screenshots
+        if (!currentScreenCaptureService.canCapture()) {
+            Log.w("MyAccessibilityService", "ScreenCaptureService cannot capture screenshots")
+            Log.w("MyAccessibilityService", "Capture status: ${currentScreenCaptureService.getCaptureStatus()}")
+            Log.w("MyAccessibilityService", "This usually means the MediaProjection session ended. User needs to restart screen capture from MainActivity.")
             return
         }
 
@@ -145,6 +159,25 @@ class MyAccessibilityService : AccessibilityService() {
             
         } catch (e: Exception) {
             Log.e("MyAccessibilityService", "Error triggering screenshot: ${e.message}")
+        }
+    }
+    
+    /**
+     * Attempts to reconnect to ScreenCaptureService if it's not available
+     */
+    private fun attemptReconnectToScreenCaptureService() {
+        try {
+            val myApp = application as? MyApplication
+            val screenCaptureService = myApp?.getScreenCaptureService()
+            if (screenCaptureService != null) {
+                screenCaptureService.setAccessibilityService(this)
+                this.screenCaptureService = screenCaptureService
+                Log.d("MyAccessibilityService", "Successfully reconnected to ScreenCaptureService")
+            } else {
+                Log.d("MyAccessibilityService", "ScreenCaptureService still not available - will retry later")
+            }
+        } catch (e: Exception) {
+            Log.e("MyAccessibilityService", "Error attempting to reconnect to ScreenCaptureService: ${e.message}")
         }
     }
 

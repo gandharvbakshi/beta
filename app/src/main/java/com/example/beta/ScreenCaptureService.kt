@@ -260,6 +260,16 @@ class ScreenCaptureService : Service() {
                     Log.d("ScreenCaptureService", "Connected to existing AccessibilityService")
                 } else {
                     Log.d("ScreenCaptureService", "No AccessibilityService available yet - will connect when it becomes available")
+                    // Try again after another delay
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        val retryAccessibilityService = (application as? MyApplication)?.getAccessibilityService()
+                        if (retryAccessibilityService != null) {
+                            retryAccessibilityService.connectScreenCaptureService(this)
+                            Log.d("ScreenCaptureService", "Connected to AccessibilityService on retry")
+                        } else {
+                            Log.d("ScreenCaptureService", "AccessibilityService still not available after retry")
+                        }
+                    }, 3000) // 3 second retry delay
                 }
             }, 1000) // 1 second delay to ensure accessibility service has time to start
 
@@ -334,8 +344,7 @@ class ScreenCaptureService : Service() {
                     Log.d("ScreenCaptureService", "Intent is null but service is already capturing. Continuing.")
                     return START_STICKY
                 } else {
-                    Log.w("ScreenCaptureService", "Intent is null and service not capturing. Stopping.")
-                    stopSelf()
+                    Log.w("ScreenCaptureService", "Intent is null and service not capturing. Ignoring restart without tearing down.")
                     return START_NOT_STICKY
                 }
             }
@@ -624,6 +633,7 @@ class ScreenCaptureService : Service() {
     private val mediaProjectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
             Log.w("ScreenCaptureService", "MediaProjection stopped externally.")
+            Log.w("ScreenCaptureService", "This usually means the user revoked screen capture permission or the system ended the session.")
             isCapturing = false
             // Clean up resources associated with the stopped projection
             handler?.post {
@@ -633,7 +643,9 @@ class ScreenCaptureService : Service() {
                 virtualDisplay = null
                 imageReader = null
             }
-            stopSelf() // Stop the service if projection stops
+            // Don't stop the service immediately - let it try to restart
+            Log.w("ScreenCaptureService", "MediaProjection stopped. Service will remain running but cannot capture screenshots.")
+            Log.w("ScreenCaptureService", "User needs to restart screen capture from MainActivity.")
         }
     }
 
@@ -869,6 +881,28 @@ class ScreenCaptureService : Service() {
                     bitmap = croppedBitmap
                 }
 
+                // Get overlay bounds and black out the overlay area
+                val overlayBounds = getOverlayBounds()
+                if (overlayBounds != null) {
+                    Log.d("ScreenCaptureService", "Blacking out emulator overlay bounds: $overlayBounds")
+                    val finalBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+                    val canvas = android.graphics.Canvas(finalBitmap)
+                    canvas.drawBitmap(bitmap, 0f, 0f, null)
+                    
+                    // Clear the overlay area with black color to prevent backend confusion
+                    val paint = android.graphics.Paint().apply {
+                        color = android.graphics.Color.BLACK
+                        style = android.graphics.Paint.Style.FILL
+                    }
+                    canvas.drawRect(overlayBounds, paint)
+                    
+                    bitmap.recycle()
+                    bitmap = finalBitmap
+                    Log.d("ScreenCaptureService", "Emulator overlay area blacked out")
+                } else {
+                    Log.d("ScreenCaptureService", "No emulator overlay bounds available")
+                }
+
                 Log.d("ScreenCaptureService", "Emulator bitmap created successfully")
                 val filename = "emulator_screenshot_${System.currentTimeMillis()}.jpg"
 
@@ -973,9 +1007,9 @@ class ScreenCaptureService : Service() {
                 val canvas = android.graphics.Canvas(finalBitmap)
                 canvas.drawBitmap(bitmap, 0f, 0f, null)
                 
-                // Clear the overlay area with a solid color to ensure it's completely hidden
+                // Clear the overlay area with black color to prevent backend confusion
                 val paint = android.graphics.Paint().apply {
-                    color = android.graphics.Color.WHITE  // Use white instead of transparent
+                    color = android.graphics.Color.BLACK  // Use black instead of white
                     style = android.graphics.Paint.Style.FILL
                 }
                 canvas.drawRect(overlayBounds!!, paint)
@@ -1078,9 +1112,9 @@ class ScreenCaptureService : Service() {
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                x = 50
-                y = 50
+                gravity = Gravity.TOP or Gravity.END
+                x = 50 // inset from right edge
+                y = 0 // top edge
             }
             
             // Setup overlay text with emulator-specific message
@@ -1092,9 +1126,13 @@ class ScreenCaptureService : Service() {
             overlayView.isFocusableInTouchMode = false
             
             // Make the overlay clickable to open input dialog
+            overlayView.isClickable = true
             overlayView.setOnClickListener {
+                Log.d("ScreenCaptureService", "Overlay clicked - calling showInputDialog()")
                 showInputDialog()
             }
+            
+            Log.d("ScreenCaptureService", "Overlay click listener set up - isClickable: ${overlayView.isClickable}")
             
             try {
                 windowManager.addView(overlayView, layoutParams)
@@ -1147,9 +1185,9 @@ class ScreenCaptureService : Service() {
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                x = 100
-                y = 100
+                gravity = Gravity.TOP or Gravity.END
+                x = 50 // inset from right edge
+                y = 0 // top edge
             }
             
             // Setup overlay text with initial message
@@ -1161,9 +1199,13 @@ class ScreenCaptureService : Service() {
             overlayView.isFocusableInTouchMode = false
             
             // Make the overlay clickable to open input dialog
+            overlayView.isClickable = true
             overlayView.setOnClickListener {
+                Log.d("ScreenCaptureService", "Overlay clicked - calling showInputDialog()")
                 showInputDialog()
             }
+            
+            Log.d("ScreenCaptureService", "Overlay click listener set up - isClickable: ${overlayView.isClickable}")
             
             try {
                 windowManager.addView(overlayView, layoutParams)
@@ -1290,6 +1332,7 @@ class ScreenCaptureService : Service() {
             }
             
             // Instead of AlertDialog, use a simple overlay input to avoid service restart issues
+            Log.d("ScreenCaptureService", "Calling showSimpleInputOverlay()")
             showSimpleInputOverlay()
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error showing input dialog: ${e.message}", e)
@@ -1298,6 +1341,7 @@ class ScreenCaptureService : Service() {
     
     private fun showSimpleInputOverlay() {
         try {
+            Log.d("ScreenCaptureService", "Creating simple input overlay")
             // Hide existing input overlay if any
             hideInputOverlay()
             
@@ -1571,6 +1615,15 @@ class ScreenCaptureService : Service() {
         currentTreeData = treeData
         currentAppName = appName
         Log.d("ScreenCaptureService", "📤 STORED DATA - Tree length: ${treeData.length}, App: $appName")
+    }
+
+    // Public accessor for current overlay bounds (with padding rules consistent with capture exclusion)
+    fun getOverlayRect(): android.graphics.Rect? {
+        return try {
+            getOverlayBounds()
+        } catch (e: Exception) {
+            null
+        }
     }
     
     private fun hideInputOverlay() {
@@ -2046,6 +2099,18 @@ class ScreenCaptureService : Service() {
         }
     }
 
+    // Check if the service can capture screenshots
+    fun canCapture(): Boolean {
+        return isCapturing && mediaProjection != null && virtualDisplay != null && imageReader != null
+    }
+    
+    // Get detailed status for debugging
+    fun getCaptureStatus(): String {
+        return "isCapturing: $isCapturing, mediaProjection: ${if (mediaProjection != null) "exists" else "null"}, " +
+                "virtualDisplay: ${if (virtualDisplay != null) "exists" else "null"}, " +
+                "imageReader: ${if (imageReader != null) "exists" else "null"}"
+    }
+
     // Add method to trigger screenshot manually
     fun triggerScreenshot() {
         if (!screenshotEnabled) {
@@ -2055,6 +2120,9 @@ class ScreenCaptureService : Service() {
         
         if (!isCapturing) {
             Log.e("ScreenCaptureService", "Cannot trigger screenshot: Service not capturing")
+            Log.e("ScreenCaptureService", "MediaProjection state: ${if (mediaProjection != null) "exists" else "null"}")
+            Log.e("ScreenCaptureService", "VirtualDisplay state: ${if (virtualDisplay != null) "exists" else "null"}")
+            Log.e("ScreenCaptureService", "ImageReader state: ${if (imageReader != null) "exists" else "null"}")
             return
         }
         
@@ -2087,8 +2155,14 @@ class ScreenCaptureService : Service() {
         
         // Add delay to ensure overlay is hidden before capturing
         Handler(Looper.getMainLooper()).postDelayed({
+            // Verify overlay is actually hidden before proceeding
+            if (::overlayView.isInitialized && overlayView.visibility != View.INVISIBLE) {
+                Log.w("ScreenCaptureService", "Overlay still visible, hiding again")
+                overlayView.visibility = View.INVISIBLE
+            }
+            
             pendingScreenshot = true
-            Log.d("ScreenCaptureService", "Pending screenshot set to true after 300ms delay")
+            Log.d("ScreenCaptureService", "Pending screenshot set to true after 500ms delay")
             
             // Force a new frame to be rendered with the hidden overlay
             try {
@@ -2134,7 +2208,7 @@ class ScreenCaptureService : Service() {
                     }
                 }
             }, 5000) // 5 second timeout
-        }, 300) // 300ms delay to ensure overlay is hidden
+        }, 500) // Increased to 500ms delay to ensure overlay is hidden
         
         // Use handler to ensure we're on the correct thread
         handler?.post {

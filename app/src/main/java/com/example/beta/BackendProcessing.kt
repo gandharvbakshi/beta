@@ -416,6 +416,17 @@ object BackendProcessing {
                                                     Log.d("BackendProcessing", "🏁 TASK COMPLETED! Stopping action sequence.")
                                                     stopActionSequence()
                                                 } else {
+                                                    // If backend suggests typing, try to type original input into focused field
+                                                    try {
+                                                        val suggestType = recommendedAction.optString("action_type", "").equals("type", ignoreCase = true) ||
+                                                            actionTarget.contains("type", ignoreCase = true)
+                                                        if (suggestType && originalInputText != null) {
+                                                            val typed = actionExecutor?.typeTextIntoFocusedField(originalInputText!!)
+                                                            Log.d("BackendProcessing", "⌨️ Type attempt into focused field: $typed")
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        Log.e("BackendProcessing", "Typing attempt failed: ${e.message}")
+                                                    }
                                                     Log.d("BackendProcessing", "🔍 DEBUG: Task not completed, triggering next action...")
                                                     // Trigger the next action in the sequence
                                                     triggerNextAction()

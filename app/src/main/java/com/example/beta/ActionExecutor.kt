@@ -273,6 +273,39 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             false
         }
     }
+
+    fun typeTextIntoFocusedField(text: String): Boolean {
+        return try {
+            val root = accessibilityService.rootInActiveWindow ?: return false
+            val focusedNode = findFocusedEditable(root) ?: return false
+
+            val args = android.os.Bundle()
+            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            val success = focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            Log.d(TAG, "Type text into focused field result: $success")
+            success
+        } catch (e: Exception) {
+            Log.e(TAG, "Error typing into focused field: ${e.message}")
+            false
+        }
+    }
+
+    private fun findFocusedEditable(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if (node.isFocused || node.isAccessibilityFocused) {
+            if (node.className?.toString()?.contains("EditText", ignoreCase = true) == true ||
+                node.isEditable
+            ) {
+                return node
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findFocusedEditable(child)
+            if (result != null) return result
+        }
+        return null
+    }
     
     private fun findTargetElement(recommendedAction: JSONObject): AccessibilityNodeInfo? {
         Log.d(TAG, "Searching for target element")
@@ -288,6 +321,28 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         if (actionTarget.isNotEmpty()) {
             Log.d(TAG, "Parsing action target: '$actionTarget'")
             
+            // Special handling for search bar - prioritize clickable search elements
+            if (actionTarget.contains("search", ignoreCase = true) || actionTarget.contains("action_bar_root")) {
+                Log.d(TAG, "Searching for search bar element")
+                val searchElement = findClickableSearchElement(rootNode)
+                if (searchElement != null) {
+                    Log.d(TAG, "Found clickable search element")
+                    return searchElement
+                }
+            }
+            
+            // Try to extract an exact text token inside single quotes, e.g., 'ADD'
+            // Prefer exact text match if present
+            val quotedTextRegex = "'([^']+)'".toRegex()
+            val quotedText = quotedTextRegex.find(actionTarget)?.groupValues?.getOrNull(1)
+            if (!quotedText.isNullOrBlank()) {
+                val nodeByExactText = findNodeByExactText(rootNode, quotedText)
+                if (nodeByExactText != null && !isToolbarOrBackNode(nodeByExactText)) {
+                    Log.d(TAG, "Found element by exact quoted text: '$quotedText'")
+                    return nodeByExactText
+                }
+            }
+
             // Try to extract content description from the action target
             val contentDescPattern = "contentDescription='([^']+)'".toRegex()
             val contentDescMatch = contentDescPattern.find(actionTarget)
@@ -296,8 +351,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 Log.d(TAG, "Extracted content description: '$contentDesc'")
                 val nodeByDesc = findNodeByContentDescription(rootNode, contentDesc)
                 if (nodeByDesc != null) {
-                    Log.d(TAG, "Found element by extracted content description: '$contentDesc'")
-                    return nodeByDesc
+                    if (!isToolbarOrBackNode(nodeByDesc)) {
+                        Log.d(TAG, "Found element by extracted content description: '$contentDesc'")
+                        return nodeByDesc
+                    }
                 }
             }
             
@@ -309,8 +366,23 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 Log.d(TAG, "Extracted resource ID: '$resourceId'")
                 val nodeById = findNodeByResourceId(rootNode, resourceId)
                 if (nodeById != null) {
-                    Log.d(TAG, "Found element by extracted resource ID: '$resourceId'")
-                    return nodeById
+                    if (!isToolbarOrBackNode(nodeById)) {
+                        Log.d(TAG, "Found element by extracted resource ID: '$resourceId'")
+                        // If the found element is not clickable, try to find a clickable child or parent
+                        if (!nodeById.isClickable) {
+                            val clickableChild = findClickableChild(nodeById)
+                            if (clickableChild != null) {
+                                Log.d(TAG, "Found clickable child for resource ID: '$resourceId'")
+                                return clickableChild
+                            }
+                            val clickableParent = findClickableParent(nodeById)
+                            if (clickableParent != null) {
+                                Log.d(TAG, "Found clickable parent for resource ID: '$resourceId'")
+                                return clickableParent
+                            }
+                        }
+                        return nodeById
+                    }
                 }
             }
             
@@ -339,7 +411,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             // Method 1: Try by text content
             val text = elementSelector.optString("text", "")
             if (text.isNotEmpty()) {
-                val nodeByText = findNodeByText(rootNode, text)
+                val nodeByText = findNodeByExactText(rootNode, text) ?: findNodeByText(rootNode, text)
                 if (nodeByText != null) {
                     Log.d(TAG, "Found element by text: '$text'")
                     return nodeByText
@@ -378,8 +450,12 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 Log.d(TAG, "Searching by class name: '$className'")
                 val nodeByClass = findNodeByClassName(rootNode, className)
                 if (nodeByClass != null) {
-                    Log.d(TAG, "Found element by class name: '$className'")
-                    return nodeByClass
+                    if (!isToolbarOrBackNode(nodeByClass)) {
+                        Log.d(TAG, "Found element by class name: '$className'")
+                        return nodeByClass
+                    } else {
+                        Log.d(TAG, "Class-name match was a toolbar/back element, ignoring")
+                    }
                 } else {
                     Log.d(TAG, "No element found with class name: '$className'")
                 }
@@ -388,6 +464,15 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         
         Log.w(TAG, "Could not find target element using any method")
         return null
+    }
+
+    private fun isToolbarOrBackNode(node: AccessibilityNodeInfo): Boolean {
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+        val viewId = node.viewIdResourceName?.lowercase() ?: ""
+        if (desc.contains("navigate up") || viewId.contains("action_bar") || viewId.contains("toolbar")) {
+            return true
+        }
+        return false
     }
     
     private fun findNodeByText(rootNode: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
@@ -402,6 +487,20 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 if (result != null) {
                     return result
                 }
+            }
+        }
+        return null
+    }
+
+    private fun findNodeByExactText(rootNode: AccessibilityNodeInfo, exact: String): AccessibilityNodeInfo? {
+        if (rootNode.text?.toString()?.equals(exact, ignoreCase = true) == true) {
+            return rootNode
+        }
+        for (i in 0 until rootNode.childCount) {
+            val child = rootNode.getChild(i)
+            if (child != null) {
+                val result = findNodeByExactText(child, exact)
+                if (result != null) return result
             }
         }
         return null
@@ -470,6 +569,109 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return null
     }
     
+    private fun findClickableChild(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (child.isClickable) {
+                return child
+            }
+            // Recursively search in children
+            val clickableDescendant = findClickableChild(child)
+            if (clickableDescendant != null) {
+                return clickableDescendant
+            }
+        }
+        return null
+    }
+    
+    private fun findClickableSearchElement(rootNode: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        // Look for common search bar patterns
+        val searchPatterns = listOf(
+            "search", "Search", "SEARCH",
+            "Search for products", "Search products",
+            "What are you looking for?", "What do you want to buy?",
+            "Enter search term", "Type to search"
+        )
+        
+        // First, try to find by content description
+        for (pattern in searchPatterns) {
+            val nodeByDesc = findNodeByContentDescription(rootNode, pattern)
+            if (nodeByDesc != null && nodeByDesc.isClickable) {
+                Log.d(TAG, "Found clickable search element by content description: '$pattern'")
+                return nodeByDesc
+            }
+        }
+        
+        // Look for EditText elements that might be search bars
+        val editTextNodes = findAllNodesByClassName(rootNode, "android.widget.EditText")
+        for (editText in editTextNodes) {
+            if (editText.isClickable || editText.isEditable) {
+                val hint = editText.hintText?.toString()?.lowercase() ?: ""
+                val contentDesc = editText.contentDescription?.toString()?.lowercase() ?: ""
+                if (hint.contains("search") || contentDesc.contains("search") || 
+                    hint.contains("what") || contentDesc.contains("what")) {
+                    Log.d(TAG, "Found clickable search EditText with hint: '${editText.hintText}'")
+                    return editText
+                }
+            }
+        }
+        
+        // Look for clickable elements with search-related resource IDs
+        val searchResourceIds = listOf(
+            "search", "search_bar", "search_input", "search_edit_text",
+            "action_search", "search_view", "search_text"
+        )
+        
+        for (resourceId in searchResourceIds) {
+            val fullResourceId = "com.grofers.customerapp:id/$resourceId"
+            val nodeById = findNodeByResourceId(rootNode, fullResourceId)
+            if (nodeById != null && nodeById.isClickable) {
+                Log.d(TAG, "Found clickable search element by resource ID: '$fullResourceId'")
+                return nodeById
+            }
+        }
+        
+        // Look for any clickable element in the action bar area that might be a search bar
+        val actionBarNodes = findAllNodesByClassName(rootNode, "android.widget.LinearLayout")
+        for (actionBar in actionBarNodes) {
+            val resourceId = actionBar.viewIdResourceName?.lowercase() ?: ""
+            if (resourceId.contains("action_bar") || resourceId.contains("toolbar")) {
+                val clickableChild = findClickableChild(actionBar)
+                if (clickableChild != null) {
+                    val childClass = clickableChild.className?.toString() ?: ""
+                    val childDesc = clickableChild.contentDescription?.toString()?.lowercase() ?: ""
+                    val childHint = clickableChild.hintText?.toString()?.lowercase() ?: ""
+                    
+                    if (childClass.contains("EditText") || childDesc.contains("search") || 
+                        childHint.contains("search") || childDesc.contains("what")) {
+                        Log.d(TAG, "Found clickable search element in action bar")
+                        return clickableChild
+                    }
+                }
+            }
+        }
+        
+        Log.d(TAG, "No clickable search element found")
+        return null
+    }
+    
+    private fun findAllNodesByClassName(rootNode: AccessibilityNodeInfo, className: String): List<AccessibilityNodeInfo> {
+        val result = mutableListOf<AccessibilityNodeInfo>()
+        
+        fun search(node: AccessibilityNodeInfo) {
+            if (node.className?.toString() == className) {
+                result.add(node)
+            }
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                search(child)
+            }
+        }
+        
+        search(rootNode)
+        return result
+    }
+    
     private fun performClickByCoordinates(recommendedAction: JSONObject): Boolean {
         Log.d(TAG, "Attempting click by coordinates")
         
@@ -478,8 +680,42 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             ?: recommendedAction.optJSONObject("fallback_coordinates")
         
         if (coordinates != null) {
-            val x = coordinates.optInt("x", 0)
-            val y = coordinates.optInt("y", 0)
+            var x = coordinates.optInt("x", 0)
+            var y = coordinates.optInt("y", 0)
+
+            // Deflect taps if inside overlay rectangle (with padding)
+            try {
+                val app = accessibilityService.application as? MyApplication
+                val screenService = app?.getScreenCaptureService()
+                val overlayRect = screenService?.getOverlayRect()
+                if (overlayRect != null && !overlayRect.isEmpty) {
+                    // Inflate by padding (e.g., 24dp on all sides)
+                    val density = accessibilityService.resources.displayMetrics.density
+                    val pad = (24 * density).toInt()
+                    val inflated = Rect(
+                        overlayRect.left - pad,
+                        overlayRect.top - pad,
+                        overlayRect.right + pad,
+                        overlayRect.bottom + pad
+                    )
+                    if (inflated.contains(x, y)) {
+                        // Deflect downward by overlay height + 24px
+                        val deflect = overlayRect.height() + 24
+                        y += deflect
+                        Log.d(TAG, "Deflected tap from ($x, ${y - deflect}) to ($x, $y) to avoid overlay")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Overlay deflection check failed: ${e.message}")
+            }
+            
+            // Additional deflection to avoid common problematic areas
+            // If coordinates are in the top area where "location" might be, deflect further down
+            if (y < 300) { // Top area of screen
+                val additionalDeflect = 150 // Move further down
+                y += additionalDeflect
+                Log.d(TAG, "Additional deflection applied to avoid top area, new coordinates: ($x, $y)")
+            }
             
             Log.d(TAG, "Clicking at coordinates: ($x, $y)")
             
