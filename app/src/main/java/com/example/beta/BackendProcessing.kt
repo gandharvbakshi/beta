@@ -43,7 +43,7 @@ object BackendProcessing {
     
     // Sequential action tracking
     private var currentActionNumber: Int = 0
-    private var maxActions: Int = 5 // Safety limit
+    private var maxActions: Int = 10 // Safety limit
     private var isActionSequenceActive: Boolean = false
     private var originalInputText: String? = null
     private var sequenceContext: Context? = null
@@ -79,7 +79,7 @@ object BackendProcessing {
             .build()
     }
 
-    fun uploadScreenshotAndProcess(context: Context, bitmap: Bitmap, filename: String, appName: String? = null, treeData: String? = null) {
+    fun uploadScreenshotAndProcess(context: Context, bitmap: Bitmap, filename: String, appName: String? = null, treeData: String? = null, sessionContext: SessionContext? = null) {
         Log.d("BackendProcessing", "uploadScreenshotAndProcess called with filename: $filename")
         currentBitmap = bitmap
         currentFilename = filename
@@ -187,7 +187,7 @@ object BackendProcessing {
         }.start()
     }
     
-    fun processScreenshotWithInput(context: Context, bitmap: Bitmap, filename: String, inputText: String, appName: String? = null, treeData: String? = null, accessibilityService: MyAccessibilityService? = null) {
+    fun processScreenshotWithInput(context: Context, bitmap: Bitmap, filename: String, inputText: String, appName: String? = null, treeData: String? = null, accessibilityService: MyAccessibilityService? = null, sessionContext: SessionContext? = null) {
         // Log.d("BackendProcessing", "processScreenshotWithInput called with filename: $filename")
         
         // Store the additional data
@@ -221,10 +221,42 @@ object BackendProcessing {
             }
 
             val fileBody = tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
+            
+            // Get client version from MyApplication
+            val clientVersion = (context.applicationContext as? MyApplication)?.getClientVersion() ?: "1.0"
+            val apiVersion = (context.applicationContext as? MyApplication)?.getApiVersion() ?: "1.0"
+            
             val requestBodyBuilder = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("file", filename, fileBody)
                 .addFormDataPart("input_text", inputText ?: "")
+                .addFormDataPart("api_version", apiVersion)
+                .addFormDataPart("client_version", clientVersion)
+            
+            // Add session_id if available
+            if (sessionContext != null) {
+                requestBodyBuilder.addFormDataPart("session_id", sessionContext.sessionId)
+                Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Session ID: ${sessionContext.sessionId}")
+            } else {
+                Log.w("BackendProcessing", "⚠️ No session context - session_id not sent")
+            }
+            
+            // Add last action result if available (avoid smart-cast on mutable property)
+            sessionContext?.lastActionResult?.let { lastResult ->
+                val actionResultJson = lastResult.toJson().toString()
+                requestBodyBuilder.addFormDataPart("last_action_result_json", actionResultJson)
+                Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Last action result: ${lastResult.status}")
+            }
+            
+            // Add action history if available
+            if (sessionContext?.actionHistory?.isNotEmpty() == true) {
+                val historyJson = JSONArray()
+                sessionContext.actionHistory.forEach { action ->
+                    historyJson.put(action)
+                }
+                requestBodyBuilder.addFormDataPart("action_history_json", historyJson.toString())
+                Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Action history: ${sessionContext.actionHistory.size} actions")
+            }
             
             // Add app name if available
             if (!currentAppName.isNullOrEmpty()) {
@@ -288,6 +320,107 @@ object BackendProcessing {
                             val jsonString = responseBody.string()
                             val jsonObject = JSONObject(jsonString)
                             
+                            // Parse new response structure
+                            val apiVersion = jsonObject.optString("api_version", "unknown")
+                            val sessionId = jsonObject.optString("session_id", "")
+                            val stateStr = jsonObject.optString("state", "")
+                            val policyObj = jsonObject.optJSONObject("policy")
+                            val progressObj = jsonObject.optJSONObject("progress")
+                            val debugObj = jsonObject.optJSONObject("debug")
+                            val errorObj = jsonObject.optJSONObject("error")
+                            
+                            // Parse session state
+                            val sessionState = SessionState.fromString(stateStr)
+                            
+                            // Parse policy
+                            val minConfidence = policyObj?.optDouble("min_confidence", 0.7) ?: 0.7
+                            
+                            // Parse progress
+                            val itemsTotal = progressObj?.optInt("items_total", 0) ?: 0
+                            val itemsDone = progressObj?.optInt("items_done", 0) ?: 0
+                            
+                            // Parse debug info
+                            val requestId = debugObj?.optString("request_id", "") ?: ""
+                            val debugNotes = debugObj?.optString("notes", "") ?: ""
+                            
+                            // Parse error
+                            val errorReason = errorObj?.optString("reason", "") ?: ""
+                            val errorDetails = errorObj?.optString("details", "") ?: ""
+                            
+                            // Parse verification fields (API v1.1)
+                            val verificationRequired = jsonObject.optBoolean("verification_required", false)
+                            val verificationStatusObj = jsonObject.optJSONObject("verification_status")
+                            val verificationStatus = if (verificationStatusObj != null) {
+                                VerificationStatus(
+                                    isVerificationStep = verificationStatusObj.optBoolean("is_verification_step", false),
+                                    targetItem = verificationStatusObj.optString("target_item", null),
+                                    itemFoundInCart = if (verificationStatusObj.isNull("item_found_in_cart")) null 
+                                                      else verificationStatusObj.optBoolean("item_found_in_cart", false),
+                                    verificationDetails = verificationStatusObj.optString("verification_details", null),
+                                    verificationFailed = verificationStatusObj.optBoolean("verification_failed", false),
+                                    retryAction = verificationStatusObj.optString("retry_action", null)
+                                )
+                            } else null
+                            
+                            Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - Session ID: $sessionId")
+                            Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - State: $stateStr")
+                            Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - Min Confidence: $minConfidence")
+                            Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - Progress: $itemsDone/$itemsTotal")
+                            Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - Request ID: $requestId")
+                            
+                            // Log verification status if present
+                            if (verificationRequired) {
+                                Log.d("BackendProcessing", "🔍 VERIFICATION REQUIRED - Target: ${verificationStatus?.targetItem}")
+                            }
+                            if (verificationStatus?.isVerificationStep == true) {
+                                Log.d("BackendProcessing", "🔍 VERIFICATION STEP - Checking for: ${verificationStatus.targetItem}")
+                                Log.d("BackendProcessing", "🔍 Item found in cart: ${verificationStatus.itemFoundInCart}")
+                                Log.d("BackendProcessing", "🔍 Details: ${verificationStatus.verificationDetails}")
+                            }
+                            
+                            if (errorReason.isNotEmpty()) {
+                                Log.e("BackendProcessing", "📥 RECEIVED FROM BACKEND - Error: $errorReason - $errorDetails")
+                                handleBackendError(context, errorReason, errorDetails, sessionContext)
+                                return@let
+                            }
+                            
+                            // Handle session end conditions
+                            when (sessionState) {
+                                SessionState.COMPLETED -> {
+                                    Log.d("BackendProcessing", "🏁 Session completed - ending session")
+                                    (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Completed")
+                                    return@let
+                                }
+                                SessionState.ERROR -> {
+                                    Log.e("BackendProcessing", "🚨 Session error state - ending session")
+                                    (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Error state")
+                                    return@let
+                                }
+                                SessionState.SUMMARY_AND_EDIT -> {
+                                    Log.d("BackendProcessing", "📝 Summary and edit state - ending session")
+                                    (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Summary and edit")
+                                    return@let
+                                }
+                                null -> Log.w("BackendProcessing", "⚠️ Unknown session state: $stateStr")
+                                else -> Log.d("BackendProcessing", "🔄 Continuing session - state: $stateStr")
+                            }
+                            
+                            // Handle verification result if this is a verification step
+                            if (verificationStatus?.isVerificationStep == true) {
+                                handleVerificationResult(
+                                    context, 
+                                    verificationStatus, 
+                                    jsonObject.optBoolean("task_completed", false),
+                                    sessionState,
+                                    sessionContext
+                                )
+                                // If verification completed or failed, don't process action
+                                if (jsonObject.optBoolean("task_completed", false) || 
+                                    verificationStatus.verificationFailed) {
+                                    return@let
+                                }
+                            }
+                            
                             // Extract and log app name
                             val appName = jsonObject.optString("app_name", "Unknown App")
                             Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - App: $appName")
@@ -315,6 +448,7 @@ object BackendProcessing {
                                     // buttonHighlightService?.clearHighlight() - service removed
                                 }
                                 else -> {
+                                    val actionId = recommendedAction.getString("action_id")
                                     val actionType = recommendedAction.getString("action_type")
                                     val actionTarget = recommendedAction.getString("action_target")
                                     val confidenceScore = recommendedAction.getDouble("confidence")
@@ -341,9 +475,10 @@ object BackendProcessing {
                                     val fallbackY = fallbackCoordinates?.optInt("y", 0) ?: 0
                                     
                                     Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - RECOMMENDED ACTION:")
+                                    Log.d("BackendProcessing", "  Action ID: $actionId")
                                     Log.d("BackendProcessing", "  Action Type: $actionType")
                                     Log.d("BackendProcessing", "  Action Target: $actionTarget")
-                                    Log.d("BackendProcessing", "  Confidence Score: $confidenceScore")
+                                    Log.d("BackendProcessing", "  Confidence Score: $confidenceScore (min required: $minConfidence)")
                                     Log.d("BackendProcessing", "  Reasoning: $reasoning")
                                     Log.d("BackendProcessing", "  Element Text: '$text'")
                                     Log.d("BackendProcessing", "  Resource ID: '$resourceId'")
@@ -393,8 +528,39 @@ object BackendProcessing {
                                         actionToStore.put("confidence", recommendedAction.optDouble("confidence", 0.0))
                                         actionHistory.add(actionToStore)
                                         
-                                        val actionSuccess = actionExecutor!!.executeAction(recommendedAction)
+                                        // Update session context with current action
+                                        sessionContext?.let { ctx ->
+                                            val actionResult = ActionResult(
+                                                actionId = actionId,
+                                                status = "executing",
+                                                notes = "Action being executed"
+                                            )
+                                            ctx.lastActionResult = actionResult
+                                        }
+                                                        
+                                        val actionSuccess = actionExecutor!!.executeAction(recommendedAction, minConfidence)
                                         Log.d("BackendProcessing", "🎯 ACTION EXECUTION RESULT: $actionSuccess")
+                                        
+                                        // Update session context with result
+                                        sessionContext?.let { ctx ->
+                                            // Determine if this was a search-related action
+                                            val isSearchAction = actionTarget.contains("search", ignoreCase = true) || 
+                                                               actionTarget.contains("action_bar_root", ignoreCase = true)
+                                            
+                                            val notes = when {
+                                                actionSuccess && isSearchAction -> "search_field_clicked"
+                                                actionSuccess -> actionType
+                                                else -> "Action failed"
+                                            }
+                                            
+                                            val finalResult = ActionResult(
+                                                actionId = actionId,
+                                                status = if (actionSuccess) "success" else "fail",
+                                                notes = notes
+                                            )
+                                            ctx.lastActionResult = finalResult
+                                            ctx.actionHistory.add(finalResult.toJson())
+                                        }
                                         
                                         // Update stored action with execution result
                                         actionToStore.put("execution_success", actionSuccess)
@@ -411,10 +577,29 @@ object BackendProcessing {
                                                 val taskCompleted = jsonObject.optBoolean("task_completed", false)
                                                 
                                                 Log.d("BackendProcessing", "🔍 DEBUG: is_completed=$isCompleted, task_completed=$taskCompleted")
+                                                Log.d("BackendProcessing", "🔍 DEBUG: verification_required=$verificationRequired")
                                                 
                                                 if (isCompleted || taskCompleted) {
                                                     Log.d("BackendProcessing", "🏁 TASK COMPLETED! Stopping action sequence.")
                                                     stopActionSequence()
+                                                } else if (verificationRequired) {
+                                                    // Verification flow: automatically capture next screenshot for verification
+                                                    Log.d("BackendProcessing", "🔍 VERIFICATION REQUIRED - Triggering automatic verification flow")
+                                                    Log.d("BackendProcessing", "🔍 Target item: ${verificationStatus?.targetItem}")
+                                                    
+                                                    // Update session context to indicate verification pending
+                                                    sessionContext?.let { ctx ->
+                                                        val verificationResult = ActionResult(
+                                                            actionId = actionId,
+                                                            status = "success",
+                                                            notes = "item_added_awaiting_verification"
+                                                        )
+                                                        ctx.lastActionResult = verificationResult
+                                                    }
+                                                    
+                                                    // Wait for cart UI to update, then trigger next screenshot
+                                                    Log.d("BackendProcessing", "🔍 Waiting 1.5s for cart UI to update...")
+                                                    triggerNextAction()
                                                 } else {
                                                     // If backend suggests typing, try to type original input into focused field
                                                     try {
@@ -464,6 +649,7 @@ object BackendProcessing {
                             
                         } catch (e: Exception) {
                             Log.e("JSONParsing", "Error parsing JSON response: ${e.message}")
+                            handleBackendError(context, "JSON parsing error", e.message ?: "Unknown error", sessionContext)
                             // buttonHighlightService?.clearHighlight() - service removed
                         }
                     }
@@ -484,5 +670,117 @@ object BackendProcessing {
                 }
             }
         }
+    }
+    
+    // Handle backend errors with retry logic for transient errors
+    private fun handleBackendError(context: Context, reason: String, details: String, sessionContext: SessionContext?) {
+        Log.e("BackendProcessing", "💥 Backend Error: $reason - $details")
+        
+        // Check if this is a transient error that can be retried
+        val isTransientError = reason.contains("missing_screenshot") || reason.contains("timeout") || reason.contains("network")
+        
+            if (isTransientError && sessionContext != null) {
+            val screenService = (context.applicationContext as? MyApplication)?.getScreenCaptureService()
+            if ((screenService?.getRetryAttempts() ?: 0) < 1) {
+                Log.d("BackendProcessing", "🔄 Attempting retry for transient error")
+                screenService?.incrementRetryAttempts()
+                
+                // Trigger a fresh screenshot after a delay
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    screenService?.triggerScreenshot()
+                }, 1000) // 1 second delay
+                
+                return
+            } else {
+                Log.w("BackendProcessing", "❌ Max retries exceeded, giving up")
+            }
+        }
+        
+        // End session on error
+        (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Error: $reason")
+        
+        // Show user message
+        android.widget.Toast.makeText(context, "Something went wrong. Please try again.", android.widget.Toast.LENGTH_LONG).show()
+    }
+    
+    // Handle verification result (API v1.1)
+    private fun handleVerificationResult(
+        context: Context, 
+        verificationStatus: VerificationStatus,
+        taskCompleted: Boolean,
+        sessionState: SessionState?,
+        sessionContext: SessionContext?
+    ) {
+        Log.d("BackendProcessing", "🔍 Handling verification result...")
+        
+        // SUCCESS: Item found in cart and task completed
+        if (taskCompleted && verificationStatus.itemFoundInCart == true) {
+            Log.d("BackendProcessing", "✅ VERIFICATION SUCCESSFUL!")
+            Log.d("BackendProcessing", "✅ Item '${verificationStatus.targetItem}' verified in cart")
+            Log.d("BackendProcessing", "✅ Details: ${verificationStatus.verificationDetails}")
+            
+            // Show success message to user
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    context, 
+                    "✅ ${verificationStatus.targetItem} verified in cart!", 
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            
+            // End session successfully
+            (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Verification successful")
+            stopActionSequence()
+            return
+        }
+        
+        // FAILURE: Item not found in cart
+        if (verificationStatus.verificationFailed) {
+            Log.e("BackendProcessing", "❌ VERIFICATION FAILED!")
+            Log.e("BackendProcessing", "❌ Item '${verificationStatus.targetItem}' NOT found in cart")
+            Log.e("BackendProcessing", "❌ Details: ${verificationStatus.verificationDetails}")
+            
+            // Show failure message to user
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    context, 
+                    "⚠️ Item not found in cart. Returning to home to retry...", 
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            
+            // Handle retry action if specified
+            if (verificationStatus.retryAction == "return_to_home") {
+                Log.d("BackendProcessing", "🔄 Retry action: Returning to home")
+                // End current session - user can restart manually
+                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Verification failed - retry needed")
+                stopActionSequence()
+                
+                // Note: Automatic return to home and retry would require additional
+                // navigation logic that depends on your app structure
+                // For now, we just end the session and notify the user
+            }
+            return
+        }
+        
+        // STILL VERIFYING: AI is navigating to cart or checking cart contents
+        if (sessionState == SessionState.VERIFYING_CHECKOUT) {
+            Log.d("BackendProcessing", "🔍 Still verifying - AI may be navigating to cart")
+            
+            // Show status to user
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    context, 
+                    "🔍 Verifying ${verificationStatus.targetItem} in cart...", 
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+            
+            // Continue with action sequence - the backend may have a recommended action
+            // to navigate to cart view
+            return
+        }
+        
+        Log.d("BackendProcessing", "🔍 Verification step processed - waiting for next action")
     }
 }

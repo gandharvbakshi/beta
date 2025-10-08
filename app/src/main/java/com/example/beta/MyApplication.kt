@@ -22,6 +22,10 @@ import android.graphics.Path
 
 class MyApplication : Application() {
 
+    companion object {
+        private const val API_VERSION = "1.0"
+    }
+
     private var screenCaptureService: ScreenCaptureService? = null
     private var currentActivity: ComponentActivity? = null
     // OverlayInputService removed - not available in current version
@@ -215,6 +219,20 @@ class MyApplication : Application() {
     }
     // -------------------------------------------------------
 
+
+    // Get client version (app version or fallback to 1.0)
+    fun getClientVersion(): String {
+        return try {
+            val packageInfo = packageManager.getPackageInfo(packageName, 0)
+            packageInfo.versionName ?: "1.0"
+        } catch (e: Exception) {
+            Log.w("MyApplication", "Could not get app version, using fallback: ${e.message}")
+            "1.0"
+        }
+    }
+
+    // Get API version constant
+    fun getApiVersion(): String = API_VERSION
 
     // Helper function to show toasts on the main thread
     private fun showToast(message: String) {

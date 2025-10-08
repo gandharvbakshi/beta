@@ -46,6 +46,10 @@ class ScreenCaptureService : Service() {
     private var resultCode = 0
     private var resultData: Intent? = null
     private var isCapturing = false
+    // Session management
+    private var currentSession: SessionContext? = null
+    private var retryAttempts = 0
+    private var consecutiveFailures = 0
     // Overlay window variables
     private lateinit var windowManager: WindowManager
     private lateinit var overlayView: View
@@ -925,7 +929,8 @@ class ScreenCaptureService : Service() {
                     inputTextForProcessing,
                     currentAppName,
                     currentTreeData,
-                    (application as? MyApplication)?.getAccessibilityService()
+                    (application as? MyApplication)?.getAccessibilityService(),
+                    currentSession
                 )
                 
                 // Only clear data if not in a sequence
@@ -939,7 +944,7 @@ class ScreenCaptureService : Service() {
                 disableScreenshots()
             } else {
                 // Log.d("ScreenCaptureService", "No input text available for emulator screenshot, using default processing with app: $currentAppName, treeData length: ${currentTreeData?.length ?: 0}")
-                BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename, currentAppName, currentTreeData)
+                BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename, currentAppName, currentTreeData, currentSession)
                 // Disable screenshots after processing
                 disableScreenshots()
             }
@@ -1043,7 +1048,8 @@ class ScreenCaptureService : Service() {
                     inputTextForProcessing,
                     currentAppName,
                     currentTreeData,
-                    (application as? MyApplication)?.getAccessibilityService()
+                    (application as? MyApplication)?.getAccessibilityService(),
+                    currentSession
                 )
                 
                 // Only clear data if not in a sequence
@@ -1057,7 +1063,7 @@ class ScreenCaptureService : Service() {
                 disableScreenshots()
             } else {
                 // Log.d("ScreenCaptureService", "No input text available, using default processing with app: $currentAppName, treeData length: ${currentTreeData?.length ?: 0}")
-                BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename, currentAppName, currentTreeData)
+                BackendProcessing.uploadScreenshotAndProcess(this, bitmap, filename, currentAppName, currentTreeData, currentSession)
                 // Disable screenshots after processing
                 disableScreenshots()
             }
@@ -1324,6 +1330,9 @@ class ScreenCaptureService : Service() {
         try {
             Log.d("ScreenCaptureService", "Showing input dialog")
             
+            // Start new session when user submits input
+            startNewSession()
+            
             // Use emulator-specific input dialog if running on emulator
             if (isEmulator()) {
                 Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific input dialog")
@@ -1338,6 +1347,47 @@ class ScreenCaptureService : Service() {
             Log.e("ScreenCaptureService", "Error showing input dialog: ${e.message}", e)
         }
     }
+    
+    // Start a new session with new UUID
+    private fun startNewSession() {
+        currentSession = SessionContext()
+        retryAttempts = 0
+        consecutiveFailures = 0
+        Log.d("ScreenCaptureService", "🚀 Starting new session: ${currentSession?.sessionId}")
+    }
+    
+    // End current session (can be called from BackendProcessing)
+    fun endSession(reason: String = "Session ended") {
+        currentSession?.let { session ->
+            Log.d("ScreenCaptureService", "🏁 Ending session: ${session.sessionId} - Reason: $reason")
+        }
+        currentSession = null
+        retryAttempts = 0
+        consecutiveFailures = 0
+        
+        // Hide overlay when session ends
+        handler?.post {
+            hideOverlay()
+        }
+    }
+    
+    // Hide the primary overlay and any input overlay
+    private fun hideOverlay() {
+        try {
+            if (::overlayView.isInitialized) {
+                overlayView.visibility = View.GONE
+                Log.d("ScreenCaptureService", "Overlay visibility set to GONE")
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error hiding overlay: ${e.message}", e)
+        }
+        // Also ensure input overlay is removed
+        hideInputOverlay()
+    }
+
+    // Expose retry attempts controls safely for BackendProcessing
+    fun getRetryAttempts(): Int = retryAttempts
+    fun incrementRetryAttempts() { retryAttempts += 1 }
     
     private fun showSimpleInputOverlay() {
         try {

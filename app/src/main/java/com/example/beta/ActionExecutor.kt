@@ -26,13 +26,13 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return hasGestureCapability && hasRetrieveCapability
     }
     
-    fun executeAction(recommendedAction: JSONObject): Boolean {
+    fun executeAction(recommendedAction: JSONObject, minConfidence: Double = 0.7): Boolean {
         return try {
             val actionType = recommendedAction.getString("action_type")
             val actionTarget = recommendedAction.getString("action_target")
             val confidenceScore = recommendedAction.getDouble("confidence")
             
-            Log.d(TAG, "Executing action: $actionType on $actionTarget (confidence: $confidenceScore)")
+            Log.d(TAG, "Executing action: $actionType on $actionTarget (confidence: $confidenceScore, min required: $minConfidence)")
             
             // Check if we have required permissions
             if (!hasRequiredPermissions()) {
@@ -40,9 +40,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 return false
             }
             
-            // Safety check: Only execute actions with high confidence
-            if (confidenceScore < 0.7) {
-                Log.w(TAG, "Action confidence too low ($confidenceScore), skipping execution")
+            // Use backend-defined confidence threshold
+            if (confidenceScore < minConfidence) {
+                Log.w(TAG, "Action confidence too low ($confidenceScore < $minConfidence), skipping execution")
                 return false
             }
             
@@ -69,6 +69,32 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     
     private fun performClick(recommendedAction: JSONObject): Boolean {
         Log.d(TAG, "Attempting to perform click action")
+        
+        // Check if this is a search bar or ADD button - use appropriate method
+        val actionTarget = recommendedAction.optString("action_target", "")
+        val isSearchBar = actionTarget.contains("search", ignoreCase = true)
+        val isAddButton = actionTarget.contains("ADD", ignoreCase = true) || actionTarget.contains("add", ignoreCase = true)
+        
+        // For search bars, try coordinate-based clicking FIRST (more reliable)
+        if (isSearchBar) {
+            val coordinates = recommendedAction.optJSONObject("coordinates")
+            if (coordinates != null) {
+                Log.d(TAG, "Search bar detected - using coordinate-based click as primary method")
+                val success = performClickByCoordinates(recommendedAction)
+                if (success) {
+                    Log.d(TAG, "Coordinate click successful for search bar")
+                    return true
+                } else {
+                    Log.d(TAG, "Coordinate click failed, falling back to accessibility")
+                }
+            }
+        }
+        
+        // For ADD buttons, use coordinate validation with retry logic
+        if (isAddButton) {
+            Log.d(TAG, "ADD button detected - using coordinate validation approach")
+            return performAddButtonClickWithValidation(recommendedAction)
+        }
         
         // Try to find element using multiple methods
         val targetNode = findTargetElement(recommendedAction)
@@ -328,6 +354,16 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 if (searchElement != null) {
                     Log.d(TAG, "Found clickable search element")
                     return searchElement
+                }
+            }
+            
+            // Special handling for ADD buttons - prioritize green ADD buttons over heart icons
+            if (actionTarget.contains("ADD", ignoreCase = true) || actionTarget.contains("add", ignoreCase = true)) {
+                Log.d(TAG, "Searching for ADD button element")
+                val addElement = findAddButtonElement(rootNode)
+                if (addElement != null) {
+                    Log.d(TAG, "Found ADD button element")
+                    return addElement
                 }
             }
             
@@ -655,6 +691,96 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return null
     }
     
+    private fun findAddButtonElement(rootNode: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        Log.d(TAG, "Searching for ADD button element")
+        
+        // Look for elements with exact text "ADD" (case insensitive)
+        val addByText = findNodeByText(rootNode, "ADD")
+        if (addByText != null && addByText.isClickable) {
+            Log.d(TAG, "Found ADD button by exact text: 'ADD'")
+            return addByText
+        }
+        
+        // Look for elements with text containing "add" (case insensitive)
+        val addByTextLower = findNodeByText(rootNode, "add")
+        if (addByTextLower != null && addByTextLower.isClickable) {
+            Log.d(TAG, "Found ADD button by text: 'add'")
+            return addByTextLower
+        }
+        
+        // Look for Button elements that might be ADD buttons
+        val buttons = findAllNodesByClassName(rootNode, "android.widget.Button")
+        for (button in buttons) {
+            val buttonText = button.text?.toString()?.lowercase()
+            if (button.isClickable && (buttonText == "add" || buttonText?.contains("add") == true)) {
+                Log.d(TAG, "Found ADD button by Button class and text")
+                return button
+            }
+        }
+        
+        // Look for elements with content description containing "add"
+        val addByDesc = findNodeByContentDescription(rootNode, "add")
+        if (addByDesc != null && addByDesc.isClickable) {
+            Log.d(TAG, "Found ADD button by content description: 'add'")
+            return addByDesc
+        }
+        
+        Log.d(TAG, "No ADD button element found")
+        return null
+    }
+    
+    private fun performAddButtonClickWithValidation(recommendedAction: JSONObject): Boolean {
+        Log.d(TAG, "Performing ADD button click with validation")
+        
+        val coordinates = recommendedAction.optJSONObject("coordinates")
+        if (coordinates == null) {
+            Log.w(TAG, "No coordinates provided for ADD button")
+            return false
+        }
+        
+        val originalX = coordinates.optInt("x", 0)
+        val originalY = coordinates.optInt("y", 0)
+        
+        Log.d(TAG, "Original ADD button coordinates: ($originalX, $originalY)")
+        
+        // Strategy 1: Try original coordinates
+        val success1 = performClickByCoordinates(recommendedAction)
+        if (success1) {
+            Log.d(TAG, "ADD button click attempt 1: SUCCESS")
+            // TODO: Add validation here - monitor for "Added to wishlist" vs "Added to cart"
+            return true
+        }
+        
+        // Strategy 2: Try multiple coordinate adjustments for typical product card layouts
+        val coordinateStrategies = listOf(
+            "Move right (avoid heart icon)" to Pair(originalX + 50, originalY),
+            "Move down (avoid heart icon)" to Pair(originalX, originalY + 30),
+            "Move right+down" to Pair(originalX + 30, originalY + 20),
+            "Move left (if heart was on right)" to Pair(originalX - 30, originalY),
+            "Move up (if ADD button is above)" to Pair(originalX, originalY - 20)
+        )
+        
+        for ((strategyName, coords) in coordinateStrategies) {
+            Log.d(TAG, "ADD button click attempt: $strategyName at (${coords.first}, ${coords.second})")
+            
+            val adjustedAction = JSONObject(recommendedAction.toString()).apply {
+                put("coordinates", JSONObject().apply {
+                    put("x", coords.first)
+                    put("y", coords.second)
+                })
+            }
+            
+            val success = performClickByCoordinates(adjustedAction)
+            if (success) {
+                Log.d(TAG, "ADD button click SUCCESS with strategy: $strategyName")
+                return true
+            }
+        }
+        
+        Log.d(TAG, "All ADD button click strategies failed")
+        return false
+    }
+    
     private fun findAllNodesByClassName(rootNode: AccessibilityNodeInfo, className: String): List<AccessibilityNodeInfo> {
         val result = mutableListOf<AccessibilityNodeInfo>()
         
@@ -709,14 +835,6 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 Log.w(TAG, "Overlay deflection check failed: ${e.message}")
             }
             
-            // Additional deflection to avoid common problematic areas
-            // If coordinates are in the top area where "location" might be, deflect further down
-            if (y < 300) { // Top area of screen
-                val additionalDeflect = 150 // Move further down
-                y += additionalDeflect
-                Log.d(TAG, "Additional deflection applied to avoid top area, new coordinates: ($x, $y)")
-            }
-            
             Log.d(TAG, "Clicking at coordinates: ($x, $y)")
             
             // Create a gesture for clicking at specific coordinates
@@ -743,6 +861,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             
             val success = accessibilityService.dispatchGesture(gesture, gestureBuilder, null)
             Log.d(TAG, "Coordinate click dispatch result: $success")
+            
+            // TODO: Add verification for "ADD" button clicks to detect wishlist misclicks
+            // Could monitor for "Added to wishlist" toasts or check cart badge changes
+            
             return success
         }
         

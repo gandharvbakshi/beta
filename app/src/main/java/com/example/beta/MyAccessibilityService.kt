@@ -491,6 +491,7 @@ class MyAccessibilityService : AccessibilityService() {
             }
             
             Log.d("MyAccessibilityService", "$indent  ⚡ Clickable: $isClickable, Enabled: $isEnabled, Visible: $isVisible")
+            Log.d("MyAccessibilityService", "$indent  🎯 Focused: ${node.isFocused}, AccessibilityFocused: ${node.isAccessibilityFocused}, Editable: ${node.isEditable}")
             
             // Log additional properties for important elements
             if (className.contains("Button") || className.contains("TextView") || className.contains("ImageView")) {
@@ -566,6 +567,7 @@ class MyAccessibilityService : AccessibilityService() {
             }
             
             treeBuilder.append("$indent  ⚡ Clickable: $isClickable, Enabled: $isEnabled, Visible: $isVisible\n")
+            treeBuilder.append("$indent  🎯 Focused: ${node.isFocused}, AccessibilityFocused: ${node.isAccessibilityFocused}, Editable: ${node.isEditable}\n")
             
             // Append additional properties for important elements
             if (className.contains("Button") || className.contains("TextView") || className.contains("ImageView")) {
