@@ -1,0 +1,191 @@
+--------- beginning of main
+10-15 11:29:45.327 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:29:45.327 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:29:45.327 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:29:45.327 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:29:45.327 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:29:45.327 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:29:55.267 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:29:55.267 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:29:55.267 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:29:55.267 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:29:55.267 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:29:55.267 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:30:10.256 17268 19736 I ActualClick: ≡ƒæå ACTUAL CLICK PERFORMED
+10-15 11:30:10.256 17268 19736 I ActualClick:   Coordinates: (225, 364)
+10-15 11:30:10.256 17268 19736 I ActualClick:   Screen Dimensions: 1080x2400
+10-15 11:30:10.256 17268 19736 I ActualClick:   Target: coordinate_click - Tap the search bar
+10-15 11:30:10.256 17268 19736 I ActualClick:   Relative Position: 20.8% from left, 15.2% from top
+10-15 11:30:10.304 17268 19736 I ClickExecution: ≡ƒÄ» CLICK EXECUTION
+10-15 11:30:10.304 17268 19736 I ClickExecution:   Strategy: coordinate_click
+10-15 11:30:10.304 17268 19736 I ClickExecution:   Original Coords: (225, 364)
+10-15 11:30:10.304 17268 19736 I ClickExecution:   Status Bar Adjustment: +0 px
+10-15 11:30:10.304 17268 19736 I ClickExecution:   Button Center Adjustment: +0 px
+10-15 11:30:10.304 17268 19736 I ClickExecution:   Overlay Deflection: +0 px
+10-15 11:30:10.304 17268 19736 I ClickExecution:   Final Coords: (225, 364)
+10-15 11:30:10.304 17268 19736 I ClickExecution:   Total Y Offset: +0 px
+10-15 11:30:10.304 17268 19736 I ClickExecution:   Gesture Dispatch Success: true
+10-15 11:30:24.370 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:30:24.370 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:30:24.370 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:30:24.370 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:30:24.370 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:30:24.370 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:33:00.621 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:33:00.621 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:33:00.621 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:33:00.621 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:33:00.621 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:33:00.621 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:33:01.659 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:33:01.659 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:33:01.659 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:33:01.659 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:33:01.659 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:33:01.659 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:33:14.830 17268 19736 I ActualClick: ≡ƒæå ACTUAL CLICK PERFORMED
+10-15 11:33:14.830 17268 19736 I ActualClick:   Coordinates: (225, 364)
+10-15 11:33:14.830 17268 19736 I ActualClick:   Screen Dimensions: 1080x2400
+10-15 11:33:14.830 17268 19736 I ActualClick:   Target: coordinate_click - Tap the search bar
+10-15 11:33:14.830 17268 19736 I ActualClick:   Relative Position: 20.8% from left, 15.2% from top
+10-15 11:33:14.833 17268 19736 I ClickExecution: ≡ƒÄ» CLICK EXECUTION
+10-15 11:33:14.833 17268 19736 I ClickExecution:   Strategy: coordinate_click
+10-15 11:33:14.833 17268 19736 I ClickExecution:   Original Coords: (225, 364)
+10-15 11:33:14.833 17268 19736 I ClickExecution:   Status Bar Adjustment: +0 px
+10-15 11:33:14.833 17268 19736 I ClickExecution:   Button Center Adjustment: +0 px
+10-15 11:33:14.833 17268 19736 I ClickExecution:   Overlay Deflection: +0 px
+10-15 11:33:14.833 17268 19736 I ClickExecution:   Final Coords: (225, 364)
+10-15 11:33:14.833 17268 19736 I ClickExecution:   Total Y Offset: +0 px
+10-15 11:33:14.833 17268 19736 I ClickExecution:   Gesture Dispatch Success: true
+10-15 11:33:24.125 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:33:24.125 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:33:24.125 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:33:24.125 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:33:24.125 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:33:24.125 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:33:28.827 17268 20667 I ActualClick: ≡ƒæå ACTUAL CLICK PERFORMED
+10-15 11:33:28.827 17268 20667 I ActualClick:   Coordinates: (225, 365)
+10-15 11:33:28.827 17268 20667 I ActualClick:   Screen Dimensions: 1080x2400
+10-15 11:33:28.827 17268 20667 I ActualClick:   Target: coordinate_click - Tap the search bar
+10-15 11:33:28.827 17268 20667 I ActualClick:   Relative Position: 20.8% from left, 15.2% from top
+10-15 11:33:28.830 17268 20667 I ClickExecution: ≡ƒÄ» CLICK EXECUTION
+10-15 11:33:28.830 17268 20667 I ClickExecution:   Strategy: coordinate_click
+10-15 11:33:28.830 17268 20667 I ClickExecution:   Original Coords: (225, 365)
+10-15 11:33:28.830 17268 20667 I ClickExecution:   Status Bar Adjustment: +0 px
+10-15 11:33:28.830 17268 20667 I ClickExecution:   Button Center Adjustment: +0 px
+10-15 11:33:28.830 17268 20667 I ClickExecution:   Overlay Deflection: +0 px
+10-15 11:33:28.830 17268 20667 I ClickExecution:   Final Coords: (225, 365)
+10-15 11:33:28.830 17268 20667 I ClickExecution:   Total Y Offset: +0 px
+10-15 11:33:28.830 17268 20667 I ClickExecution:   Gesture Dispatch Success: true
+10-15 11:33:37.206 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:33:37.206 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:33:37.206 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:33:37.206 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:33:37.206 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:33:37.206 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:33:49.435 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:33:49.435 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:33:49.435 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:33:49.435 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:33:49.435 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:33:49.435 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:33:59.642 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:33:59.642 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:33:59.642 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:33:59.642 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:33:59.642 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:33:59.642 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:34:11.467 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:34:11.467 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:34:11.467 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:34:11.467 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:34:11.467 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:34:11.467 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:34:16.917 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:34:16.917 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:34:16.917 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:34:16.917 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:34:16.917 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:34:16.917 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:34:26.167 17268 20667 I ActualClick: ≡ƒæå ACTUAL CLICK PERFORMED
+10-15 11:34:26.167 17268 20667 I ActualClick:   Coordinates: (621, 1995)
+10-15 11:34:26.167 17268 20667 I ActualClick:   Screen Dimensions: 1080x2400
+10-15 11:34:26.167 17268 20667 I ActualClick:   Target: Original coordinates - add the first displayed notebook to the cart
+10-15 11:34:26.167 17268 20667 I ActualClick:   Relative Position: 57.5% from left, 83.1% from top
+10-15 11:34:26.777 17268 20667 I ClickExecution: ≡ƒÄ» CLICK EXECUTION
+10-15 11:34:26.777 17268 20667 I ClickExecution:   Strategy: Original coordinates
+10-15 11:34:26.777 17268 20667 I ClickExecution:   Original Coords: (621, 1995)
+10-15 11:34:26.777 17268 20667 I ClickExecution:   Status Bar Adjustment: +0 px
+10-15 11:34:26.777 17268 20667 I ClickExecution:   Button Center Adjustment: +0 px
+10-15 11:34:26.777 17268 20667 I ClickExecution:   Overlay Deflection: +0 px
+10-15 11:34:26.777 17268 20667 I ClickExecution:   Final Coords: (621, 1995)
+10-15 11:34:26.777 17268 20667 I ClickExecution:   Total Y Offset: +0 px
+10-15 11:34:26.777 17268 20667 I ClickExecution:   Gesture Dispatch Success: true
+10-15 11:34:35.164 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:34:35.164 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:34:35.164 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:34:35.164 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:34:35.164 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:34:35.164 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:34:38.484 17268 19736 I ActualClick: ≡ƒæå ACTUAL CLICK PERFORMED
+10-15 11:34:38.484 17268 19736 I ActualClick:   Coordinates: (621, 1995)
+10-15 11:34:38.484 17268 19736 I ActualClick:   Screen Dimensions: 1080x2400
+10-15 11:34:38.484 17268 19736 I ActualClick:   Target: Original coordinates - add the 'HQ Single notebook' to the cart
+10-15 11:34:38.484 17268 19736 I ActualClick:   Relative Position: 57.5% from left, 83.1% from top
+10-15 11:34:40.427 17268 19736 I ClickExecution: ≡ƒÄ» CLICK EXECUTION
+10-15 11:34:40.427 17268 19736 I ClickExecution:   Strategy: Original coordinates
+10-15 11:34:40.427 17268 19736 I ClickExecution:   Original Coords: (621, 1995)
+10-15 11:34:40.427 17268 19736 I ClickExecution:   Status Bar Adjustment: +0 px
+10-15 11:34:40.427 17268 19736 I ClickExecution:   Button Center Adjustment: +0 px
+10-15 11:34:40.427 17268 19736 I ClickExecution:   Overlay Deflection: +0 px
+10-15 11:34:40.427 17268 19736 I ClickExecution:   Final Coords: (621, 1995)
+10-15 11:34:40.427 17268 19736 I ClickExecution:   Total Y Offset: +0 px
+10-15 11:34:40.427 17268 19736 I ClickExecution:   Gesture Dispatch Success: true
+10-15 11:34:48.803 17268 17268 I ScreenshotCapture: ≡ƒô╕ SCREENSHOT CAPTURED
+10-15 11:34:48.803 17268 17268 I ScreenshotCapture:   Phone Resolution: 1080x2205
+10-15 11:34:48.803 17268 17268 I ScreenshotCapture:   Screenshot Resolution: 1080x2205
+10-15 11:34:48.803 17268 17268 I ScreenshotCapture:   Resolution Match: Γ£à YES
+10-15 11:34:48.803 17268 17268 I ScreenshotCapture:   Status Bar Height: 132 px
+10-15 11:34:48.803 17268 17268 I ScreenshotCapture:   Screenshot includes status bar: YES
+10-15 11:34:51.911 17268 20667 I ActualClick: ≡ƒæå ACTUAL CLICK PERFORMED
+10-15 11:34:51.911 17268 20667 I ActualClick:   Coordinates: (868, 2071)
+10-15 11:34:51.911 17268 20667 I ActualClick:   Screen Dimensions: 1080x2400
+10-15 11:34:51.911 17268 20667 I ActualClick:   Target: Original coordinates - add the currently viewed notebook product to the cart
+10-15 11:34:51.911 17268 20667 I ActualClick:   Relative Position: 80.4% from left, 86.3% from top
+10-15 11:34:54.027 17268 20667 I ClickExecution: ≡ƒÄ» CLICK EXECUTION
+10-15 11:34:54.027 17268 20667 I ClickExecution:   Strategy: Original coordinates
+10-15 11:34:54.027 17268 20667 I ClickExecution:   Original Coords: (868, 2071)
+10-15 11:34:54.027 17268 20667 I ClickExecution:   Status Bar Adjustment: +0 px
+10-15 11:34:54.027 17268 20667 I ClickExecution:   Button Center Adjustment: +0 px
+10-15 11:34:54.027 17268 20667 I ClickExecution:   Overlay Deflection: +0 px
+10-15 11:34:54.027 17268 20667 I ClickExecution:   Final Coords: (868, 2071)
+10-15 11:34:54.027 17268 20667 I ClickExecution:   Total Y Offset: +0 px
+10-15 11:34:54.027 17268 20667 I ClickExecution:   Gesture Dispatch Success: true
+10-15 11:35:03.615 17268 20942 I ActualClick: ≡ƒæå ACTUAL CLICK PERFORMED
+10-15 11:35:03.615 17268 20942 I ActualClick:   Coordinates: (621, 1995)
+10-15 11:35:03.615 17268 20942 I ActualClick:   Screen Dimensions: 1080x2400
+10-15 11:35:03.615 17268 20942 I ActualClick:   Target: Original coordinates - Add the first listed notebook product to the cart
+10-15 11:35:03.615 17268 20942 I ActualClick:   Relative Position: 57.5% from left, 83.1% from top
+10-15 11:35:05.262 17268 20942 I ClickExecution: ≡ƒÄ» CLICK EXECUTION
+10-15 11:35:05.262 17268 20942 I ClickExecution:   Strategy: Original coordinates
+10-15 11:35:05.262 17268 20942 I ClickExecution:   Original Coords: (621, 1995)
+10-15 11:35:05.262 17268 20942 I ClickExecution:   Status Bar Adjustment: +0 px
+10-15 11:35:05.262 17268 20942 I ClickExecution:   Button Center Adjustment: +0 px
+10-15 11:35:05.262 17268 20942 I ClickExecution:   Overlay Deflection: +0 px
+10-15 11:35:05.262 17268 20942 I ClickExecution:   Final Coords: (621, 1995)
+10-15 11:35:05.262 17268 20942 I ClickExecution:   Total Y Offset: +0 px
+10-15 11:35:05.262 17268 20942 I ClickExecution:   Gesture Dispatch Success: true
+10-15 11:35:18.674 17268 19736 I ActualClick: ≡ƒæå ACTUAL CLICK PERFORMED
+10-15 11:35:18.674 17268 19736 I ActualClick:   Coordinates: (868, 2071)
+10-15 11:35:18.674 17268 19736 I ActualClick:   Screen Dimensions: 1080x2400
+10-15 11:35:18.674 17268 19736 I ActualClick:   Target: Original coordinates - Add the displayed notebook set to the cart
+10-15 11:35:18.674 17268 19736 I ActualClick:   Relative Position: 80.4% from left, 86.3% from top
+10-15 11:35:20.331 17268 19736 I ClickExecution: ≡ƒÄ» CLICK EXECUTION
+10-15 11:35:20.331 17268 19736 I ClickExecution:   Strategy: Original coordinates
+10-15 11:35:20.331 17268 19736 I ClickExecution:   Original Coords: (868, 2071)
+10-15 11:35:20.331 17268 19736 I ClickExecution:   Status Bar Adjustment: +0 px
+10-15 11:35:20.331 17268 19736 I ClickExecution:   Button Center Adjustment: +0 px
+10-15 11:35:20.331 17268 19736 I ClickExecution:   Overlay Deflection: +0 px
+10-15 11:35:20.331 17268 19736 I ClickExecution:   Final Coords: (868, 2071)
+10-15 11:35:20.331 17268 19736 I ClickExecution:   Total Y Offset: +0 px
+10-15 11:35:20.331 17268 19736 I ClickExecution:   Gesture Dispatch Success: true

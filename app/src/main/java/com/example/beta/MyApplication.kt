@@ -33,11 +33,22 @@ class MyApplication : Application() {
     // private var buttonHighlightService: ButtonHighlightService? = null
     // private var accessibilityService: AccessibilityService? = null
     // private var automatedActionService: AutomatedActionService? = null
+    
+    // Store last screenshot dimensions for coordinate calculations
+    private var lastScreenshotWidth: Int = 0
+    private var lastScreenshotHeight: Int = 0
 
     override fun onCreate() {
         super.onCreate()
         // Initialize anything global here
         Log.d("MyApplication", "Application created")
+        
+        // Initialize debug logger
+        DebugLogger.init(this)
+        DebugLogger.logInfo("MyApplication", "Application started - Debug logging enabled")
+        
+        // Log initial screen metrics
+        ScreenMetrics.getScreenInfo(this)
     }
 
     // Saves the provided bitmap to the MediaStore
@@ -233,6 +244,38 @@ class MyApplication : Application() {
 
     // Get API version constant
     fun getApiVersion(): String = API_VERSION
+    
+    // Debug log access methods
+    fun getDebugLogs(): String {
+        return DebugLogger.readLogs()
+    }
+    
+    fun getRecentDebugLogs(lines: Int = 100): String {
+        return DebugLogger.readLastLogs(lines)
+    }
+    
+    fun clearDebugLogs() {
+        DebugLogger.clearLogs()
+    }
+    
+    fun getDebugLogPath(): String? {
+        return DebugLogger.getLogFilePath()
+    }
+    
+    // Screenshot dimension storage for coordinate calculations
+    fun setLastScreenshotDimensions(width: Int, height: Int) {
+        lastScreenshotWidth = width
+        lastScreenshotHeight = height
+        Log.d("MyApplication", "Stored screenshot dimensions: ${width}x${height}")
+    }
+    
+    fun getLastScreenshotDimensions(): Pair<Int, Int> {
+        return Pair(lastScreenshotWidth, lastScreenshotHeight)
+    }
+    
+    fun dumpDebugLogsToLogcat(lines: Int = 100) {
+        DebugLogger.dumpToLogcat(lines)
+    }
 
     // Helper function to show toasts on the main thread
     private fun showToast(message: String) {

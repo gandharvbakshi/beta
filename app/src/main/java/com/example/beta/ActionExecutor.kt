@@ -743,11 +743,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         
         Log.d(TAG, "Original ADD button coordinates: ($originalX, $originalY)")
         
-        // Strategy 1: Try original coordinates
-        val success1 = performClickByCoordinates(recommendedAction)
+        // Strategy 1: Try original coordinates with validation
+        val success1 = performClickByCoordinatesWithValidation(recommendedAction, "Original coordinates")
         if (success1) {
             Log.d(TAG, "ADD button click attempt 1: SUCCESS")
-            // TODO: Add validation here - monitor for "Added to wishlist" vs "Added to cart"
             return true
         }
         
@@ -757,7 +756,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             "Move down (avoid heart icon)" to Pair(originalX, originalY + 30),
             "Move right+down" to Pair(originalX + 30, originalY + 20),
             "Move left (if heart was on right)" to Pair(originalX - 30, originalY),
-            "Move up (if ADD button is above)" to Pair(originalX, originalY - 20)
+            "Move up (if ADD button is above)" to Pair(originalX, originalY - 20),
+            "Move right+up" to Pair(originalX + 40, originalY - 10),
+            "Move left+down" to Pair(originalX - 20, originalY + 25)
         )
         
         for ((strategyName, coords) in coordinateStrategies) {
@@ -770,7 +771,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 })
             }
             
-            val success = performClickByCoordinates(adjustedAction)
+            val success = performClickByCoordinatesWithValidation(adjustedAction, strategyName)
             if (success) {
                 Log.d(TAG, "ADD button click SUCCESS with strategy: $strategyName")
                 return true
@@ -779,6 +780,265 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         
         Log.d(TAG, "All ADD button click strategies failed")
         return false
+    }
+    
+    private fun performClickByCoordinatesWithValidation(recommendedAction: JSONObject, strategyName: String): Boolean {
+        Log.d(TAG, "Attempting click by coordinates with validation: $strategyName")
+        
+        // Try both 'coordinates' (backend format) and 'fallback_coordinates' (legacy format)
+        val coordinates = recommendedAction.optJSONObject("coordinates") 
+            ?: recommendedAction.optJSONObject("fallback_coordinates")
+        
+        if (coordinates != null) {
+            val originalX = coordinates.optInt("x", 0)
+            val originalY = coordinates.optInt("y", 0)
+            
+            // Get all dimension information for coordinate system analysis
+            val (screenWidth, screenHeight) = ScreenMetrics.getScreenDimensions(accessibilityService)
+            val statusBarHeight = ScreenMetrics.getStatusBarHeight(accessibilityService)
+            val navigationBarHeight = ScreenMetrics.getNavigationBarHeight(accessibilityService)
+            
+            // Get screenshot dimensions from MyApplication storage
+            val app = accessibilityService.application as? MyApplication
+            val (storedWidth, storedHeight) = app?.getLastScreenshotDimensions() ?: Pair(0, 0)
+            
+            // Use stored screenshot dimensions if available, otherwise fall back to screen dimensions
+            val screenshotWidth = if (storedWidth > 0) storedWidth else screenWidth
+            val screenshotHeight = if (storedHeight > 0) storedHeight else screenHeight
+            
+            // Log comprehensive coordinate system analysis BEFORE any processing
+            DebugLogger.logCoordinateSystem(
+                backendX = originalX,
+                backendY = originalY,
+                screenshotWidth = screenshotWidth,
+                screenshotHeight = screenshotHeight,
+                screenWidth = screenWidth,
+                screenHeight = screenHeight,
+                statusBarHeight = statusBarHeight,
+                navigationBarHeight = navigationBarHeight,
+                finalX = originalX, // Will update after processing
+                finalY = originalY, // Will update after processing
+                strategy = strategyName
+            )
+            
+            // Calculate and log scaling ratios for hypothesis verification
+            val scaleX = screenWidth.toFloat() / screenshotWidth.toFloat()
+            val scaleY = screenHeight.toFloat() / screenshotHeight.toFloat()
+            val scaledBackendX = (originalX * scaleX).toInt()
+            val scaledBackendY = (originalY * scaleY).toInt()
+            
+            Log.i("ActionExecutor", "SCALING ANALYSIS - Strategy: $strategyName")
+            Log.i("ActionExecutor", "Screenshot dimensions: ${screenshotWidth}x${screenshotHeight}")
+            Log.i("ActionExecutor", "Screen dimensions: ${screenWidth}x${screenHeight}")
+            Log.i("ActionExecutor", "Scaling factors: X=${String.format("%.3f", scaleX)}, Y=${String.format("%.3f", scaleY)}")
+            Log.i("ActionExecutor", "Backend coords: ($originalX, $originalY)")
+            Log.i("ActionExecutor", "Scaled coords should be: ($scaledBackendX, $scaledBackendY)")
+            
+            if (Math.abs(scaleY - 1.0) > 0.01) {
+                Log.w("ActionExecutor", "SCALING MISMATCH DETECTED! Y scaling factor: ${String.format("%.3f", scaleY)}")
+                Log.w("ActionExecutor", "Applying scaling correction to fix coordinate mismatch!")
+            } else {
+                Log.i("ActionExecutor", "No scaling mismatch detected - using coordinates as-is")
+            }
+            
+            // APPLY SCALING CORRECTION: Backend coordinates are in screenshot space, need to scale to screen space
+            // This fixes the coordinate mismatch caused by MediaProjection scaling down to fit smaller buffer
+            var x = (originalX * scaleX).toInt()
+            var y = (originalY * scaleY).toInt()
+            
+            val statusBarAdjustment = 0  // No additional status bar adjustment needed
+            var overlayDeflection = 0
+            val buttonCenterAdjustment = 0  // No additional button adjustment needed
+            
+            Log.i(TAG, "SCALING CORRECTION APPLIED:")
+            Log.i(TAG, "  Original coords: ($originalX, $originalY)")
+            Log.i(TAG, "  Scaling factors: X=${String.format("%.3f", scaleX)}, Y=${String.format("%.3f", scaleY)}")
+            Log.i(TAG, "  Scaled coords: ($x, $y)")
+            Log.i(TAG, "  Y offset applied: +${y - originalY}px")
+            
+            // Check if scaled coordinates are within bounds using screen dimensions
+            // Scaled coordinates are now in screen space, so check against screen dimensions
+            if (x < 0 || x >= screenWidth || y < 0 || y >= screenHeight) {
+                Log.e(TAG, "Scaled coordinates out of bounds: ($x, $y), screen: ${screenWidth}x${screenHeight}")
+                DebugLogger.logError(TAG, "Scaled click coordinates out of bounds: ($x, $y), screen: ${screenWidth}x${screenHeight}")
+                return false
+            }
+
+            // Deflect taps if inside overlay rectangle (with padding)
+            try {
+                val app = accessibilityService.application as? MyApplication
+                val screenService = app?.getScreenCaptureService()
+                val overlayRect = screenService?.getOverlayRect()
+                if (overlayRect != null && !overlayRect.isEmpty) {
+                    // Inflate by padding (e.g., 24dp on all sides)
+                    val density = accessibilityService.resources.displayMetrics.density
+                    val pad = (24 * density).toInt()
+                    val inflated = Rect(
+                        overlayRect.left - pad,
+                        overlayRect.top - pad,
+                        overlayRect.right + pad,
+                        overlayRect.bottom + pad
+                    )
+                    if (inflated.contains(x, y)) {
+                        // Deflect downward by overlay height + 24px
+                        overlayDeflection = overlayRect.height() + 24
+                        y += overlayDeflection
+                        Log.d(TAG, "Deflected tap from ($x, ${y - overlayDeflection}) to ($x, $y) to avoid overlay")
+                        DebugLogger.logDebug(TAG, "Overlay deflection applied: +$overlayDeflection px")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Overlay deflection check failed: ${e.message}")
+            }
+            
+            Log.d(TAG, "Clicking at scaled coordinates: ($x, $y) [Original: ($originalX, $originalY), Scaling: ${String.format("%.3f", scaleY)}x]")
+            
+            // Log the actual click coordinates
+            val actionTarget = recommendedAction.optString("action_target", "unknown")
+            DebugLogger.logActualClickCoordinates(
+                x = x,
+                y = y,
+                screenWidth = screenshotWidth,
+                screenHeight = screenshotHeight,
+                targetDescription = "$strategyName - $actionTarget"
+            )
+            
+            // Create a gesture for clicking at specific coordinates
+            val gestureBuilder = object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                    Log.d(TAG, "Coordinate click gesture completed: $strategyName")
+                    DebugLogger.logGestureResult(strategyName, completed = true, cancelled = false)
+                }
+                
+                override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                    Log.w(TAG, "Coordinate click gesture cancelled: $strategyName")
+                    DebugLogger.logGestureResult(strategyName, completed = false, cancelled = true)
+                }
+            }
+            
+            // Create a tap gesture (press and release)
+            val path = android.graphics.Path().apply { 
+                moveTo(x.toFloat(), y.toFloat())
+            }
+            
+            val gesture = android.accessibilityservice.GestureDescription.Builder()
+                .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(
+                    path, 0, 100 // Increased duration to 100ms for more reliable clicks
+                ))
+                .build()
+            
+            val dispatchResult = accessibilityService.dispatchGesture(gesture, gestureBuilder, null)
+            Log.d(TAG, "Coordinate click dispatch result: $dispatchResult")
+            
+            if (dispatchResult) {
+                // Add a small delay to allow UI to respond
+                Thread.sleep(200)
+                
+                // Additional validation: Check if we can find any UI changes that might indicate success
+                val validationResult = validateClickSuccess(recommendedAction, strategyName)
+                
+                // Log the actual result AFTER validation
+                DebugLogger.logClickExecution(
+                    strategy = strategyName,
+                    originalX = originalX,
+                    originalY = originalY,
+                    finalX = x,
+                    finalY = y,
+                    statusBarAdjustment = statusBarAdjustment,
+                    overlayDeflection = overlayDeflection,
+                    buttonCenterAdjustment = buttonCenterAdjustment,
+                    success = validationResult
+                )
+                
+                // Log comprehensive scaling analysis for hypothesis verification
+                DebugLogger.logScalingAnalysis(
+                    backendX = originalX,
+                    backendY = originalY,
+                    screenshotWidth = screenshotWidth,
+                    screenshotHeight = screenshotHeight,
+                    screenWidth = screenWidth,
+                    screenHeight = screenHeight,
+                    clickX = x,
+                    clickY = y
+                )
+                
+                if (validationResult) {
+                    Log.d(TAG, "Click dispatched successfully with validation: $strategyName")
+                    return true
+                } else {
+                    Log.w(TAG, "Click dispatched but validation failed: $strategyName")
+                    return false
+                }
+            } else {
+                // Log failed dispatch
+                DebugLogger.logClickExecution(
+                    strategy = strategyName,
+                    originalX = originalX,
+                    originalY = originalY,
+                    finalX = x,
+                    finalY = y,
+                    statusBarAdjustment = statusBarAdjustment,
+                    overlayDeflection = overlayDeflection,
+                    buttonCenterAdjustment = buttonCenterAdjustment,
+                    success = false
+                )
+                
+                Log.w(TAG, "Click dispatch failed: $strategyName")
+                return false
+            }
+        }
+        
+        Log.w(TAG, "No fallback coordinates available")
+        return false
+    }
+    
+    private fun validateClickSuccess(recommendedAction: JSONObject, strategyName: String): Boolean {
+        Log.d(TAG, "Validating click success for: $strategyName")
+        
+        // For ADD button clicks, try to detect success indicators
+        val actionTarget = recommendedAction.optString("action_target", "")
+        val isAddButton = actionTarget.contains("ADD", ignoreCase = true) || actionTarget.contains("add", ignoreCase = true)
+        
+        if (isAddButton) {
+            // Wait a bit more for UI to update
+            Thread.sleep(300)
+            
+            // Check if we can find any success indicators in the accessibility tree
+            val rootNode = accessibilityService.rootInActiveWindow
+            if (rootNode != null) {
+                // Look for common success indicators
+                val successIndicators = listOf(
+                    "Added to cart",
+                    "Item added",
+                    "Added to wishlist", // This would indicate a misclick
+                    "Cart updated",
+                    "Product added"
+                )
+                
+                for (indicator in successIndicators) {
+                    val foundNode = findNodeByText(rootNode, indicator)
+                    if (foundNode != null) {
+                        Log.d(TAG, "Found success indicator: '$indicator'")
+                        
+                        // Check if it's a wishlist misclick
+                        if (indicator.contains("wishlist", ignoreCase = true)) {
+                            Log.w(TAG, "WISHLIST MISCLICK DETECTED: Click hit wishlist button instead of ADD button")
+                            return false
+                        }
+                        
+                        return true
+                    }
+                }
+                
+                // Alternative validation: Check if the ADD button text changed or became disabled
+                // This is a more sophisticated approach that would require tracking button state
+                Log.d(TAG, "No explicit success indicators found, assuming click was successful")
+                return true
+            }
+        }
+        
+        // For non-ADD buttons, just return true if dispatch was successful
+        return true
     }
     
     private fun findAllNodesByClassName(rootNode: AccessibilityNodeInfo, className: String): List<AccessibilityNodeInfo> {
@@ -806,8 +1066,79 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             ?: recommendedAction.optJSONObject("fallback_coordinates")
         
         if (coordinates != null) {
-            var x = coordinates.optInt("x", 0)
-            var y = coordinates.optInt("y", 0)
+            val originalX = coordinates.optInt("x", 0)
+            val originalY = coordinates.optInt("y", 0)
+            
+            // Get all dimension information for coordinate system analysis
+            val (screenWidth, screenHeight) = ScreenMetrics.getScreenDimensions(accessibilityService)
+            val statusBarHeight = ScreenMetrics.getStatusBarHeight(accessibilityService)
+            val navigationBarHeight = ScreenMetrics.getNavigationBarHeight(accessibilityService)
+            
+            // Get screenshot dimensions from MyApplication storage
+            val app = accessibilityService.application as? MyApplication
+            val (storedWidth, storedHeight) = app?.getLastScreenshotDimensions() ?: Pair(0, 0)
+            
+            // Use stored screenshot dimensions if available, otherwise fall back to screen dimensions
+            val screenshotWidth = if (storedWidth > 0) storedWidth else screenWidth
+            val screenshotHeight = if (storedHeight > 0) storedHeight else screenHeight
+            
+            // Log comprehensive coordinate system analysis BEFORE any processing
+            DebugLogger.logCoordinateSystem(
+                backendX = originalX,
+                backendY = originalY,
+                screenshotWidth = screenshotWidth,
+                screenshotHeight = screenshotHeight,
+                screenWidth = screenWidth,
+                screenHeight = screenHeight,
+                statusBarHeight = statusBarHeight,
+                navigationBarHeight = navigationBarHeight,
+                finalX = originalX, // Will update after processing
+                finalY = originalY, // Will update after processing
+                strategy = "coordinate_click"
+            )
+            
+            // Calculate and log scaling ratios for hypothesis verification
+            val scaleX = screenWidth.toFloat() / screenshotWidth.toFloat()
+            val scaleY = screenHeight.toFloat() / screenshotHeight.toFloat()
+            val scaledBackendX = (originalX * scaleX).toInt()
+            val scaledBackendY = (originalY * scaleY).toInt()
+            
+            Log.i("ActionExecutor", "SCALING ANALYSIS - Strategy: coordinate_click")
+            Log.i("ActionExecutor", "Screenshot dimensions: ${screenshotWidth}x${screenshotHeight}")
+            Log.i("ActionExecutor", "Screen dimensions: ${screenWidth}x${screenHeight}")
+            Log.i("ActionExecutor", "Scaling factors: X=${String.format("%.3f", scaleX)}, Y=${String.format("%.3f", scaleY)}")
+            Log.i("ActionExecutor", "Backend coords: ($originalX, $originalY)")
+            Log.i("ActionExecutor", "Scaled coords should be: ($scaledBackendX, $scaledBackendY)")
+            
+            if (Math.abs(scaleY - 1.0) > 0.01) {
+                Log.w("ActionExecutor", "SCALING MISMATCH DETECTED! Y scaling factor: ${String.format("%.3f", scaleY)}")
+                Log.w("ActionExecutor", "Applying scaling correction to fix coordinate mismatch!")
+            } else {
+                Log.i("ActionExecutor", "No scaling mismatch detected - using coordinates as-is")
+            }
+            
+            // APPLY SCALING CORRECTION: Backend coordinates are in screenshot space, need to scale to screen space
+            // This fixes the coordinate mismatch caused by MediaProjection scaling down to fit smaller buffer
+            var x = (originalX * scaleX).toInt()
+            var y = (originalY * scaleY).toInt()
+            
+            val statusBarAdjustment = 0  // No additional status bar adjustment needed
+            var overlayDeflection = 0
+            val buttonCenterAdjustment = 0  // No additional button adjustment needed
+            
+            Log.i(TAG, "SCALING CORRECTION APPLIED:")
+            Log.i(TAG, "  Original coords: ($originalX, $originalY)")
+            Log.i(TAG, "  Scaling factors: X=${String.format("%.3f", scaleX)}, Y=${String.format("%.3f", scaleY)}")
+            Log.i(TAG, "  Scaled coords: ($x, $y)")
+            Log.i(TAG, "  Y offset applied: +${y - originalY}px")
+            
+            // Check if scaled coordinates are within bounds using screen dimensions
+            // Scaled coordinates are now in screen space, so check against screen dimensions
+            if (x < 0 || x >= screenWidth || y < 0 || y >= screenHeight) {
+                Log.e(TAG, "Scaled coordinates out of bounds: ($x, $y), screen: ${screenWidth}x${screenHeight}")
+                DebugLogger.logError(TAG, "Scaled click coordinates out of bounds: ($x, $y), screen: ${screenWidth}x${screenHeight}")
+                return false
+            }
 
             // Deflect taps if inside overlay rectangle (with padding)
             try {
@@ -826,25 +1157,38 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                     )
                     if (inflated.contains(x, y)) {
                         // Deflect downward by overlay height + 24px
-                        val deflect = overlayRect.height() + 24
-                        y += deflect
-                        Log.d(TAG, "Deflected tap from ($x, ${y - deflect}) to ($x, $y) to avoid overlay")
+                        overlayDeflection = overlayRect.height() + 24
+                        y += overlayDeflection
+                        Log.d(TAG, "Deflected tap from ($x, ${y - overlayDeflection}) to ($x, $y) to avoid overlay")
+                        DebugLogger.logDebug(TAG, "Overlay deflection applied: +$overlayDeflection px")
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Overlay deflection check failed: ${e.message}")
             }
             
-            Log.d(TAG, "Clicking at coordinates: ($x, $y)")
+            Log.d(TAG, "Clicking at scaled coordinates: ($x, $y) [Original: ($originalX, $originalY), Scaling: ${String.format("%.3f", scaleY)}x]")
+            
+            // Log the actual click coordinates
+            val actionTarget = recommendedAction.optString("action_target", "unknown")
+            DebugLogger.logActualClickCoordinates(
+                x = x,
+                y = y,
+                screenWidth = screenWidth,
+                screenHeight = screenHeight,
+                targetDescription = "coordinate_click - $actionTarget"
+            )
             
             // Create a gesture for clicking at specific coordinates
             val gestureBuilder = object : AccessibilityService.GestureResultCallback() {
                 override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                    Log.d(TAG, "Coordinate click gesture completed")
+                    Log.d(TAG, "Coordinate click gesture completed: coordinate_click")
+                    DebugLogger.logGestureResult("coordinate_click", completed = true, cancelled = false)
                 }
                 
                 override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                    Log.d(TAG, "Coordinate click gesture cancelled")
+                    Log.w(TAG, "Coordinate click gesture cancelled: coordinate_click")
+                    DebugLogger.logGestureResult("coordinate_click", completed = false, cancelled = true)
                 }
             }
             
@@ -855,12 +1199,37 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             
             val gesture = android.accessibilityservice.GestureDescription.Builder()
                 .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(
-                    path, 0, 50 // 50ms duration for a quick tap
+                    path, 0, 100 // Increased duration to 100ms for more reliable clicks
                 ))
                 .build()
             
             val success = accessibilityService.dispatchGesture(gesture, gestureBuilder, null)
             Log.d(TAG, "Coordinate click dispatch result: $success")
+            
+            // Log the actual result AFTER dispatch
+            DebugLogger.logClickExecution(
+                strategy = "coordinate_click",
+                originalX = originalX,
+                originalY = originalY,
+                finalX = x,
+                finalY = y,
+                statusBarAdjustment = statusBarAdjustment,
+                overlayDeflection = overlayDeflection,
+                buttonCenterAdjustment = buttonCenterAdjustment,
+                success = success
+            )
+            
+            // Log comprehensive scaling analysis for hypothesis verification
+            DebugLogger.logScalingAnalysis(
+                backendX = originalX,
+                backendY = originalY,
+                screenshotWidth = screenshotWidth,
+                screenshotHeight = screenshotHeight,
+                screenWidth = screenWidth,
+                screenHeight = screenHeight,
+                clickX = x,
+                clickY = y
+            )
             
             // TODO: Add verification for "ADD" button clicks to detect wishlist misclicks
             // Could monitor for "Added to wishlist" toasts or check cart badge changes

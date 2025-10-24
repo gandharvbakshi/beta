@@ -71,6 +71,24 @@ class MainActivity : ComponentActivity() {
                 // Get display metrics here to pass it along to the service
                 val displayMetrics = DisplayMetrics()
                 windowManager.defaultDisplay.getMetrics(displayMetrics)
+                
+                // Also get real metrics for comparison (includes status bar and navigation bar)
+                val realMetrics = DisplayMetrics()
+                windowManager.defaultDisplay.getRealMetrics(realMetrics)
+                
+                // Log dimension comparison for scaling hypothesis verification
+                Log.i("MainActivity", "Display Metrics (getMetrics): ${displayMetrics.widthPixels}x${displayMetrics.heightPixels}")
+                Log.i("MainActivity", "Real Metrics (getRealMetrics): ${realMetrics.widthPixels}x${realMetrics.heightPixels}")
+                
+                val widthDiff = realMetrics.widthPixels - displayMetrics.widthPixels
+                val heightDiff = realMetrics.heightPixels - displayMetrics.heightPixels
+                
+                if (widthDiff != 0 || heightDiff != 0) {
+                    Log.w("MainActivity", "DIMENSION MISMATCH: Width diff: ${widthDiff}px, Height diff: ${heightDiff}px")
+                    Log.w("MainActivity", "This could cause scaling issues in screenshots!")
+                } else {
+                    Log.i("MainActivity", "Dimensions match - no scaling issues expected")
+                }
 
                 // Start the ScreenCaptureService with the metrics after receiving result from projection intent
                 val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {

@@ -685,7 +685,7 @@ class ScreenCaptureService : Service() {
             )
             
             if (virtualDisplay != null) {
-                Log.d("ScreenCaptureService", "VirtualDisplay created successfully with dimensions: $width x $height")
+                Log.i("ScreenCaptureService", "VirtualDisplay created successfully with dimensions: $width x $height")
             } else {
                 Log.w("ScreenCaptureService", "Standard VirtualDisplay creation failed, trying with minimal flags")
                 
@@ -702,7 +702,7 @@ class ScreenCaptureService : Service() {
                 )
                 
                 if (virtualDisplay != null) {
-                    Log.d("ScreenCaptureService", "VirtualDisplay created with minimal flags, dimensions: $width x $height")
+                    Log.i("ScreenCaptureService", "VirtualDisplay created with minimal flags, dimensions: $width x $height")
                 } else {
                     Log.e("ScreenCaptureService", "Failed to create VirtualDisplay even with minimal flags")
                 }
@@ -739,7 +739,7 @@ class ScreenCaptureService : Service() {
                 width, height, pixelFormat, bufferSize
             )
             imageReader?.setOnImageAvailableListener(imageAvailableListener, handler)
-            Log.d("ScreenCaptureService", "ImageReader created with ${if (isEmulator()) "RGB_565" else "RGBA_8888"} format, dimensions: $width x $height, buffer: $bufferSize")
+            Log.i("ScreenCaptureService", "ImageReader created with ${if (isEmulator()) "RGB_565" else "RGBA_8888"} format, dimensions: $width x $height, buffer: $bufferSize")
         } catch (e: IllegalArgumentException) {
             Log.w("ScreenCaptureService", "Selected format not supported, trying RGB_565: ${e.message}")
             try {
@@ -748,7 +748,7 @@ class ScreenCaptureService : Service() {
                     width, height, PixelFormat.RGB_565, 1 // Reduced buffer for compatibility
                 )
                 imageReader?.setOnImageAvailableListener(imageAvailableListener, handler)
-                Log.d("ScreenCaptureService", "ImageReader created with RGB_565 format, dimensions: $width x $height")
+                Log.i("ScreenCaptureService", "ImageReader created with RGB_565 format, dimensions: $width x $height")
             } catch (e2: Exception) {
                 Log.e("ScreenCaptureService", "Failed to create ImageReader with RGB_565 format: ${e2.message}", e2)
                 Toast.makeText(this, "Error setting up screen reader: ${e2.message}", Toast.LENGTH_SHORT).show()
@@ -885,29 +885,35 @@ class ScreenCaptureService : Service() {
                     bitmap = croppedBitmap
                 }
 
+                // COMMENTED OUT: Black patch code - overlay is already hidden before screenshot
                 // Get overlay bounds and black out the overlay area
-                val overlayBounds = getOverlayBounds()
-                if (overlayBounds != null) {
-                    Log.d("ScreenCaptureService", "Blacking out emulator overlay bounds: $overlayBounds")
-                    val finalBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
-                    val canvas = android.graphics.Canvas(finalBitmap)
-                    canvas.drawBitmap(bitmap, 0f, 0f, null)
-                    
-                    // Clear the overlay area with black color to prevent backend confusion
-                    val paint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.BLACK
-                        style = android.graphics.Paint.Style.FILL
-                    }
-                    canvas.drawRect(overlayBounds, paint)
-                    
-                    bitmap.recycle()
-                    bitmap = finalBitmap
-                    Log.d("ScreenCaptureService", "Emulator overlay area blacked out")
-                } else {
-                    Log.d("ScreenCaptureService", "No emulator overlay bounds available")
-                }
+                // val overlayBounds = getOverlayBounds()
+                // if (overlayBounds != null) {
+                //     Log.d("ScreenCaptureService", "Blacking out emulator overlay bounds: $overlayBounds")
+                //     val finalBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+                //     val canvas = android.graphics.Canvas(finalBitmap)
+                //     canvas.drawBitmap(bitmap, 0f, 0f, null)
+                //     
+                //     // Clear the overlay area with black color to prevent backend confusion
+                //     val paint = android.graphics.Paint().apply {
+                //         color = android.graphics.Color.BLACK
+                //         style = android.graphics.Paint.Style.FILL
+                //     }
+                //     canvas.drawRect(overlayBounds, paint)
+                //     
+                //     bitmap.recycle()
+                //     bitmap = finalBitmap
+                //     Log.d("ScreenCaptureService", "Emulator overlay area blacked out")
+                // } else {
+                //     Log.d("ScreenCaptureService", "No emulator overlay bounds available")
+                // }
+                Log.d("ScreenCaptureService", "Emulator overlay black patch code commented out - overlay should be hidden")
 
                 Log.d("ScreenCaptureService", "Emulator bitmap created successfully")
+                
+                // Store screenshot dimensions for coordinate calculations
+                (application as? MyApplication)?.setLastScreenshotDimensions(bitmap.width, bitmap.height)
+                
                 val filename = "emulator_screenshot_${System.currentTimeMillis()}.jpg"
 
                 Log.d("ScreenCaptureService", "Saving emulator screenshot to application")
@@ -1004,29 +1010,45 @@ class ScreenCaptureService : Service() {
                 bitmap = croppedBitmap
             }
 
+            // COMMENTED OUT: Black patch code - overlay is already hidden before screenshot
             // Get overlay bounds and exclude it from the screenshot
-            overlayBounds = getOverlayBounds()
-            if (overlayBounds != null) {
-                Log.d("ScreenCaptureService", "Excluding overlay bounds from screenshot: $overlayBounds")
-                val finalBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                val canvas = android.graphics.Canvas(finalBitmap)
-                canvas.drawBitmap(bitmap, 0f, 0f, null)
-                
-                // Clear the overlay area with black color to prevent backend confusion
-                val paint = android.graphics.Paint().apply {
-                    color = android.graphics.Color.BLACK  // Use black instead of white
-                    style = android.graphics.Paint.Style.FILL
-                }
-                canvas.drawRect(overlayBounds!!, paint)
-                
-                bitmap.recycle()
-                bitmap = finalBitmap
-                Log.d("ScreenCaptureService", "Overlay area cleared from screenshot")
-            } else {
-                Log.d("ScreenCaptureService", "No overlay bounds available, screenshot will include overlay")
-            }
+            // overlayBounds = getOverlayBounds()
+            // if (overlayBounds != null) {
+            //     Log.d("ScreenCaptureService", "Excluding overlay bounds from screenshot: $overlayBounds")
+            //     val finalBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            //     val canvas = android.graphics.Canvas(finalBitmap)
+            //     canvas.drawBitmap(bitmap, 0f, 0f, null)
+            //     
+            //     // Clear the overlay area with black color to prevent backend confusion
+            //     val paint = android.graphics.Paint().apply {
+            //         color = android.graphics.Color.BLACK  // Use black instead of white
+            //         style = android.graphics.Paint.Style.FILL
+            //     }
+            //     canvas.drawRect(overlayBounds!!, paint)
+            //     
+            //     bitmap.recycle()
+            //     bitmap = finalBitmap
+            //     Log.d("ScreenCaptureService", "Overlay area cleared from screenshot")
+            // } else {
+            //     Log.d("ScreenCaptureService", "No overlay bounds available, screenshot will include overlay")
+            // }
+            Log.d("ScreenCaptureService", "Overlay black patch code commented out - overlay should be hidden")
 
             Log.d("ScreenCaptureService", "Bitmap created successfully")
+            
+            // Store screenshot dimensions for coordinate calculations
+            (application as? MyApplication)?.setLastScreenshotDimensions(bitmap.width, bitmap.height)
+            
+            // Log screenshot resolution comparison
+            val statusBarHeight = ScreenMetrics.getStatusBarHeight(this)
+            DebugLogger.logScreenshotCapture(
+                phoneWidth = width,
+                phoneHeight = height,
+                screenshotWidth = bitmap.width,
+                screenshotHeight = bitmap.height,
+                statusBarHeight = statusBarHeight
+            )
+            
             val filename = "screenshot_for_upload_${System.currentTimeMillis()}.jpg"
 
             Log.d("ScreenCaptureService", "Saving screenshot to application")
@@ -2189,7 +2211,7 @@ class ScreenCaptureService : Service() {
         Log.d("ScreenCaptureService", "Setting pending screenshot flag")
         Log.d("ScreenCaptureService", "Current input text: $currentInputText")
         
-        // Temporarily hide the overlay during screenshot capture
+        // ENHANCED: Temporarily hide the overlay during screenshot capture
         try {
             if (::overlayView.isInitialized) {
                 if (isEmulator()) {
@@ -2198,6 +2220,8 @@ class ScreenCaptureService : Service() {
                     overlayView.visibility = View.INVISIBLE
                     Log.d("ScreenCaptureService", "Overlay hidden for screenshot capture")
                 }
+            } else {
+                Log.w("ScreenCaptureService", "Overlay view not initialized - cannot hide for screenshot")
             }
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error hiding overlay: ${e.message}", e)
@@ -2205,10 +2229,16 @@ class ScreenCaptureService : Service() {
         
         // Add delay to ensure overlay is hidden before capturing
         Handler(Looper.getMainLooper()).postDelayed({
-            // Verify overlay is actually hidden before proceeding
-            if (::overlayView.isInitialized && overlayView.visibility != View.INVISIBLE) {
-                Log.w("ScreenCaptureService", "Overlay still visible, hiding again")
-                overlayView.visibility = View.INVISIBLE
+            // ENHANCED: Verify overlay is actually hidden before proceeding
+            if (::overlayView.isInitialized) {
+                if (overlayView.visibility != View.INVISIBLE) {
+                    Log.w("ScreenCaptureService", "Overlay still visible, hiding again")
+                    overlayView.visibility = View.INVISIBLE
+                } else {
+                    Log.d("ScreenCaptureService", "Overlay confirmed hidden before screenshot")
+                }
+            } else {
+                Log.w("ScreenCaptureService", "Overlay view not initialized - cannot verify hiding")
             }
             
             pendingScreenshot = true

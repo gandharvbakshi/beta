@@ -90,6 +90,9 @@ object BackendProcessing {
     fun startActionSequence(context: Context, inputText: String, accessibilityService: MyAccessibilityService? = null) {
         // Log.d("BackendProcessing", "Starting action sequence for: '$inputText'")
         
+        // Log test run start for easy identification in logs
+        DebugLogger.logTestRunStart("Action sequence: '$inputText'")
+        
         // Reset sequence tracking
         currentActionNumber = 0
         isActionSequenceActive = true
@@ -294,6 +297,15 @@ object BackendProcessing {
             // Log input text being sent
             Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Input text: '$inputText'")
             
+            // Log complete backend request details
+            DebugLogger.logBackendRequest(
+                inputText = inputText ?: "",
+                appName = currentAppName,
+                treeDataLength = currentTreeData?.length ?: 0,
+                imageWidth = bitmap.width,
+                imageHeight = bitmap.height
+            )
+            
             val requestBody = requestBodyBuilder.build()
 
             val request = Request.Builder()
@@ -484,6 +496,36 @@ object BackendProcessing {
                                     Log.d("BackendProcessing", "  Resource ID: '$resourceId'")
                                     Log.d("BackendProcessing", "  Class Name: '$className'")
                                     Log.d("BackendProcessing", "  Content Description: '$contentDescription'")
+                                    
+                                    // Log backend response with coordinate details
+                                    val statusBarHeight = ScreenMetrics.getStatusBarHeight(context)
+                                    
+                                    // Use fallbackCoordinates if available, otherwise create from boundingBox center
+                                    val coordsForLogging = fallbackCoordinates ?: boundingBox?.let {
+                                        JSONObject().apply {
+                                            put("x", it.optInt("x", 0) + it.optInt("width", 0) / 2)
+                                            put("y", it.optInt("y", 0) + it.optInt("height", 0) / 2)
+                                        }
+                                    }
+                                    
+                                    val adjustedCoords = if (coordsForLogging != null) {
+                                        ScreenMetrics.adjustCoordinatesForScreen(
+                                            coordsForLogging.optInt("x", 0), 
+                                            coordsForLogging.optInt("y", 0), 
+                                            context
+                                        )
+                                    } else null
+                                    
+                                    DebugLogger.logBackendResponse(
+                                        actionId = actionId,
+                                        actionType = actionType,
+                                        actionTarget = actionTarget,
+                                        confidence = confidenceScore,
+                                        boundingBox = boundingBox,
+                                        coordinates = coordsForLogging,
+                                        statusBarHeight = statusBarHeight,
+                                        adjustedCoordinates = adjustedCoords
+                                    )
                                     
                                     // Get display metrics for screen information
                                     val displayMetrics = DisplayMetrics()
