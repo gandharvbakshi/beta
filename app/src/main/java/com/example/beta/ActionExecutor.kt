@@ -153,8 +153,8 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         
         val targetNode = findTargetElement(recommendedAction)
         if (targetNode == null) {
-            Log.w(TAG, "Target element not found for scroll")
-            return false
+            Log.w(TAG, "Target element not found for scroll, trying coordinate gesture fallback")
+            return performCoordinateScroll(recommendedAction)
         }
         
         // Check if the node is scrollable
@@ -191,7 +191,13 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         Log.w(TAG, "All accessibility scroll actions failed, trying gesture scroll")
         
         // Fallback: Try gesture-based scrolling
-        return performGestureScroll(recommendedAction)
+        val gestureSuccess = performGestureScroll(recommendedAction)
+        if (gestureSuccess) {
+            return true
+        }
+
+        Log.w(TAG, "Target gesture scroll failed, trying full-screen coordinate scroll")
+        return performCoordinateScroll(recommendedAction)
     }
     
     private fun performGestureScroll(recommendedAction: JSONObject): Boolean {
@@ -236,21 +242,76 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             }
         }, null)
     }
+
+    private fun performCoordinateScroll(recommendedAction: JSONObject): Boolean {
+        return try {
+            val (screenWidth, screenHeight) = ScreenMetrics.getScreenDimensions(accessibilityService)
+            if (screenWidth <= 0 || screenHeight <= 0) {
+                Log.w(TAG, "Cannot coordinate-scroll with invalid screen dimensions: ${screenWidth}x${screenHeight}")
+                return false
+            }
+
+            val direction = recommendedAction.optString("direction", "down").lowercase()
+            val centerX = screenWidth / 2
+            val startY: Int
+            val endY: Int
+
+            if (direction == "up" || direction == "backward") {
+                startY = (screenHeight * 0.35f).toInt()
+                endY = (screenHeight * 0.75f).toInt()
+            } else {
+                startY = (screenHeight * 0.75f).toInt()
+                endY = (screenHeight * 0.35f).toInt()
+            }
+
+            val path = android.graphics.Path().apply {
+                moveTo(centerX.toFloat(), startY.toFloat())
+                lineTo(centerX.toFloat(), endY.toFloat())
+            }
+
+            val gesture = android.accessibilityservice.GestureDescription.Builder()
+                .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 650))
+                .build()
+
+            val success = accessibilityService.dispatchGesture(
+                gesture,
+                object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                        Log.d(TAG, "Coordinate scroll completed successfully")
+                    }
+
+                    override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                        Log.w(TAG, "Coordinate scroll was cancelled")
+                    }
+                },
+                null
+            )
+            Log.d(TAG, "Coordinate scroll dispatch result: $success")
+            success
+        } catch (e: Exception) {
+            Log.e(TAG, "Coordinate scroll failed: ${e.message}")
+            false
+        }
+    }
     
     private fun performType(recommendedAction: JSONObject): Boolean {
         Log.d(TAG, "Attempting to perform type action")
         
         val targetNode = findTargetElement(recommendedAction)
+        val textToType = recommendedAction.optString("text_to_type", "")
         return if (targetNode != null) {
             // For typing, we need to focus the element first
             targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-            // Note: Actual text input would require additional implementation
-            // This is a placeholder for the typing functionality
+            if (textToType.isNotBlank()) {
+                val typed = typeTextIntoFocusedField(textToType)
+                Log.d(TAG, "Type action text entry result: $typed")
+                return typed
+            }
             Log.d(TAG, "Type action - element focused")
             true
         } else {
-            Log.w(TAG, "Target element not found for type")
-            false
+            Log.w(TAG, "Target element not found for type, trying currently focused field")
+            textToType.isNotBlank() && typeTextIntoFocusedField(textToType)
         }
     }
     
@@ -261,10 +322,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return if (targetNode != null) {
             val success = targetNode.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
             Log.d(TAG, "Swipe action result: $success")
-            success
+            success || performCoordinateScroll(recommendedAction)
         } else {
-            Log.w(TAG, "Target element not found for swipe")
-            false
+            Log.w(TAG, "Target element not found for swipe, trying coordinate gesture fallback")
+            performCoordinateScroll(recommendedAction)
         }
     }
     

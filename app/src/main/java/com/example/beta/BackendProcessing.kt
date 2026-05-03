@@ -358,6 +358,12 @@ object BackendProcessing {
                             // Parse error
                             val errorReason = errorObj?.optString("reason", "") ?: ""
                             val errorDetails = errorObj?.optString("details", "") ?: ""
+                            val workflowObj = jsonObject.optJSONObject("workflow")
+                            val workflowState = workflowObj?.optString("state", "") ?: ""
+                            val awaitingConfirmation = jsonObject.optBoolean("awaiting_confirmation", false) ||
+                                workflowObj?.optBoolean("awaiting_confirmation", false) == true
+                            val failureReason = jsonObject.optString("failure_reason", "")
+                            val textToType = jsonObject.optString("text_to_type", "")
                             
                             // Parse verification fields (API v1.1)
                             val verificationRequired = jsonObject.optBoolean("verification_required", false)
@@ -393,6 +399,40 @@ object BackendProcessing {
                             if (errorReason.isNotEmpty()) {
                                 Log.e("BackendProcessing", "📥 RECEIVED FROM BACKEND - Error: $errorReason - $errorDetails")
                                 handleBackendError(context, errorReason, errorDetails, sessionContext)
+                                return@let
+                            }
+
+                            if (failureReason.isNotBlank() || workflowState == "FAILED_NEEDS_USER") {
+                                val userMessage = failureReason.ifBlank { "Manual help needed to continue this order." }
+                                Log.w("BackendProcessing", "🛑 Workflow stopped: $userMessage")
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    android.widget.Toast.makeText(context, userMessage, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession(userMessage)
+                                stopActionSequence()
+                                return@let
+                            }
+
+                            if (awaitingConfirmation || workflowState == "AWAITING_CONFIRMATION") {
+                                Log.d("BackendProcessing", "🛒 Cart is ready; awaiting user confirmation")
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Cart is ready. Please confirm manually.",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                sessionContext?.let { ctx ->
+                                    val confirmationResult = ActionResult(
+                                        actionId = requestId.ifBlank { "awaiting_confirmation" },
+                                        status = "success",
+                                        notes = "awaiting_user_confirmation"
+                                    )
+                                    ctx.lastActionResult = confirmationResult
+                                    ctx.actionHistory.add(confirmationResult.toJson())
+                                }
+                                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Awaiting confirmation")
+                                stopActionSequence()
                                 return@let
                             }
                             
@@ -465,6 +505,7 @@ object BackendProcessing {
                                     val actionTarget = recommendedAction.getString("action_target")
                                     val confidenceScore = recommendedAction.getDouble("confidence")
                                     val reasoning = recommendedAction.optString("reasoning", "No reasoning provided")
+                                    val actionTextToType = recommendedAction.optString("text_to_type", textToType)
                                     
                                     // Get bounding box (object format)
                                     val boundingBox = recommendedAction.optJSONObject("bounding_box")
@@ -588,9 +629,20 @@ object BackendProcessing {
                                             // Determine if this was a search-related action
                                             val isSearchAction = actionTarget.contains("search", ignoreCase = true) || 
                                                                actionTarget.contains("action_bar_root", ignoreCase = true)
+                                            val isTypeAction = actionType.equals("type", ignoreCase = true) ||
+                                                actionTarget.contains("type", ignoreCase = true)
+                                            val isScrollAction = actionType.equals("scroll", ignoreCase = true) ||
+                                                actionType.equals("swipe", ignoreCase = true)
+                                            val isAddAction = actionTarget.contains("add", ignoreCase = true)
+                                            val isViewCartAction = actionTarget.contains("view cart", ignoreCase = true) ||
+                                                actionTarget.contains("cart", ignoreCase = true)
                                             
                                             val notes = when {
+                                                actionSuccess && isTypeAction -> "search_query_typed"
                                                 actionSuccess && isSearchAction -> "search_field_clicked"
+                                                actionSuccess && isScrollAction -> "results_scrolled"
+                                                actionSuccess && isAddAction -> "add_clicked"
+                                                actionSuccess && isViewCartAction -> "view_cart_clicked"
                                                 actionSuccess -> actionType
                                                 else -> "Action failed"
                                             }
@@ -647,9 +699,12 @@ object BackendProcessing {
                                                     try {
                                                         val suggestType = recommendedAction.optString("action_type", "").equals("type", ignoreCase = true) ||
                                                             actionTarget.contains("type", ignoreCase = true)
-                                                        if (suggestType && originalInputText != null) {
-                                                            val typed = actionExecutor?.typeTextIntoFocusedField(originalInputText!!)
-                                                            Log.d("BackendProcessing", "⌨️ Type attempt into focused field: $typed")
+                                                        val textForTyping = actionTextToType.ifBlank {
+                                                            originalInputText ?: inputText
+                                                        }
+                                                        if (suggestType && textForTyping.isNotBlank()) {
+                                                            val typed = actionExecutor?.typeTextIntoFocusedField(textForTyping)
+                                                            Log.d("BackendProcessing", "⌨️ Type attempt into focused field with backend query: $typed")
                                                         }
                                                     } catch (e: Exception) {
                                                         Log.e("BackendProcessing", "Typing attempt failed: ${e.message}")
