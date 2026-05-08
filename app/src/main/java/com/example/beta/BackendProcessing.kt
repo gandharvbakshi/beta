@@ -40,11 +40,19 @@ object BackendProcessing {
     private var currentAppName: String? = null
     private var currentTreeData: String? = null
     private var actionExecutor: ActionExecutor? = null
+
+    private fun appNameForBackend(appName: String?): String {
+        return when (appName?.trim()) {
+            null, "", "com.grofers.customerapp" -> "Blinkit"
+            else -> appName.trim()
+        }
+    }
     
     // Sequential action tracking
     private var currentActionNumber: Int = 0
-    private var maxActions: Int = 10 // Safety limit
+    private var maxActions: Int = 20 // Safety limit for search + scroll + product + cart verification
     private var isActionSequenceActive: Boolean = false
+    private var requestInFlight: Boolean = false
     private var originalInputText: String? = null
     private var sequenceContext: Context? = null
     
@@ -52,6 +60,46 @@ object BackendProcessing {
     private val actionHistory = mutableListOf<JSONObject>()
     
     // Services removed - not available in current version
+
+    private fun ensureActionExecutor(context: Context, accessibilityService: MyAccessibilityService? = null): Boolean {
+        if (actionExecutor != null) return true
+
+        val service = accessibilityService
+            ?: (context.applicationContext as? MyApplication)?.getAccessibilityService()
+
+        return if (service != null) {
+            actionExecutor = ActionExecutor(service)
+            Log.d("BackendProcessing", "ActionExecutor initialized from active AccessibilityService")
+            true
+        } else {
+            Log.w("BackendProcessing", "ActionExecutor unavailable: AccessibilityService is not active")
+            false
+        }
+    }
+
+    private fun updateFlowStatus(context: Context?, status: String) {
+        context ?: return
+        (context.applicationContext as? MyApplication)
+            ?.getScreenCaptureService()
+            ?.updateSessionStatus(status)
+    }
+
+    private fun statusForAction(actionType: String, actionTarget: String, step: Int, max: Int): String {
+        val target = actionTarget.lowercase()
+        val phase = when {
+            actionType.equals("type", ignoreCase = true) -> "Typing search"
+            target.contains("search") -> "Opening search"
+            actionType.equals("scroll", ignoreCase = true) ||
+                actionType.equals("swipe", ignoreCase = true) -> "Scrolling results"
+            target.contains("open product") ||
+                target.contains("product page") -> "Opening product"
+            target.contains("add") -> "Adding item"
+            target.contains("cart") -> "Checking cart"
+            actionType.equals("error", ignoreCase = true) -> "Needs attention"
+            else -> "Working"
+        }
+        return "$phase ($step/$max)"
+    }
 
     private fun provideOkHttpClient(): OkHttpClient {
         val trustManager = object : X509TrustManager {
@@ -96,15 +144,14 @@ object BackendProcessing {
         // Reset sequence tracking
         currentActionNumber = 0
         isActionSequenceActive = true
+        requestInFlight = false
         originalInputText = inputText
         sequenceContext = context
         actionHistory.clear() // Reset history for new sequence
+        updateFlowStatus(context, "Starting order")
         
         // Initialize action executor if accessibility service is available
-        if (accessibilityService != null && actionExecutor == null) {
-            actionExecutor = ActionExecutor(accessibilityService)
-            // Log.d("BackendProcessing", "ActionExecutor initialized for sequence")
-        }
+        ensureActionExecutor(context, accessibilityService)
         
         // Log.d("BackendProcessing", "Action sequence initialized - Action #${currentActionNumber + 1}/$maxActions")
     }
@@ -112,6 +159,7 @@ object BackendProcessing {
     fun stopActionSequence() {
         // Log.d("BackendProcessing", "Stopping action sequence")
         isActionSequenceActive = false
+        requestInFlight = false
         currentActionNumber = 0
         originalInputText = null
         sequenceContext = null
@@ -140,6 +188,7 @@ object BackendProcessing {
         
         if (currentActionNumber >= maxActions) {
             Log.w("BackendProcessing", "🔍 DEBUG: Maximum actions reached ($maxActions), stopping sequence")
+            updateFlowStatus(sequenceContext, "Stopped - max steps")
             stopActionSequence()
             return
         }
@@ -161,6 +210,7 @@ object BackendProcessing {
                 val intent = android.content.Intent("com.example.beta.TRIGGER_NEXT_ACTION")
                 intent.putExtra("original_input", originalInputText)
                 intent.putExtra("action_number", currentActionNumber + 1)
+                updateFlowStatus(sequenceContext, "Reading screen (${currentActionNumber + 1}/$maxActions)")
                 
                 Log.d("BackendProcessing", "🔍 DEBUG: About to send broadcast with:")
                 Log.d("BackendProcessing", "🔍 DEBUG: - Action: com.example.beta.TRIGGER_NEXT_ACTION")
@@ -168,15 +218,8 @@ object BackendProcessing {
                 Log.d("BackendProcessing", "🔍 DEBUG: - Action number: ${currentActionNumber + 1}")
                 Log.d("BackendProcessing", "🔍 DEBUG: - Context: ${sequenceContext?.javaClass?.simpleName}")
                 
-                // Try both local and global broadcast
-                try {
-                    sequenceContext?.sendBroadcast(intent)
-                    Log.d("BackendProcessing", "🔍 DEBUG: Global broadcast sent successfully")
-                } catch (e: Exception) {
-                    Log.e("BackendProcessing", "🔍 DEBUG: Global broadcast failed: ${e.message}")
-                }
-                
-                // Also try local broadcast
+                // Use one delivery path. Sending both global and local creates duplicate
+                // screenshots and overlapping backend actions on the emulator.
                 try {
                     LocalBroadcastManager.getInstance(sequenceContext!!).sendBroadcast(intent)
                     Log.d("BackendProcessing", "🔍 DEBUG: Local broadcast sent successfully")
@@ -196,16 +239,21 @@ object BackendProcessing {
         // Store the additional data
         currentAppName = appName
         currentTreeData = treeData
+
+        if (isActionSequenceActive && requestInFlight) {
+            Log.w("BackendProcessing", "Ignoring screenshot because backend request/action is already in flight")
+            updateFlowStatus(context, "Working ($currentActionNumber/$maxActions)")
+            return
+        }
+        requestInFlight = true
         
         // Initialize action executor if accessibility service is available
-        if (accessibilityService != null && actionExecutor == null) {
-            actionExecutor = ActionExecutor(accessibilityService)
-            // Log.d("BackendProcessing", "ActionExecutor initialized")
-        }
+        ensureActionExecutor(context, accessibilityService)
         
         // If this is part of an action sequence, increment action number
         if (isActionSequenceActive) {
             currentActionNumber++
+            updateFlowStatus(context, "Analyzing screen ($currentActionNumber/$maxActions)")
             // Log.d("BackendProcessing", "Processing action #$currentActionNumber in sequence")
         }
         
@@ -261,13 +309,9 @@ object BackendProcessing {
                 Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Action history: ${sessionContext.actionHistory.size} actions")
             }
             
-            // Add app name if available
-            if (!currentAppName.isNullOrEmpty()) {
-                requestBodyBuilder.addFormDataPart("app_name", currentAppName!!)
-                Log.d("BackendProcessing", "📤 SENDING TO BACKEND - App name: $currentAppName")
-            } else {
-                Log.w("BackendProcessing", "⚠️ App name is null or empty - not sending to backend")
-            }
+            val backendAppName = appNameForBackend(currentAppName)
+            requestBodyBuilder.addFormDataPart("app_name", backendAppName)
+            Log.d("BackendProcessing", "📤 SENDING TO BACKEND - App name: $backendAppName")
             
             // Add tree data if available
             if (!currentTreeData.isNullOrEmpty()) {
@@ -283,15 +327,6 @@ object BackendProcessing {
                 requestBodyBuilder.addFormDataPart("max_sequence_steps", maxActions.toString())
                 Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Sequence step: $currentActionNumber/$maxActions")
                 
-                // Add historical context if available
-                if (actionHistory.isNotEmpty()) {
-                    val historyJson = JSONArray()
-                    actionHistory.forEach { action ->
-                        historyJson.put(action)
-                    }
-                    requestBodyBuilder.addFormDataPart("action_history", historyJson.toString())
-                    Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Action history: ${actionHistory.size} actions")
-                }
             }
             
             // Log input text being sent
@@ -300,7 +335,7 @@ object BackendProcessing {
             // Log complete backend request details
             DebugLogger.logBackendRequest(
                 inputText = inputText ?: "",
-                appName = currentAppName,
+                appName = backendAppName,
                 treeDataLength = currentTreeData?.length ?: 0,
                 imageWidth = bitmap.width,
                 imageHeight = bitmap.height
@@ -317,12 +352,16 @@ object BackendProcessing {
                 override fun onFailure(call: Call, e: IOException) {
                     e.printStackTrace()
                     Log.e("UploadFailure", "Failed to upload image: ${e.message}")
+                    requestInFlight = false
+                    updateFlowStatus(context, "Stopped - backend offline")
                     // buttonHighlightService?.clearHighlight() - service removed
                 }
 
                 override fun onResponse(call: Call, response: Response) {
                     if (!response.isSuccessful) {
                         Log.e("UploadResponse", "Unexpected response: $response")
+                        requestInFlight = false
+                        updateFlowStatus(context, "Stopped - backend error")
                         // buttonHighlightService?.clearHighlight() - service removed
                         return
                     }
@@ -389,15 +428,18 @@ object BackendProcessing {
                             // Log verification status if present
                             if (verificationRequired) {
                                 Log.d("BackendProcessing", "🔍 VERIFICATION REQUIRED - Target: ${verificationStatus?.targetItem}")
+                                updateFlowStatus(context, "Checking cart ($currentActionNumber/$maxActions)")
                             }
                             if (verificationStatus?.isVerificationStep == true) {
                                 Log.d("BackendProcessing", "🔍 VERIFICATION STEP - Checking for: ${verificationStatus.targetItem}")
                                 Log.d("BackendProcessing", "🔍 Item found in cart: ${verificationStatus.itemFoundInCart}")
                                 Log.d("BackendProcessing", "🔍 Details: ${verificationStatus.verificationDetails}")
+                                updateFlowStatus(context, "Verifying item")
                             }
                             
                             if (errorReason.isNotEmpty()) {
                                 Log.e("BackendProcessing", "📥 RECEIVED FROM BACKEND - Error: $errorReason - $errorDetails")
+                                requestInFlight = false
                                 handleBackendError(context, errorReason, errorDetails, sessionContext)
                                 return@let
                             }
@@ -405,16 +447,19 @@ object BackendProcessing {
                             if (failureReason.isNotBlank() || workflowState == "FAILED_NEEDS_USER") {
                                 val userMessage = failureReason.ifBlank { "Manual help needed to continue this order." }
                                 Log.w("BackendProcessing", "🛑 Workflow stopped: $userMessage")
+                                updateFlowStatus(context, "Needs help")
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     android.widget.Toast.makeText(context, userMessage, android.widget.Toast.LENGTH_LONG).show()
                                 }
                                 (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession(userMessage)
+                                requestInFlight = false
                                 stopActionSequence()
                                 return@let
                             }
 
                             if (awaitingConfirmation || workflowState == "AWAITING_CONFIRMATION") {
                                 Log.d("BackendProcessing", "🛒 Cart is ready; awaiting user confirmation")
+                                updateFlowStatus(context, "Paused - check cart")
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     android.widget.Toast.makeText(
                                         context,
@@ -432,6 +477,7 @@ object BackendProcessing {
                                     ctx.actionHistory.add(confirmationResult.toJson())
                                 }
                                 (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Awaiting confirmation")
+                                requestInFlight = false
                                 stopActionSequence()
                                 return@let
                             }
@@ -440,17 +486,23 @@ object BackendProcessing {
                             when (sessionState) {
                                 SessionState.COMPLETED -> {
                                     Log.d("BackendProcessing", "🏁 Session completed - ending session")
+                                    updateFlowStatus(context, "Done")
                                     (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Completed")
+                                    requestInFlight = false
                                     return@let
                                 }
                                 SessionState.ERROR -> {
                                     Log.e("BackendProcessing", "🚨 Session error state - ending session")
+                                    updateFlowStatus(context, "Stopped - error")
                                     (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Error state")
+                                    requestInFlight = false
                                     return@let
                                 }
                                 SessionState.SUMMARY_AND_EDIT -> {
                                     Log.d("BackendProcessing", "📝 Summary and edit state - ending session")
+                                    updateFlowStatus(context, "Paused - review")
                                     (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Summary and edit")
+                                    requestInFlight = false
                                     return@let
                                 }
                                 null -> Log.w("BackendProcessing", "⚠️ Unknown session state: $stateStr")
@@ -469,6 +521,7 @@ object BackendProcessing {
                                 // If verification completed or failed, don't process action
                                 if (jsonObject.optBoolean("task_completed", false) || 
                                     verificationStatus.verificationFailed) {
+                                    requestInFlight = false
                                     return@let
                                 }
                             }
@@ -497,6 +550,8 @@ object BackendProcessing {
                             when (recommendedAction) {
                                 null -> {
                                     Log.d("BackendProcessing", "📥 RECEIVED FROM BACKEND - No action recommendation found")
+                                    updateFlowStatus(context, "Waiting for next step")
+                                    requestInFlight = false
                                     // buttonHighlightService?.clearHighlight() - service removed
                                 }
                                 else -> {
@@ -537,6 +592,10 @@ object BackendProcessing {
                                     Log.d("BackendProcessing", "  Resource ID: '$resourceId'")
                                     Log.d("BackendProcessing", "  Class Name: '$className'")
                                     Log.d("BackendProcessing", "  Content Description: '$contentDescription'")
+                                    updateFlowStatus(
+                                        context,
+                                        statusForAction(actionType, actionTarget, currentActionNumber, maxActions)
+                                    )
                                     
                                     // Log backend response with coordinate details
                                     val statusBarHeight = ScreenMetrics.getStatusBarHeight(context)
@@ -592,6 +651,7 @@ object BackendProcessing {
                                     // """.trimIndent())
 
                                     // Execute the recommended action
+                                    ensureActionExecutor(context)
                                     if (actionExecutor != null) {
                                         // Check if this was part of a sequence that's no longer active
                                         // (This prevents late backend responses from executing actions after sequence ended)
@@ -623,14 +683,21 @@ object BackendProcessing {
                                                         
                                         val actionSuccess = actionExecutor!!.executeAction(recommendedAction, minConfidence)
                                         Log.d("BackendProcessing", "🎯 ACTION EXECUTION RESULT: $actionSuccess")
+                                        updateFlowStatus(
+                                            context,
+                                            if (actionSuccess) {
+                                                "Done: ${statusForAction(actionType, actionTarget, currentActionNumber, maxActions).substringBefore(" (")}"
+                                            } else {
+                                                "Failed: ${statusForAction(actionType, actionTarget, currentActionNumber, maxActions).substringBefore(" (")}"
+                                            }
+                                        )
                                         
                                         // Update session context with result
                                         sessionContext?.let { ctx ->
                                             // Determine if this was a search-related action
                                             val isSearchAction = actionTarget.contains("search", ignoreCase = true) || 
                                                                actionTarget.contains("action_bar_root", ignoreCase = true)
-                                            val isTypeAction = actionType.equals("type", ignoreCase = true) ||
-                                                actionTarget.contains("type", ignoreCase = true)
+                                            val isTypeAction = actionType.equals("type", ignoreCase = true)
                                             val isScrollAction = actionType.equals("scroll", ignoreCase = true) ||
                                                 actionType.equals("swipe", ignoreCase = true)
                                             val isAddAction = actionTarget.contains("add", ignoreCase = true)
@@ -675,11 +742,14 @@ object BackendProcessing {
                                                 
                                                 if (isCompleted || taskCompleted) {
                                                     Log.d("BackendProcessing", "🏁 TASK COMPLETED! Stopping action sequence.")
+                                                    updateFlowStatus(context, "Done")
+                                                    requestInFlight = false
                                                     stopActionSequence()
                                                 } else if (verificationRequired) {
                                                     // Verification flow: automatically capture next screenshot for verification
                                                     Log.d("BackendProcessing", "🔍 VERIFICATION REQUIRED - Triggering automatic verification flow")
                                                     Log.d("BackendProcessing", "🔍 Target item: ${verificationStatus?.targetItem}")
+                                                    updateFlowStatus(context, "Checking cart")
                                                     
                                                     // Update session context to indicate verification pending
                                                     sessionContext?.let { ctx ->
@@ -693,32 +763,23 @@ object BackendProcessing {
                                                     
                                                     // Wait for cart UI to update, then trigger next screenshot
                                                     Log.d("BackendProcessing", "🔍 Waiting 1.5s for cart UI to update...")
+                                                    requestInFlight = false
                                                     triggerNextAction()
                                                 } else {
-                                                    // If backend suggests typing, try to type original input into focused field
-                                                    try {
-                                                        val suggestType = recommendedAction.optString("action_type", "").equals("type", ignoreCase = true) ||
-                                                            actionTarget.contains("type", ignoreCase = true)
-                                                        val textForTyping = actionTextToType.ifBlank {
-                                                            originalInputText ?: inputText
-                                                        }
-                                                        if (suggestType && textForTyping.isNotBlank()) {
-                                                            val typed = actionExecutor?.typeTextIntoFocusedField(textForTyping)
-                                                            Log.d("BackendProcessing", "⌨️ Type attempt into focused field with backend query: $typed")
-                                                        }
-                                                    } catch (e: Exception) {
-                                                        Log.e("BackendProcessing", "Typing attempt failed: ${e.message}")
-                                                    }
                                                     Log.d("BackendProcessing", "🔍 DEBUG: Task not completed, triggering next action...")
                                                     // Trigger the next action in the sequence
+                                                    requestInFlight = false
                                                     triggerNextAction()
                                                 }
                                             } else {
                                                 // Single action mode - just add delay
+                                                requestInFlight = false
                                                 Thread.sleep(1000)
                                             }
                                         } else {
                                             Log.w("BackendProcessing", "❌ Action execution failed")
+                                            updateFlowStatus(context, "Failed - action")
+                                            requestInFlight = false
                                             if (isActionSequenceActive) {
                                                 // Log.w("BackendProcessing", "Action failed in sequence - stopping sequence")
                                                 stopActionSequence()
@@ -726,6 +787,17 @@ object BackendProcessing {
                                         }
                                     } else {
                                         Log.w("BackendProcessing", "ActionExecutor not available - cannot execute action")
+                                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Enable Beta accessibility service before ordering.",
+                                                android.widget.Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                        (context.applicationContext as? MyApplication)?.getScreenCaptureService()
+                                            ?.endSession("Accessibility service disabled")
+                                        requestInFlight = false
+                                        stopActionSequence()
                                     }
                                 }
                             }
@@ -746,6 +818,7 @@ object BackendProcessing {
                             
                         } catch (e: Exception) {
                             Log.e("JSONParsing", "Error parsing JSON response: ${e.message}")
+                            requestInFlight = false
                             handleBackendError(context, "JSON parsing error", e.message ?: "Unknown error", sessionContext)
                             // buttonHighlightService?.clearHighlight() - service removed
                         }
@@ -762,6 +835,7 @@ object BackendProcessing {
             } catch (e: SocketTimeoutException) {
                 if (attempt == maxAttempts) {
                     Log.e("UploadFailure", "Failed after multiple attempts: ${e.message}")
+                    requestInFlight = false
                 } else {
                     Log.w("UploadRetry", "Attempt $attempt failed, retrying...")
                 }

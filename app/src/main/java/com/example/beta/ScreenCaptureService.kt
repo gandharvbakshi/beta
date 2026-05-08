@@ -81,6 +81,9 @@ class ScreenCaptureService : Service() {
                 || Build.MODEL.contains("google_sdk")
                 || Build.MODEL.contains("Emulator")
                 || Build.MODEL.contains("Android SDK built for x86")
+                || Build.MODEL.contains("sdk_gphone", ignoreCase = true)
+                || Build.PRODUCT.contains("sdk_gphone", ignoreCase = true)
+                || Build.DEVICE.contains("emu", ignoreCase = true)
                 || Build.MANUFACTURER.contains("Genymotion")
                 || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
                 || "google_sdk" == Build.PRODUCT)
@@ -89,6 +92,17 @@ class ScreenCaptureService : Service() {
         Log.d("ScreenCaptureService", "Build info - FINGERPRINT: ${Build.FINGERPRINT}, MODEL: ${Build.MODEL}, MANUFACTURER: ${Build.MANUFACTURER}")
         
         return isEmu
+    }
+
+    private fun getOverlayTopOffsetPx(): Int {
+        val statusBarHeight = try {
+            val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+            if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
+        } catch (e: Exception) {
+            0
+        }
+        val margin = (12 * resources.displayMetrics.density).toInt()
+        return statusBarHeight + margin
     }
     
     // Check if screen capture is supported
@@ -121,10 +135,10 @@ class ScreenCaptureService : Service() {
                 imageReader?.close()
             }
             imageReader = ImageReader.newInstance(
-                width, height, PixelFormat.RGB_565, 1 // Reduced buffer size for emulator
+                width, height, PixelFormat.RGBA_8888, 1 // Reduced buffer size for emulator
             )
             imageReader?.setOnImageAvailableListener(imageAvailableListener, handler)
-            Log.d("ScreenCaptureService", "ImageReader created for emulator with RGB_565 format")
+            Log.d("ScreenCaptureService", "ImageReader created for emulator with RGBA_8888 format")
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Failed to create ImageReader for emulator: ${e.message}", e)
         }
@@ -732,16 +746,16 @@ class ScreenCaptureService : Service() {
         try {
             // Use emulator-specific settings if running on emulator
             val bufferSize = if (isEmulator()) 1 else 2
-            val pixelFormat = if (isEmulator()) PixelFormat.RGB_565 else PixelFormat.RGBA_8888
+            val pixelFormat = PixelFormat.RGBA_8888
             
             // Try to create ImageReader with the selected format
             imageReader = ImageReader.newInstance(
                 width, height, pixelFormat, bufferSize
             )
             imageReader?.setOnImageAvailableListener(imageAvailableListener, handler)
-            Log.i("ScreenCaptureService", "ImageReader created with ${if (isEmulator()) "RGB_565" else "RGBA_8888"} format, dimensions: $width x $height, buffer: $bufferSize")
+            Log.i("ScreenCaptureService", "ImageReader created with RGBA_8888 format, dimensions: $width x $height, buffer: $bufferSize")
         } catch (e: IllegalArgumentException) {
-            Log.w("ScreenCaptureService", "Selected format not supported, trying RGB_565: ${e.message}")
+            Log.w("ScreenCaptureService", "RGBA_8888 format not supported, trying RGB_565: ${e.message}")
             try {
                 // Fallback to RGB_565 format which is more widely supported
                 imageReader = ImageReader.newInstance(
@@ -875,7 +889,7 @@ class ScreenCaptureService : Service() {
             var bitmap: Bitmap? = null
             try {
                 Log.d("ScreenCaptureService", "Creating bitmap from emulator image buffer")
-                bitmap = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.RGB_565)
+                bitmap = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888)
                 bitmap.copyPixelsFromBuffer(buffer)
 
                 if (rowPadding > 0) {
@@ -1142,7 +1156,7 @@ class ScreenCaptureService : Service() {
             ).apply {
                 gravity = Gravity.TOP or Gravity.END
                 x = 50 // inset from right edge
-                y = 0 // top edge
+                y = getOverlayTopOffsetPx()
             }
             
             // Setup overlay text with emulator-specific message
@@ -1215,7 +1229,7 @@ class ScreenCaptureService : Service() {
             ).apply {
                 gravity = Gravity.TOP or Gravity.END
                 x = 50 // inset from right edge
-                y = 0 // top edge
+                y = getOverlayTopOffsetPx()
             }
             
             // Setup overlay text with initial message
@@ -1387,9 +1401,48 @@ class ScreenCaptureService : Service() {
         retryAttempts = 0
         consecutiveFailures = 0
         
-        // Hide overlay when session ends
-        handler?.post {
-            hideOverlay()
+        // Overlay views must be touched from the main thread. Keep the block visible
+        // briefly so the user can see whether the flow completed, stopped, or failed.
+        Handler(Looper.getMainLooper()).post {
+            hideInputOverlay()
+            if (::overlayView.isInitialized) {
+                overlayView.visibility = View.VISIBLE
+                val terminalText = when {
+                    reason.contains("await", ignoreCase = true) -> "Paused - check cart"
+                    reason.contains("complete", ignoreCase = true) ||
+                        reason.contains("success", ignoreCase = true) -> "Done"
+                    reason.contains("error", ignoreCase = true) ||
+                        reason.contains("failed", ignoreCase = true) -> "Stopped - $reason"
+                    else -> "Stopped - $reason"
+                }
+                if (isEmulator()) {
+                    updateEmulatorOverlayText(terminalText)
+                } else {
+                    updateOverlayText(terminalText)
+                }
+                Handler(Looper.getMainLooper()).postDelayed({
+                    if (::overlayView.isInitialized) {
+                        if (isEmulator()) {
+                            updateEmulatorOverlayText("Ready - Tap for input")
+                        } else {
+                            updateOverlayText("Ready - Tap to add instruction")
+                        }
+                    }
+                }, 4000)
+            }
+        }
+    }
+
+    fun updateSessionStatus(status: String) {
+        Handler(Looper.getMainLooper()).post {
+            if (::overlayView.isInitialized) {
+                overlayView.visibility = View.VISIBLE
+                if (isEmulator()) {
+                    updateEmulatorOverlayText(status)
+                } else {
+                    updateOverlayText(status)
+                }
+            }
         }
     }
     
@@ -1513,6 +1566,8 @@ class ScreenCaptureService : Service() {
         
         if (inputText.isNotEmpty()) {
             currentInputText = inputText
+            originalInputText = inputText
+            isActionSequenceActive = true
             
             // Capture tree data first before starting sequence
             val myApp = application as? MyApplication
@@ -1545,30 +1600,46 @@ class ScreenCaptureService : Service() {
                     
                     // Update main overlay text to show current instruction
                     if (isEmulator()) {
-                        updateEmulatorOverlayText("Processing: $inputText")
+                        updateEmulatorOverlayText("Reading screen (1/20)")
                     } else {
-                        updateOverlayText("Processing: $inputText")
+                        updateOverlayText("Reading screen (1/20)")
                     }
+
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        triggerSequenceScreenshot()
+                    }, 500)
                     
                 }, 800) // Wait 800ms for tree data to be captured
                 
             } else {
-                // Fallback: start sequence without tree data if accessibility service not available
-                Log.w("ScreenCaptureService", "Accessibility service not available, starting sequence without tree data")
-                BackendProcessing.startActionSequence(this, inputText, null)
-                
-                // Hide input overlay
+                Log.w("ScreenCaptureService", "Accessibility service not available; cannot execute automated actions")
+                isActionSequenceActive = false
+                BackendProcessing.stopActionSequence()
+
                 if (isEmulator()) {
                     hideEmulatorInputOverlay()
                 } else {
                     hideInputOverlay()
                 }
-                
-                // Update main overlay text to show current instruction
+
                 if (isEmulator()) {
-                    updateEmulatorOverlayText("Processing: $inputText")
+                    updateEmulatorOverlayText("Enable Beta accessibility")
                 } else {
-                    updateOverlayText("Processing: $inputText")
+                    updateOverlayText("Enable Beta accessibility")
+                }
+
+                Toast.makeText(
+                    this,
+                    "Enable Beta accessibility service before ordering.",
+                    Toast.LENGTH_LONG
+                ).show()
+
+                try {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    })
+                } catch (e: Exception) {
+                    Log.e("ScreenCaptureService", "Unable to open accessibility settings: ${e.message}", e)
                 }
             }
             
@@ -1577,28 +1648,25 @@ class ScreenCaptureService : Service() {
             intent.putExtra("input_text", inputText)
             LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
             
-            // Tree data is already captured above, now just trigger screenshot
-            Handler(Looper.getMainLooper()).postDelayed({
-                try {
-                    // Enable screenshots and trigger capture
-                    enableScreenshots()
-                    pendingScreenshot = true
-                    triggerScreenshot()
-                } catch (e: Exception) {
-                    Log.e("ScreenCaptureService", "Error triggering screenshot: ${e.message}", e)
-                    e.printStackTrace()
-                    // Fallback: trigger screenshot without tree data
-                    enableScreenshots()
-                    pendingScreenshot = true
-                    triggerScreenshot()
-                }
-                
-            }, 500) // 500ms delay to ensure overlay is hidden
         } else {
             // Log.w("ScreenCaptureService", "submitInstruction called with empty text")
         }
         
         // Log.d("ScreenCaptureService", "=== FINISHED SUBMIT INSTRUCTION PROCESS ===")
+    }
+
+    private fun triggerSequenceScreenshot() {
+        try {
+            enableScreenshots()
+            pendingScreenshot = true
+            triggerScreenshot()
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error triggering screenshot: ${e.message}", e)
+            e.printStackTrace()
+            enableScreenshots()
+            pendingScreenshot = true
+            triggerScreenshot()
+        }
     }
     
     private fun triggerNextActionInSequence(originalInput: String, actionNumber: Int) {
@@ -1610,9 +1678,9 @@ class ScreenCaptureService : Service() {
         
         // Update overlay to show current action
         if (isEmulator()) {
-            updateEmulatorOverlayText("Action #$actionNumber: $originalInput")
+            updateEmulatorOverlayText("Reading screen ($actionNumber/20)")
         } else {
-            updateOverlayText("Action #$actionNumber: $originalInput")
+            updateOverlayText("Reading screen ($actionNumber/20)")
         }
         
         // Trigger the same sequence as submitInstruction but for the next action
@@ -1759,6 +1827,11 @@ class ScreenCaptureService : Service() {
                     try {
                         overlayView.visibility = View.VISIBLE
                         Log.d("ScreenCaptureService", "Emulator overlay visibility set to VISIBLE")
+
+                        if (BackendProcessing.isSequenceActive()) {
+                            Log.d("ScreenCaptureService", "Sequence active; preserving current emulator overlay status")
+                            return@post
+                        }
                         
                         // Update overlay text to show ready status
                         if (inputTextForProcessing != null) {
@@ -1794,6 +1867,11 @@ class ScreenCaptureService : Service() {
                 if (::overlayView.isInitialized) {
                     overlayView.visibility = View.VISIBLE
                     Log.d("ScreenCaptureService", "Overlay visibility set to VISIBLE")
+
+                    if (BackendProcessing.isSequenceActive()) {
+                        Log.d("ScreenCaptureService", "Sequence active; preserving current overlay status")
+                        return@post
+                    }
                     
                     // Update overlay text to show ready status
                     if (inputTextForProcessing != null) {
@@ -1823,13 +1901,6 @@ class ScreenCaptureService : Service() {
     }
 
     private fun createNotificationChannel() {
-        // Use emulator-specific channel creation if running on emulator
-        if (isEmulator()) {
-            Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific notification channel")
-            createEmulatorNotificationChannel()
-            return
-        }
-        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val serviceChannel = NotificationChannel(
                 CHANNEL_ID,
@@ -2327,4 +2398,3 @@ class ScreenCaptureService : Service() {
         }
     }
 }
-

@@ -2,6 +2,7 @@ package com.example.beta
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.Rect
+import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONObject
@@ -83,7 +84,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 val success = performClickByCoordinates(recommendedAction)
                 if (success) {
                     Log.d(TAG, "Coordinate click successful for search bar")
-                    return true
+                    return typeAfterSearchClickIfRequested(recommendedAction, true)
                 } else {
                     Log.d(TAG, "Coordinate click failed, falling back to accessibility")
                 }
@@ -139,13 +140,27 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             }
             
             Log.d(TAG, "Final click action result: $success")
-            success
+            typeAfterSearchClickIfRequested(recommendedAction, success)
         } else {
             Log.w(TAG, "Target element not found, trying fallback coordinates")
             val coordinateSuccess = performClickByCoordinates(recommendedAction)
             Log.d(TAG, "Fallback coordinate click result: $coordinateSuccess")
-            return coordinateSuccess
+            return typeAfterSearchClickIfRequested(recommendedAction, coordinateSuccess)
         }
+    }
+
+    private fun typeAfterSearchClickIfRequested(recommendedAction: JSONObject, clickSuccess: Boolean): Boolean {
+        if (!clickSuccess) return false
+
+        val actionTarget = recommendedAction.optString("action_target", "")
+        if (!actionTarget.contains("search", ignoreCase = true)) return true
+
+        val textToType = recommendedAction.optString("text_to_type", "")
+        if (textToType.isBlank()) return true
+
+        val typed = typeTextIntoFocusedField(textToType, waitForFocusMs = 1500)
+        Log.d(TAG, "Search click follow-up type '$textToType' result: $typed")
+        return true
     }
     
     private fun performScroll(recommendedAction: JSONObject): Boolean {
@@ -303,7 +318,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             // For typing, we need to focus the element first
             targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             if (textToType.isNotBlank()) {
-                val typed = typeTextIntoFocusedField(textToType)
+                val typed = typeTextIntoFocusedField(textToType, waitForFocusMs = 1500)
                 Log.d(TAG, "Type action text entry result: $typed")
                 return typed
             }
@@ -311,7 +326,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             true
         } else {
             Log.w(TAG, "Target element not found for type, trying currently focused field")
-            textToType.isNotBlank() && typeTextIntoFocusedField(textToType)
+            textToType.isNotBlank() && typeTextIntoFocusedField(textToType, waitForFocusMs = 1500)
         }
     }
     
@@ -361,19 +376,50 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
     }
 
-    fun typeTextIntoFocusedField(text: String): Boolean {
+    fun typeTextIntoFocusedField(text: String, waitForFocusMs: Long = 0): Boolean {
         return try {
-            val root = accessibilityService.rootInActiveWindow ?: return false
-            val focusedNode = findFocusedEditable(root) ?: return false
+            val focusedNode = waitForFocusedEditable(waitForFocusMs) ?: run {
+                Log.w(TAG, "No focused editable field found within ${waitForFocusMs}ms")
+                return false
+            }
 
             val args = android.os.Bundle()
             args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
             val success = focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
             Log.d(TAG, "Type text into focused field result: $success")
+            if (success) {
+                submitImeEnter(focusedNode)
+            }
             success
         } catch (e: Exception) {
             Log.e(TAG, "Error typing into focused field: ${e.message}")
             false
+        }
+    }
+
+    private fun waitForFocusedEditable(timeoutMs: Long): AccessibilityNodeInfo? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        do {
+            val root = accessibilityService.rootInActiveWindow
+            val focusedNode = if (root != null) findFocusedEditable(root) else null
+            if (focusedNode != null) return focusedNode
+            if (timeoutMs <= 0) break
+            Thread.sleep(100)
+        } while (System.currentTimeMillis() < deadline)
+        return null
+    }
+
+    private fun submitImeEnter(focusedNode: AccessibilityNodeInfo) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val imeEnterAction = AccessibilityNodeInfo::class.java
+                    .getField("ACTION_IME_ENTER")
+                    .getInt(null)
+                val imeSuccess = focusedNode.performAction(imeEnterAction)
+                Log.d(TAG, "IME enter action result: $imeSuccess")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "IME enter action failed: ${e.message}")
         }
     }
 
