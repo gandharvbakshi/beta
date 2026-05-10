@@ -8,6 +8,7 @@
         android:id="@+id/captureScreenButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:contentDescription="button_start_screen_capture"
         android:text="Start Capture"
         android:layout_marginBottom="16dp" />
 
@@ -15,6 +16,7 @@
         android:id="@+id/textRecognitionButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:contentDescription="button_text_recognition"
         android:text="Text Recognition"
         android:layout_marginBottom="16dp" />
 
@@ -22,6 +24,15 @@
         android:id="@+id/testAutomatedActionButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Test Automated Actions" />
+        android:contentDescription="button_test_automated_actions"
+        android:text="Test Automated Actions"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:id="@+id/text_agent_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:contentDescription="text_agent_status"
+        android:text="STATE: IDLE" />
 
 </LinearLayout>

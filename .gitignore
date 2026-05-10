@@ -17,4 +17,7 @@
 local.properties
 Errors.txt
 errors.txt
+frontend_logs/
+*.logcat
+*.logcat.txt
 Androind app error - no module.png

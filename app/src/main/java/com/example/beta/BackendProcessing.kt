@@ -33,6 +33,7 @@ import android.util.DisplayMetrics
 import android.view.WindowManager
 
 object BackendProcessing {
+    private const val TAG = "BetaAgent"
     private val client = provideOkHttpClient()
     var currentBitmap: Bitmap? = null
     var currentFilename: String? = null
@@ -78,6 +79,7 @@ object BackendProcessing {
     }
 
     private fun updateFlowStatus(context: Context?, status: String) {
+        Log.i(TAG, status)
         context ?: return
         (context.applicationContext as? MyApplication)
             ?.getScreenCaptureService()
@@ -148,7 +150,8 @@ object BackendProcessing {
         originalInputText = inputText
         sequenceContext = context
         actionHistory.clear() // Reset history for new sequence
-        updateFlowStatus(context, "Starting order")
+        Log.i(TAG, "INSTRUCTION_RECEIVED: $inputText")
+        updateFlowStatus(context, "STATE: INSTRUCTION_RECEIVED\nTARGET: $inputText")
         
         // Initialize action executor if accessibility service is available
         ensureActionExecutor(context, accessibilityService)
@@ -722,6 +725,15 @@ object BackendProcessing {
                                             ctx.lastActionResult = finalResult
                                             ctx.actionHistory.add(finalResult.toJson())
                                         }
+
+                                        when {
+                                            actionSuccess && actionType.equals("type", ignoreCase = true) ->
+                                                Log.i(TAG, "BLINKIT_SEARCH_TEXT_ENTERED: $text")
+                                            actionSuccess && actionTarget.contains("search", ignoreCase = true) ->
+                                                Log.i(TAG, "BLINKIT_SEARCH_BOX_FOUND")
+                                            actionSuccess && actionTarget.contains("add", ignoreCase = true) ->
+                                                Log.i(TAG, "BLINKIT_ADD_TO_CART_CLICKED")
+                                        }
                                         
                                         // Update stored action with execution result
                                         actionToStore.put("execution_success", actionSuccess)
@@ -742,7 +754,8 @@ object BackendProcessing {
                                                 
                                                 if (isCompleted || taskCompleted) {
                                                     Log.d("BackendProcessing", "🏁 TASK COMPLETED! Stopping action sequence.")
-                                                    updateFlowStatus(context, "Done")
+                                                    Log.i(TAG, "FLOW_SUCCESS: target=$originalInputText")
+                                                    updateFlowStatus(context, "STATE: SUCCESS\nTARGET: $originalInputText")
                                                     requestInFlight = false
                                                     stopActionSequence()
                                                 } else if (verificationRequired) {
@@ -778,7 +791,8 @@ object BackendProcessing {
                                             }
                                         } else {
                                             Log.w("BackendProcessing", "❌ Action execution failed")
-                                            updateFlowStatus(context, "Failed - action")
+                                            Log.e(TAG, "FLOW_FAILED: reason=action_execution_failed")
+                                            updateFlowStatus(context, "STATE: FAILED\nERROR: action_execution_failed")
                                             requestInFlight = false
                                             if (isActionSequenceActive) {
                                                 // Log.w("BackendProcessing", "Action failed in sequence - stopping sequence")
@@ -846,6 +860,7 @@ object BackendProcessing {
     // Handle backend errors with retry logic for transient errors
     private fun handleBackendError(context: Context, reason: String, details: String, sessionContext: SessionContext?) {
         Log.e("BackendProcessing", "💥 Backend Error: $reason - $details")
+        Log.e(TAG, "FLOW_FAILED: reason=$reason")
         
         // Check if this is a transient error that can be retried
         val isTransientError = reason.contains("missing_screenshot") || reason.contains("timeout") || reason.contains("network")
@@ -889,6 +904,9 @@ object BackendProcessing {
             Log.d("BackendProcessing", "✅ VERIFICATION SUCCESSFUL!")
             Log.d("BackendProcessing", "✅ Item '${verificationStatus.targetItem}' verified in cart")
             Log.d("BackendProcessing", "✅ Details: ${verificationStatus.verificationDetails}")
+            Log.i(TAG, "BLINKIT_CART_INCREMENT_CONFIRMED")
+            Log.i(TAG, "FLOW_SUCCESS: target=${verificationStatus.targetItem}")
+            updateFlowStatus(context, "STATE: SUCCESS\nTARGET: ${verificationStatus.targetItem}")
             
             // Show success message to user
             android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -910,6 +928,8 @@ object BackendProcessing {
             Log.e("BackendProcessing", "❌ VERIFICATION FAILED!")
             Log.e("BackendProcessing", "❌ Item '${verificationStatus.targetItem}' NOT found in cart")
             Log.e("BackendProcessing", "❌ Details: ${verificationStatus.verificationDetails}")
+            Log.e(TAG, "FLOW_FAILED: reason=cart_verification_failed")
+            updateFlowStatus(context, "STATE: FAILED\nERROR: cart_verification_failed")
             
             // Show failure message to user
             android.os.Handler(android.os.Looper.getMainLooper()).post {

@@ -1587,6 +1587,7 @@ class ScreenCaptureService : Service() {
                     currentAppName = appName
                     
                     Log.d("ScreenCaptureService", "📤 CAPTURED DATA - Tree length: ${treeData.length}, App: $appName")
+                    Log.i("BetaAgent", "BLINKIT_SEARCH_STARTED: $inputText")
                     
                     // Start the action sequence with captured data
                     BackendProcessing.startActionSequence(this, inputText, accessibilityService)

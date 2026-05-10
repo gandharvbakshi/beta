@@ -17,6 +17,7 @@ class MyAccessibilityService : AccessibilityService() {
     private var screenCaptureService: ScreenCaptureService? = null
     private var lastTreeData: String = ""
     private var lastAppName: String = ""
+    private var lastNonBlinkitStatusLogMs: Long = 0L
     
     // Get the currently active app package
     val activeAppPackage: String?
@@ -80,22 +81,20 @@ class MyAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        // IGNORE EVENTS FROM YOUR OWN APP
-        if (event.packageName == "com.example.beta") {
-            Log.d("MyAccessibilityService", "Ignoring own app event: ${event.eventType}")
-            return  // Skip processing
+        val packageName = event.packageName?.toString()
+        val eventType = event.eventType
+
+        if (packageName == OWN_PACKAGE) {
+            Log.d("MyAccessibilityService", "Ignoring own app event: $eventType")
+            return
         }
-        
-        // ONLY PROCESS BLINKIT EVENTS
-        if (event.packageName == "com.grofers.customerapp") {
-            Log.d("MyAccessibilityService", "Blinkit event detected: ${event.eventType}")
-            // Tree view is now ONLY triggered manually from overlay submit button
+
+        if (packageName != BLINKIT_PACKAGE) {
+            logNonBlinkitStatus(packageName, eventType)
+            return
         }
-        
-        Log.d(
-            "MyAccessibilityService",
-            "onAccessibilityEvent: eventType = ${event.eventType}, event = ${event}"
-        ) //Added event
+
+        Log.d("MyAccessibilityService", "Blinkit event detected: $eventType")
 
         // Log ScreenCaptureService status for debugging
         if (screenCaptureService == null) {
@@ -105,13 +104,25 @@ class MyAccessibilityService : AccessibilityService() {
         }
 
         // Check for relevant events to trigger screenshot
-        when (event.eventType) {
+        when (eventType) {
             AccessibilityEvent.TYPE_VIEW_CLICKED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,  //handle window state changed.
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> { // Added this condition
                 performScreenshot()
             }
         }
+    }
+
+    private fun logNonBlinkitStatus(packageName: String?, eventType: Int) {
+        val now = System.currentTimeMillis()
+        if (now - lastNonBlinkitStatusLogMs < NON_BLINKIT_LOG_INTERVAL_MS) {
+            return
+        }
+        lastNonBlinkitStatusLogMs = now
+        Log.d(
+            "MyAccessibilityService",
+            "Ignoring non-Blinkit event: package=$packageName, eventType=$eventType, captureConnected=${screenCaptureService != null}"
+        )
     }
 
     private fun performScreenshot() {
@@ -579,5 +590,10 @@ class MyAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             treeBuilder.append("$indent$prefix Error getting node info: ${e.message}\n")
         }
+    }
+    companion object {
+        private const val OWN_PACKAGE = "com.example.beta"
+        private const val BLINKIT_PACKAGE = "com.grofers.customerapp"
+        private const val NON_BLINKIT_LOG_INTERVAL_MS = 5000L
     }
 }

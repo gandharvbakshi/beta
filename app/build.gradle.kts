@@ -49,6 +49,30 @@ android {
     }
 }
 
+val startLogcatCapture by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Replace the latest emulator logcat file and start a fresh capture for this build."
+    isIgnoreExitValue = true
+
+    val scriptPath = rootProject.file("scripts/start-logcat-capture.ps1").absolutePath
+    val projectPath = rootProject.projectDir.absolutePath
+
+    commandLine(
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        scriptPath,
+        "-ProjectDir",
+        projectPath
+    )
+}
+
+tasks.named("preBuild") {
+    dependsOn(startLogcatCapture)
+}
+
 dependencies {
 
     implementation(libs.androidx.core.ktx)
@@ -68,6 +92,9 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation("androidx.test:runner:1.6.1")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)

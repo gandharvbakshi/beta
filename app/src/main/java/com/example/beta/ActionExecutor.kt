@@ -54,6 +54,11 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 "click" -> performClick(recommendedAction)
                 "scroll" -> performScroll(recommendedAction)
                 "type" -> performType(recommendedAction)
+                "wait" -> {
+                    Thread.sleep(1500)
+                    true
+                }
+                "back", "press_back" -> accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
                 "swipe" -> performSwipe(recommendedAction)
                 "long_press" -> performLongPress(recommendedAction)
                 "double_tap" -> performDoubleTap(recommendedAction)
@@ -94,6 +99,18 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         // For ADD buttons, use coordinate validation with retry logic
         if (isAddButton) {
             Log.d(TAG, "ADD button detected - using coordinate validation approach")
+            val rootNode = accessibilityService.rootInActiveWindow
+            if (rootNode != null && isVariantAddAction(recommendedAction)) {
+                val modalAdd = findModalAddButtonElement(rootNode)
+                if (modalAdd != null) {
+                    Log.d(TAG, "Found modal ADD button via accessibility tree; clicking it directly")
+                    val clicked = modalAdd.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if (clicked) {
+                        return true
+                    }
+                    Log.w(TAG, "Modal ADD ACTION_CLICK failed; falling back to coordinates")
+                }
+            }
             return performAddButtonClickWithValidation(recommendedAction)
         }
         
@@ -834,6 +851,75 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         
         Log.d(TAG, "No ADD button element found")
         return null
+    }
+
+    private fun isVariantAddAction(recommendedAction: JSONObject): Boolean {
+        val target = recommendedAction.optString("action_target", "").lowercase()
+        val reasoning = recommendedAction.optString("reasoning", "").lowercase()
+        return target.contains("variant") || target.contains("smallest") ||
+            reasoning.contains("variant") || reasoning.contains("bottom sheet")
+    }
+
+    private fun findModalAddButtonElement(rootNode: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val modalRoot = findModalRoot(rootNode)
+        if (modalRoot == null) {
+            Log.d(TAG, "No modal root found for ADD lookup")
+            return null
+        }
+
+        val addNodes = mutableListOf<AccessibilityNodeInfo>()
+        collectExactAddNodes(modalRoot, addNodes)
+        if (addNodes.isEmpty()) {
+            Log.d(TAG, "No exact ADD nodes found inside modal")
+            return null
+        }
+
+        val selected = addNodes.sortedWith(compareBy<AccessibilityNodeInfo> {
+            Rect().also { rect -> it.getBoundsInScreen(rect) }.top
+        }.thenBy {
+            Rect().also { rect -> it.getBoundsInScreen(rect) }.left
+        }).lastOrNull()
+
+        selected?.let {
+            val bounds = Rect()
+            it.getBoundsInScreen(bounds)
+            Log.d(TAG, "Selected modal ADD node at bounds: $bounds")
+        }
+        return selected
+    }
+
+    private fun findModalRoot(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val cls = node.className?.toString()?.lowercase() ?: ""
+        val viewId = node.viewIdResourceName?.lowercase() ?: ""
+        if (
+            cls.contains("bottomsheet") ||
+            cls.contains("dialog") ||
+            cls.contains("coordinatorlayout") ||
+            viewId.contains("design_bottom_sheet") ||
+            viewId.contains("bottom_sheet")
+        ) {
+            return node
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findModalRoot(child)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun collectExactAddNodes(node: AccessibilityNodeInfo, out: MutableList<AccessibilityNodeInfo>) {
+        val text = node.text?.toString()?.trim()
+        val desc = node.contentDescription?.toString()?.trim()
+        if (node.isVisibleToUser && node.isEnabled && node.isClickable &&
+            (text.equals("ADD", ignoreCase = true) || desc.equals("ADD", ignoreCase = true))
+        ) {
+            out.add(node)
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            collectExactAddNodes(child, out)
+        }
     }
     
     private fun performAddButtonClickWithValidation(recommendedAction: JSONObject): Boolean {
