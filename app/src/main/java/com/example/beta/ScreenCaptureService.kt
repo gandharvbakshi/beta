@@ -315,11 +315,39 @@ class ScreenCaptureService : Service() {
                 // LocalBroadcastManager.getInstance(this).sendBroadcast(testIntent)
                 // Log.d("ScreenCaptureService", "🔍 DEBUG: Test broadcast sent to verify receiver")
             }
+
+            registerAutomationInstructionReceiver()
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error in onCreate: ${e.message}", e)
             // If we can't initialize properly, stop the service
             stopSelf()
         }
+    }
+
+    private val automationInstructionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ACTION_SUBMIT_AUTOMATION_INSTRUCTION) {
+                return
+            }
+            val instruction = intent.getStringExtra("instruction")?.trim().orEmpty()
+            if (instruction.isBlank()) {
+                Log.w("ScreenCaptureService", "Automation instruction broadcast had no instruction")
+                return
+            }
+            Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
+            submitInstruction(instruction)
+        }
+    }
+
+    private fun registerAutomationInstructionReceiver() {
+        val filter = IntentFilter(ACTION_SUBMIT_AUTOMATION_INSTRUCTION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(automationInstructionReceiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(automationInstructionReceiver, filter)
+        }
+        Log.d("ScreenCaptureService", "Automation instruction receiver registered")
     }
 
     private val inputReceiver = object : BroadcastReceiver() {
@@ -356,6 +384,17 @@ class ScreenCaptureService : Service() {
         Log.d("ScreenCaptureService", "onStartCommand received")
         
         try {
+            if (intent?.action == ACTION_SUBMIT_AUTOMATION_INSTRUCTION) {
+                val instruction = intent.getStringExtra("instruction")?.trim().orEmpty()
+                if (instruction.isBlank()) {
+                    Log.w("ScreenCaptureService", "Automation instruction service command had no instruction")
+                } else {
+                    Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
+                    submitInstruction(instruction)
+                }
+                return START_STICKY
+            }
+
             // If intent is null and service is already running, just continue
             if (intent == null) {
                 if (isCapturing) {
@@ -1561,6 +1600,10 @@ class ScreenCaptureService : Service() {
         }
     }
     
+    fun submitAutomationInstruction(inputText: String) {
+        submitInstruction(inputText)
+    }
+
     private fun submitInstruction(inputText: String) {
         // Log.d("ScreenCaptureService", "submitInstruction called with: '$inputText'")
         
@@ -2180,10 +2223,20 @@ class ScreenCaptureService : Service() {
             // Use emulator-specific cleanup if running on emulator
             if (isEmulator()) {
                 Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific cleanup")
+                try {
+                    unregisterReceiver(automationInstructionReceiver)
+                } catch (e: Exception) {
+                    Log.e("ScreenCaptureService", "Error unregistering automation receiver: ${e.message}", e)
+                }
                 cleanupEmulatorService()
             } else {
                 // Standard cleanup
                 try {
+                    try {
+                        unregisterReceiver(automationInstructionReceiver)
+                    } catch (e: Exception) {
+                        Log.e("ScreenCaptureService", "Error unregistering automation receiver: ${e.message}", e)
+                    }
                     LocalBroadcastManager.getInstance(this).unregisterReceiver(inputReceiver)
                     LocalBroadcastManager.getInstance(this).unregisterReceiver(nextActionReceiver)
                     Log.d("ScreenCaptureService", "Receivers unregistered successfully")
@@ -2228,6 +2281,7 @@ class ScreenCaptureService : Service() {
     // Companion object for constants like the action string
     companion object {
         const val ACTION_STOP_CAPTURE = "com.example.beta.STOP_CAPTURE"
+        const val ACTION_SUBMIT_AUTOMATION_INSTRUCTION = "com.example.beta.SUBMIT_AUTOMATION_INSTRUCTION"
         // Consider adding actions for START if needed, though currently handled by intent extras
     }
 

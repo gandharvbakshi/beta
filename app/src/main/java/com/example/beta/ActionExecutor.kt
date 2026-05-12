@@ -329,21 +329,74 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     private fun performType(recommendedAction: JSONObject): Boolean {
         Log.d(TAG, "Attempting to perform type action")
         
-        val targetNode = findTargetElement(recommendedAction)
         val textToType = recommendedAction.optString("text_to_type", "")
-        return if (targetNode != null) {
-            // For typing, we need to focus the element first
+        if (textToType.isBlank()) {
+            Log.w(TAG, "Type action missing text_to_type")
+            return false
+        }
+
+        val focusedTyped = typeTextIntoFocusedField(textToType, waitForFocusMs = 700)
+        if (focusedTyped) {
+            Log.d(TAG, "Type action used already focused editable field")
+            return true
+        }
+
+        if (focusSearchFieldForTyping(recommendedAction)) {
+            val typed = typeTextIntoFocusedField(textToType, waitForFocusMs = 2500)
+            Log.d(TAG, "Type action text entry after search field focus result: $typed")
+            if (typed) return true
+        }
+
+        val rootNode = accessibilityService.rootInActiveWindow
+        val editableNode = if (rootNode != null) findFirstEditable(rootNode) else null
+        if (editableNode != null) {
+            editableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            val typed = typeTextIntoFocusedField(textToType, waitForFocusMs = 1200)
+            Log.d(TAG, "Type action text entry via editable node result: $typed")
+            if (typed) return true
+        }
+
+        val targetNode = findTargetElement(recommendedAction)
+        if (targetNode != null) {
+            targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-            if (textToType.isNotBlank()) {
-                val typed = typeTextIntoFocusedField(textToType, waitForFocusMs = 1500)
-                Log.d(TAG, "Type action text entry result: $typed")
-                return typed
+            val typed = typeTextIntoFocusedField(textToType, waitForFocusMs = 1800)
+            Log.d(TAG, "Type action text entry after target focus result: $typed")
+            return typed
+        }
+
+        Log.w(TAG, "Target element not found for type and no editable field available")
+        return false
+    }
+
+    private fun focusSearchFieldForTyping(recommendedAction: JSONObject): Boolean {
+        return try {
+            val rootNode = accessibilityService.rootInActiveWindow ?: return false
+            val searchNode = findBlinkitSearchField(rootNode)
+            if (searchNode != null) {
+                val clickableNode = findClickableSelfOrAncestor(searchNode) ?: searchNode
+                val clicked = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                Log.d(TAG, "Focused Blinkit search field via accessibility node result: $clicked")
+                if (clicked) {
+                    Thread.sleep(700)
+                    return true
+                }
             }
-            Log.d(TAG, "Type action - element focused")
-            true
-        } else {
-            Log.w(TAG, "Target element not found for type, trying currently focused field")
-            textToType.isNotBlank() && typeTextIntoFocusedField(textToType, waitForFocusMs = 1500)
+
+            val targetNode = findTargetElement(recommendedAction)
+            if (targetNode != null) {
+                val clicked = targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                Log.d(TAG, "Focused search field via target node result: $clicked")
+                if (clicked) {
+                    Thread.sleep(700)
+                    return true
+                }
+            }
+
+            false
+        } catch (e: Exception) {
+            Log.w(TAG, "Search field focus for typing failed: ${e.message}")
+            false
         }
     }
     
@@ -406,6 +459,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             Log.d(TAG, "Type text into focused field result: $success")
             if (success) {
                 submitImeEnter(focusedNode)
+                dismissKeyboardIfStillFocused(text)
             }
             success
         } catch (e: Exception) {
@@ -428,6 +482,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
     private fun submitImeEnter(focusedNode: AccessibilityNodeInfo) {
         try {
+            Thread.sleep(300)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val imeEnterAction = AccessibilityNodeInfo::class.java
                     .getField("ACTION_IME_ENTER")
@@ -437,6 +492,21 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             }
         } catch (e: Exception) {
             Log.w(TAG, "IME enter action failed: ${e.message}")
+        }
+    }
+
+    private fun dismissKeyboardIfStillFocused(expectedText: String) {
+        try {
+            Thread.sleep(700)
+            val focusedNode = waitForFocusedEditable(300)
+            val focusedText = focusedNode?.text?.toString().orEmpty()
+            if (focusedNode != null && focusedText.contains(expectedText, ignoreCase = true)) {
+                val backSuccess = accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                Log.d(TAG, "Keyboard dismiss fallback after typing result: $backSuccess")
+                Thread.sleep(300)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Keyboard dismiss fallback failed: ${e.message}")
         }
     }
 
@@ -453,6 +523,52 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             val child = node.getChild(i) ?: continue
             val result = findFocusedEditable(child)
             if (result != null) return result
+        }
+        return null
+    }
+
+    private fun findFirstEditable(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if (node.className?.toString()?.contains("EditText", ignoreCase = true) == true || node.isEditable) {
+            if (node.isVisibleToUser && node.isEnabled) {
+                return node
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findFirstEditable(child)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun findBlinkitSearchField(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val resourceId = node.viewIdResourceName.orEmpty()
+        val text = node.text?.toString().orEmpty()
+        val description = node.contentDescription?.toString().orEmpty()
+        val combined = "$resourceId $text $description"
+        val isSearchField = node.isVisibleToUser && node.isEnabled && (
+            resourceId.contains("search", ignoreCase = true) ||
+                combined.contains("Search for", ignoreCase = true) ||
+                combined.contains("Search across", ignoreCase = true)
+            )
+        if (isSearchField) return node
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findBlinkitSearchField(child)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun findClickableSelfOrAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        var current: AccessibilityNodeInfo? = node
+        while (current != null) {
+            if (current.isVisibleToUser && current.isEnabled && current.isClickable) {
+                return current
+            }
+            current = current.parent
         }
         return null
     }

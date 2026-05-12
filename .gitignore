@@ -21,3 +21,8 @@ frontend_logs/
 *.logcat
 *.logcat.txt
 Androind app error - no module.png
+logs/
+debug_runs/
+Screenshot_*.png
+*.log
+*.tmp

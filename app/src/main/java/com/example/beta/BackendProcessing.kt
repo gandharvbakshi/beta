@@ -56,6 +56,7 @@ object BackendProcessing {
     private var requestInFlight: Boolean = false
     private var originalInputText: String? = null
     private var sequenceContext: Context? = null
+    private var emptyBlinkitTreeRetries: Int = 0
     
     // Historical context tracking
     private val actionHistory = mutableListOf<JSONObject>()
@@ -149,6 +150,7 @@ object BackendProcessing {
         requestInFlight = false
         originalInputText = inputText
         sequenceContext = context
+        emptyBlinkitTreeRetries = 0
         actionHistory.clear() // Reset history for new sequence
         Log.i(TAG, "INSTRUCTION_RECEIVED: $inputText")
         updateFlowStatus(context, "STATE: INSTRUCTION_RECEIVED\nTARGET: $inputText")
@@ -166,6 +168,7 @@ object BackendProcessing {
         currentActionNumber = 0
         originalInputText = null
         sequenceContext = null
+        emptyBlinkitTreeRetries = 0
     }
     
     fun isSequenceActive(): Boolean {
@@ -259,6 +262,22 @@ object BackendProcessing {
             updateFlowStatus(context, "Analyzing screen ($currentActionNumber/$maxActions)")
             // Log.d("BackendProcessing", "Processing action #$currentActionNumber in sequence")
         }
+
+        val backendAppName = appNameForBackend(currentAppName)
+        if (
+            isActionSequenceActive &&
+            backendAppName == "Blinkit" &&
+            currentTreeData.isNullOrBlank() &&
+            emptyBlinkitTreeRetries < 3
+        ) {
+            emptyBlinkitTreeRetries++
+            Log.w("BackendProcessing", "Blinkit tree was empty; retrying capture before asking backend ($emptyBlinkitTreeRetries/3)")
+            updateFlowStatus(context, "Reading screen ($currentActionNumber/$maxActions)")
+            requestInFlight = false
+            triggerNextAction()
+            return
+        }
+        emptyBlinkitTreeRetries = 0
         
         // Log screenshot dimensions
         // Log.d("BackendProcessing", "Screenshot dimensions - Width: ${bitmap.width}, Height: ${bitmap.height}")
@@ -312,7 +331,6 @@ object BackendProcessing {
                 Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Action history: ${sessionContext.actionHistory.size} actions")
             }
             
-            val backendAppName = appNameForBackend(currentAppName)
             requestBodyBuilder.addFormDataPart("app_name", backendAppName)
             Log.d("BackendProcessing", "📤 SENDING TO BACKEND - App name: $backendAppName")
             
