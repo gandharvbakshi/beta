@@ -57,6 +57,7 @@ object BackendProcessing {
     private var originalInputText: String? = null
     private var sequenceContext: Context? = null
     private var emptyBlinkitTreeRetries: Int = 0
+    private var hasEmittedItemOutcome = false
     
     // Historical context tracking
     private val actionHistory = mutableListOf<JSONObject>()
@@ -102,6 +103,96 @@ object BackendProcessing {
             else -> "Working"
         }
         return "$phase ($step/$max)"
+    }
+
+    private fun isCheckoutBoundaryDetected(responseText: String?, treeData: String?): Boolean {
+        val checkoutBoundaryPhrases = listOf(
+            "place order",
+            "pay now",
+            "continue to payment",
+            "proceed to payment",
+            "to payment",
+            "place the order",
+            "payment",
+            "finalize",
+            "finalize order"
+        )
+        val normalizedResponseText = responseText?.lowercase() ?: ""
+        val normalizedTreeData = treeData?.lowercase() ?: ""
+        return checkoutBoundaryPhrases.any { normalizedResponseText.contains(it) } ||
+            checkoutBoundaryPhrases.any { normalizedTreeData.contains(it) }
+    }
+
+    private fun statusForTerminalReason(reason: String): ItemOutcomeStatus {
+        val normalized = reason.lowercase()
+        return when {
+            normalized.contains("out of stock") ||
+                normalized.contains("sold out") ||
+                normalized.contains("notify me") ||
+                normalized.contains("currently unavailable") ||
+                normalized.contains("unavailable") -> ItemOutcomeStatus.OOS
+            normalized.contains("low") && normalized.contains("confidence") -> ItemOutcomeStatus.LOW_CONFIDENCE
+            normalized.contains("timeout") ||
+                normalized.contains("timed out") ||
+                normalized.contains("max steps") ||
+                normalized.contains("maximum actions") -> ItemOutcomeStatus.TIMEOUT
+            normalized.contains("misclick") ||
+                normalized.contains("wrong") ||
+                normalized.contains("wishlist") ||
+                normalized.contains("summary_and_edit") -> ItemOutcomeStatus.MISCLICK
+            else -> ItemOutcomeStatus.NOT_FOUND
+        }
+    }
+
+    private fun noteForTerminalReason(status: ItemOutcomeStatus, fallback: String): String {
+        return when (status) {
+            ItemOutcomeStatus.OOS -> "out_of_stock"
+            ItemOutcomeStatus.LOW_CONFIDENCE -> "low_confidence"
+            ItemOutcomeStatus.TIMEOUT -> "timeout"
+            ItemOutcomeStatus.MISCLICK -> "misclick"
+            else -> fallback
+        }
+    }
+
+    private fun emitPhase0Outcome(
+        context: Context,
+        item: String?,
+        status: ItemOutcomeStatus,
+        matchedSku: String = "",
+        qtyRequested: Int = 1,
+        qtyAdded: Int = 0,
+        notes: String = ""
+    ) {
+        if (hasEmittedItemOutcome) return
+        hasEmittedItemOutcome = true
+
+        val normalizedItem = normalizeOrderOutcomeItem(item)
+        val normalizedSku = matchedSku.trim()
+        val normalizedQtyAdded = if (status == ItemOutcomeStatus.SUCCESS && qtyAdded <= 0) 1 else qtyAdded
+        val itemOutcome = ItemOutcome(
+            item = normalizedItem,
+            status = status,
+            matchedSku = normalizedSku,
+            qtyRequested = qtyRequested,
+            qtyAdded = normalizedQtyAdded,
+            notes = notes
+        )
+        Log.i(TAG, formatItemResultLine(itemOutcome))
+        updateFlowStatus(context, formatItemResultStateLine(itemOutcome.item, status))
+
+        val failures = if (status == ItemOutcomeStatus.SUCCESS) {
+            emptyList()
+        } else {
+            listOf(OrderFailure(item = normalizedItem, reason = status))
+        }
+        val orderOutcome = OrderOutcomeSummary(
+            itemsTotal = 1,
+            itemsSucceeded = if (status == ItemOutcomeStatus.SUCCESS) 1 else 0,
+            itemsFailed = if (status == ItemOutcomeStatus.SUCCESS) 0 else 1,
+            failures = failures
+        )
+        Log.i(TAG, orderOutcome.orderDoneLine())
+        updateFlowStatus(context, formatOrderDoneStateLine())
     }
 
     private fun provideOkHttpClient(): OkHttpClient {
@@ -151,6 +242,7 @@ object BackendProcessing {
         originalInputText = inputText
         sequenceContext = context
         emptyBlinkitTreeRetries = 0
+        hasEmittedItemOutcome = false
         actionHistory.clear() // Reset history for new sequence
         Log.i(TAG, "INSTRUCTION_RECEIVED: $inputText")
         updateFlowStatus(context, "STATE: INSTRUCTION_RECEIVED\nTARGET: $inputText")
@@ -169,6 +261,7 @@ object BackendProcessing {
         originalInputText = null
         sequenceContext = null
         emptyBlinkitTreeRetries = 0
+        hasEmittedItemOutcome = false
     }
     
     fun isSequenceActive(): Boolean {
@@ -195,6 +288,14 @@ object BackendProcessing {
         if (currentActionNumber >= maxActions) {
             Log.w("BackendProcessing", "🔍 DEBUG: Maximum actions reached ($maxActions), stopping sequence")
             updateFlowStatus(sequenceContext, "Stopped - max steps")
+            sequenceContext?.let { context ->
+                emitPhase0Outcome(
+                    context = context,
+                    item = originalInputText,
+                    status = ItemOutcomeStatus.TIMEOUT,
+                    notes = "max_steps"
+                )
+            }
             stopActionSequence()
             return
         }
@@ -467,8 +568,14 @@ object BackendProcessing {
 
                             if (failureReason.isNotBlank() || workflowState == "FAILED_NEEDS_USER") {
                                 val userMessage = failureReason.ifBlank { "Manual help needed to continue this order." }
+                                val terminalStatus = statusForTerminalReason(userMessage)
                                 Log.w("BackendProcessing", "🛑 Workflow stopped: $userMessage")
-                                updateFlowStatus(context, "Needs help")
+                                emitPhase0Outcome(
+                                    context = context,
+                                    item = verificationStatus?.targetItem ?: originalInputText,
+                                    status = terminalStatus,
+                                    notes = noteForTerminalReason(terminalStatus, "workflow_failed")
+                                )
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     android.widget.Toast.makeText(context, userMessage, android.widget.Toast.LENGTH_LONG).show()
                                 }
@@ -505,25 +612,49 @@ object BackendProcessing {
                             
                             // Handle session end conditions
                             when (sessionState) {
-                                SessionState.COMPLETED -> {
-                                    Log.d("BackendProcessing", "🏁 Session completed - ending session")
-                                    updateFlowStatus(context, "Done")
-                                    (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Completed")
-                                    requestInFlight = false
-                                    return@let
+                            SessionState.COMPLETED -> {
+                                Log.d("BackendProcessing", "🏁 Session completed - ending session")
+                                val completedItem = verificationStatus?.targetItem ?: originalInputText
+                                val completedNotes = if (verificationStatus?.itemFoundInCart == true) {
+                                    "verified_in_cart"
+                                } else {
+                                    "session_completed"
                                 }
-                                SessionState.ERROR -> {
-                                    Log.e("BackendProcessing", "🚨 Session error state - ending session")
-                                    updateFlowStatus(context, "Stopped - error")
-                                    (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Error state")
-                                    requestInFlight = false
-                                    return@let
-                                }
-                                SessionState.SUMMARY_AND_EDIT -> {
-                                    Log.d("BackendProcessing", "📝 Summary and edit state - ending session")
-                                    updateFlowStatus(context, "Paused - review")
-                                    (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Summary and edit")
-                                    requestInFlight = false
+                                emitPhase0Outcome(
+                                    context = context,
+                                    item = completedItem,
+                                    status = ItemOutcomeStatus.SUCCESS,
+                                    matchedSku = verificationStatus?.targetItem ?: "",
+                                    qtyAdded = 1,
+                                    notes = completedNotes
+                                )
+                                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Completed")
+                                requestInFlight = false
+                                return@let
+                            }
+                            SessionState.ERROR -> {
+                                Log.e("BackendProcessing", "🚨 Session error state - ending session")
+                                val terminalStatus = statusForTerminalReason(failureReason.ifBlank { stateStr })
+                                emitPhase0Outcome(
+                                    context = context,
+                                    item = verificationStatus?.targetItem ?: originalInputText,
+                                    status = terminalStatus,
+                                    notes = noteForTerminalReason(terminalStatus, "session_error")
+                                )
+                                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Error state")
+                                requestInFlight = false
+                                return@let
+                            }
+                            SessionState.SUMMARY_AND_EDIT -> {
+                                Log.d("BackendProcessing", "📝 Summary and edit state - ending session")
+                                emitPhase0Outcome(
+                                    context = context,
+                                    item = originalInputText,
+                                    status = ItemOutcomeStatus.MISCLICK,
+                                    notes = "summary_and_edit"
+                                )
+                                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Summary and edit")
+                                requestInFlight = false
                                     return@let
                                 }
                                 null -> Log.w("BackendProcessing", "⚠️ Unknown session state: $stateStr")
@@ -617,6 +748,43 @@ object BackendProcessing {
                                         context,
                                         statusForAction(actionType, actionTarget, currentActionNumber, maxActions)
                                     )
+                                    val responseBoundaryText = listOf(
+                                        actionType,
+                                        actionTarget,
+                                        reasoning,
+                                        text,
+                                        resourceId,
+                                        className,
+                                        contentDescription,
+                                        hierarchyPath,
+                                        actionTextToType,
+                                        stateStr,
+                                        debugNotes,
+                                        jsonObject.optString("failure_reason", "")
+                                    ).joinToString(" ")
+                                    val isCheckoutBoundary = isCheckoutBoundaryDetected(
+                                        responseBoundaryText,
+                                        currentTreeData
+                                    )
+                                    if (backendAppName == "Blinkit" && isCheckoutBoundary) {
+                                        Log.w("BackendProcessing", "🚫 Checkout/payment boundary detected in response - ending flow for safety.")
+                                        emitPhase0Outcome(
+                                            context = context,
+                                            item = verificationStatus?.targetItem ?: originalInputText,
+                                            status = if (verificationStatus?.itemFoundInCart == true) {
+                                                ItemOutcomeStatus.SKIPPED
+                                            } else {
+                                                ItemOutcomeStatus.MISCLICK
+                                            },
+                                            qtyAdded = if (verificationStatus?.itemFoundInCart == true) 1 else 0,
+                                            notes = "checkout_boundary"
+                                        )
+                                        requestInFlight = false
+                                        (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Checkout boundary")
+                                        stopActionSequence()
+                                        hasEmittedItemOutcome = true
+                                        return@onResponse
+                                    }
                                     
                                     // Log backend response with coordinate details
                                     val statusBarHeight = ScreenMetrics.getStatusBarHeight(context)
@@ -773,7 +941,14 @@ object BackendProcessing {
                                                 if (isCompleted || taskCompleted) {
                                                     Log.d("BackendProcessing", "🏁 TASK COMPLETED! Stopping action sequence.")
                                                     Log.i(TAG, "FLOW_SUCCESS: target=$originalInputText")
-                                                    updateFlowStatus(context, "STATE: SUCCESS\nTARGET: $originalInputText")
+                                                    emitPhase0Outcome(
+                                                        context = context,
+                                                        item = verificationStatus?.targetItem ?: originalInputText,
+                                                        status = ItemOutcomeStatus.SUCCESS,
+                                                        matchedSku = verificationStatus?.targetItem ?: "",
+                                                        qtyAdded = 1,
+                                                        notes = if (taskCompleted) "task_completed" else "is_completed"
+                                                    )
                                                     requestInFlight = false
                                                     stopActionSequence()
                                                 } else if (verificationRequired) {
@@ -807,12 +982,17 @@ object BackendProcessing {
                                                 requestInFlight = false
                                                 Thread.sleep(1000)
                                             }
-                                        } else {
-                                            Log.w("BackendProcessing", "❌ Action execution failed")
-                                            Log.e(TAG, "FLOW_FAILED: reason=action_execution_failed")
-                                            updateFlowStatus(context, "STATE: FAILED\nERROR: action_execution_failed")
-                                            requestInFlight = false
-                                            if (isActionSequenceActive) {
+                                         } else {
+                                             Log.w("BackendProcessing", "❌ Action execution failed")
+                                             Log.e(TAG, "FLOW_FAILED: reason=action_execution_failed")
+                                             emitPhase0Outcome(
+                                                 context = context,
+                                                 item = originalInputText,
+                                                 status = ItemOutcomeStatus.MISCLICK,
+                                                 notes = "action_execution_failed"
+                                             )
+                                             requestInFlight = false
+                                             if (isActionSequenceActive) {
                                                 // Log.w("BackendProcessing", "Action failed in sequence - stopping sequence")
                                                 stopActionSequence()
                                             }
@@ -828,6 +1008,12 @@ object BackendProcessing {
                                         }
                                         (context.applicationContext as? MyApplication)?.getScreenCaptureService()
                                             ?.endSession("Accessibility service disabled")
+                                        emitPhase0Outcome(
+                                            context = context,
+                                            item = originalInputText,
+                                            status = ItemOutcomeStatus.SKIPPED,
+                                            notes = "accessibility_service_disabled"
+                                        )
                                         requestInFlight = false
                                         stopActionSequence()
                                     }
@@ -868,6 +1054,12 @@ object BackendProcessing {
                 if (attempt == maxAttempts) {
                     Log.e("UploadFailure", "Failed after multiple attempts: ${e.message}")
                     requestInFlight = false
+                    emitPhase0Outcome(
+                        context = context,
+                        item = originalInputText,
+                        status = ItemOutcomeStatus.TIMEOUT,
+                        notes = "upload_timeout"
+                    )
                 } else {
                     Log.w("UploadRetry", "Attempt $attempt failed, retrying...")
                 }
@@ -883,7 +1075,7 @@ object BackendProcessing {
         // Check if this is a transient error that can be retried
         val isTransientError = reason.contains("missing_screenshot") || reason.contains("timeout") || reason.contains("network")
         
-            if (isTransientError && sessionContext != null) {
+        if (isTransientError && sessionContext != null) {
             val screenService = (context.applicationContext as? MyApplication)?.getScreenCaptureService()
             if ((screenService?.getRetryAttempts() ?: 0) < 1) {
                 Log.d("BackendProcessing", "🔄 Attempting retry for transient error")
@@ -899,6 +1091,18 @@ object BackendProcessing {
                 Log.w("BackendProcessing", "❌ Max retries exceeded, giving up")
             }
         }
+
+        val terminalStatus = if (isTransientError) {
+            ItemOutcomeStatus.TIMEOUT
+        } else {
+            statusForTerminalReason("$reason $details")
+        }
+        emitPhase0Outcome(
+            context = context,
+            item = originalInputText,
+            status = terminalStatus,
+            notes = noteForTerminalReason(terminalStatus, "backend_error")
+        )
         
         // End session on error
         (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Error: $reason")
@@ -924,7 +1128,14 @@ object BackendProcessing {
             Log.d("BackendProcessing", "✅ Details: ${verificationStatus.verificationDetails}")
             Log.i(TAG, "BLINKIT_CART_INCREMENT_CONFIRMED")
             Log.i(TAG, "FLOW_SUCCESS: target=${verificationStatus.targetItem}")
-            updateFlowStatus(context, "STATE: SUCCESS\nTARGET: ${verificationStatus.targetItem}")
+            emitPhase0Outcome(
+                context = context,
+                item = verificationStatus.targetItem ?: originalInputText,
+                status = ItemOutcomeStatus.SUCCESS,
+                matchedSku = verificationStatus.targetItem ?: "",
+                qtyAdded = 1,
+                notes = "verified_in_cart"
+            )
             
             // Show success message to user
             android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -947,7 +1158,17 @@ object BackendProcessing {
             Log.e("BackendProcessing", "❌ Item '${verificationStatus.targetItem}' NOT found in cart")
             Log.e("BackendProcessing", "❌ Details: ${verificationStatus.verificationDetails}")
             Log.e(TAG, "FLOW_FAILED: reason=cart_verification_failed")
-            updateFlowStatus(context, "STATE: FAILED\nERROR: cart_verification_failed")
+            val terminalStatus = statusForTerminalReason(verificationStatus.verificationDetails ?: "cart_verification_failed")
+            emitPhase0Outcome(
+                context = context,
+                item = verificationStatus.targetItem ?: originalInputText,
+                status = terminalStatus,
+                matchedSku = verificationStatus.targetItem ?: "",
+                notes = noteForTerminalReason(
+                    terminalStatus,
+                    verificationStatus.verificationDetails ?: "cart_verification_failed"
+                )
+            )
             
             // Show failure message to user
             android.os.Handler(android.os.Looper.getMainLooper()).post {

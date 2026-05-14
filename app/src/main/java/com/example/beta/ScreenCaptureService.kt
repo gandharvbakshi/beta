@@ -64,7 +64,7 @@ class ScreenCaptureService : Service() {
     private var virtualDisplay: android.hardware.display.VirtualDisplay? = null // Correct type
     private var accessibilityService: MyAccessibilityService? = null
     private var currentInputText: String? = null
-    private var pendingScreenshot = false
+    @Volatile private var pendingScreenshot = false
     private var screenshotEnabled = false // Only take screenshots when explicitly enabled
     private var overlayBounds: android.graphics.Rect? = null
     private var currentTreeData: String? = null
@@ -326,9 +326,14 @@ class ScreenCaptureService : Service() {
 
     private val automationInstructionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_HIDE_AUTOMATION_OVERLAY) {
+                hideAutomationOverlayForExternalFlow()
+                return
+            }
             if (intent?.action != ACTION_SUBMIT_AUTOMATION_INSTRUCTION) {
                 return
             }
+
             val instruction = intent.getStringExtra("instruction")?.trim().orEmpty()
             if (instruction.isBlank()) {
                 Log.w("ScreenCaptureService", "Automation instruction broadcast had no instruction")
@@ -340,7 +345,9 @@ class ScreenCaptureService : Service() {
     }
 
     private fun registerAutomationInstructionReceiver() {
-        val filter = IntentFilter(ACTION_SUBMIT_AUTOMATION_INSTRUCTION)
+        val filter = IntentFilter(ACTION_SUBMIT_AUTOMATION_INSTRUCTION).apply {
+            addAction(ACTION_HIDE_AUTOMATION_OVERLAY)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(automationInstructionReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
@@ -392,6 +399,11 @@ class ScreenCaptureService : Service() {
                     Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
                     submitInstruction(instruction)
                 }
+                return START_STICKY
+            }
+
+            if (intent?.action == ACTION_HIDE_AUTOMATION_OVERLAY) {
+                hideAutomationOverlayForExternalFlow()
                 return START_STICKY
             }
 
@@ -1608,6 +1620,9 @@ class ScreenCaptureService : Service() {
         // Log.d("ScreenCaptureService", "submitInstruction called with: '$inputText'")
         
         if (inputText.isNotEmpty()) {
+            if (currentSession == null) {
+                startNewSession()
+            }
             currentInputText = inputText
             originalInputText = inputText
             isActionSequenceActive = true
@@ -2282,6 +2297,7 @@ class ScreenCaptureService : Service() {
     companion object {
         const val ACTION_STOP_CAPTURE = "com.example.beta.STOP_CAPTURE"
         const val ACTION_SUBMIT_AUTOMATION_INSTRUCTION = "com.example.beta.SUBMIT_AUTOMATION_INSTRUCTION"
+        const val ACTION_HIDE_AUTOMATION_OVERLAY = "com.example.beta.HIDE_AUTOMATION_OVERLAY"
         // Consider adding actions for START if needed, though currently handled by intent extras
     }
 
@@ -2321,6 +2337,16 @@ class ScreenCaptureService : Service() {
             Log.e("ScreenCaptureService", "MediaProjection state: ${if (mediaProjection != null) "exists" else "null"}")
             Log.e("ScreenCaptureService", "VirtualDisplay state: ${if (virtualDisplay != null) "exists" else "null"}")
             Log.e("ScreenCaptureService", "ImageReader state: ${if (imageReader != null) "exists" else "null"}")
+            Log.w("ScreenCaptureService", "Attempting to restart capture before screenshot")
+            startCapture()
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (canCapture()) {
+                    Log.d("ScreenCaptureService", "Capture restarted successfully; retrying screenshot")
+                    triggerScreenshot()
+                } else {
+                    Log.e("ScreenCaptureService", "Capture restart failed before screenshot: ${getCaptureStatus()}")
+                }
+            }, 1500)
             return
         }
         
@@ -2367,77 +2393,56 @@ class ScreenCaptureService : Service() {
                 Log.w("ScreenCaptureService", "Overlay view not initialized - cannot verify hiding")
             }
             
-            pendingScreenshot = true
-            Log.d("ScreenCaptureService", "Pending screenshot set to true after 500ms delay")
-            
-            // Force a new frame to be rendered with the hidden overlay
-            try {
-                virtualDisplay?.surface?.let { surface ->
-                    // Request immediate frame
+            handler?.post {
+                try {
+                    pendingScreenshot = true
+                    Log.d("ScreenCaptureService", "Pending screenshot set to true after overlay delay")
+
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         virtualDisplay?.resize(width, height, density)
                         Log.d("ScreenCaptureService", "VirtualDisplay resized to force new frame")
                     }
-                }
-            } catch (e: Exception) {
-                Log.e("ScreenCaptureService", "Error forcing frame update: ${e.message}", e)
-            }
-            
-            // Add a timeout to restore overlay if image never arrives
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (pendingScreenshot) {
-                    Log.w("ScreenCaptureService", "Screenshot timeout - attempting manual image acquisition")
-                    pendingScreenshot = false
-                    
-                    // Try to manually acquire an image as fallback
-                    try {
-                        val image = imageReader?.acquireLatestImage()
-                        if (image != null) {
-                            Log.d("ScreenCaptureService", "Manual image acquisition successful after timeout")
-                            processImage(image)
-                            image.close()
-                        } else {
-                            Log.w("ScreenCaptureService", "Manual image acquisition failed - restoring overlay")
-                            if (isEmulator()) {
-                                restoreEmulatorOverlayVisibility(currentInputText)
-                            } else {
-                                restoreOverlayVisibility(currentInputText)
+
+                    handler?.postDelayed({
+                        if (pendingScreenshot) {
+                            Log.w("ScreenCaptureService", "Screenshot timeout - attempting manual image acquisition")
+                            pendingScreenshot = false
+
+                            try {
+                                val image = imageReader?.acquireLatestImage()
+                                if (image != null) {
+                                    Log.d("ScreenCaptureService", "Manual image acquisition successful after timeout")
+                                    processImage(image)
+                                    image.close()
+                                } else {
+                                    Log.w("ScreenCaptureService", "Manual image acquisition failed - restoring overlay")
+                                    if (isEmulator()) {
+                                        restoreEmulatorOverlayVisibility(currentInputText)
+                                    } else {
+                                        restoreOverlayVisibility(currentInputText)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Log.e("ScreenCaptureService", "Error in manual image acquisition: ", e)
+                                if (isEmulator()) {
+                                    restoreEmulatorOverlayVisibility(currentInputText)
+                                } else {
+                                    restoreOverlayVisibility(currentInputText)
+                                }
                             }
                         }
-                    } catch (e: Exception) {
-                        Log.e("ScreenCaptureService", "Error in manual image acquisition: ", e)
-                        if (isEmulator()) {
-                            restoreEmulatorOverlayVisibility(currentInputText)
-                        } else {
-                            restoreOverlayVisibility(currentInputText)
-                        }
+                    }, 5000)
+                } catch (e: Exception) {
+                    Log.e("ScreenCaptureService", "Error forcing frame update: ${e.message}", e)
+                    pendingScreenshot = false
+                    if (isEmulator()) {
+                        restoreEmulatorOverlayVisibility(currentInputText)
+                    } else {
+                        restoreOverlayVisibility(currentInputText)
                     }
                 }
-            }, 5000) // 5 second timeout
-        }, 500) // Increased to 500ms delay to ensure overlay is hidden
-        
-        // Use handler to ensure we're on the correct thread
-        handler?.post {
-            try {
-                Log.d("ScreenCaptureService", "Requesting new frame from VirtualDisplay")
-                // Force a new frame to be captured by resizing
-                virtualDisplay?.resize(width, height, density)
-                
-                // Wait for the ImageAvailableListener to handle the new frame
-                // The listener will automatically process the image when it becomes available
-                Log.d("ScreenCaptureService", "Waiting for ImageAvailableListener to process new frame")
-                
-            } catch (e: Exception) {
-                Log.e("ScreenCaptureService", "Error requesting new frame: ", e)
-                pendingScreenshot = false
-                // Restore overlay visibility on error
-                if (isEmulator()) {
-                    restoreEmulatorOverlayVisibility(currentInputText)
-                } else {
-                    restoreOverlayVisibility(currentInputText)
-                }
             }
-        }
+        }, 500) // Increased to 500ms delay to ensure overlay is hidden
     }
 
     // Emulator-specific input overlay hiding
@@ -2450,6 +2455,28 @@ class ScreenCaptureService : Service() {
             }
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error hiding emulator input overlay: ${e.message}", e)
+        }
+    }
+
+    private fun hideAutomationOverlayForExternalFlow() {
+        try {
+            if (::overlayView.isInitialized) {
+                overlayView.post {
+                    try {
+                        overlayView.isClickable = false
+                        overlayView.visibility = View.GONE
+                        if (::windowManager.isInitialized && ::layoutParams.isInitialized) {
+                            layoutParams.flags = layoutParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                            windowManager.updateViewLayout(overlayView, layoutParams)
+                        }
+                        Log.d("ScreenCaptureService", "Automation overlay hidden for external flow")
+                    } catch (e: Exception) {
+                        Log.e("ScreenCaptureService", "Error hiding automation overlay on main thread: ${e.message}", e)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error hiding automation overlay: ${e.message}", e)
         }
     }
 }

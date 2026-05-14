@@ -340,9 +340,8 @@ class MyAccessibilityService : AccessibilityService() {
             treeBuilder.append("🌳 BLINKIT ACCESSIBILITY TREE\n")
             treeBuilder.append("=" * 50).append("\n")
             
-            // Log root node info
-            Log.d("MyAccessibilityService", "Logging root node info...")
-            logNodeInfo(rootNode, 0, "ROOT")
+            // Keep the backend tree data, but avoid logging every node on the
+            // accessibility thread during automation runs.
             appendNodeInfo(treeBuilder, rootNode, 0, "ROOT")
             
             // Get tree summary first
@@ -368,12 +367,11 @@ class MyAccessibilityService : AccessibilityService() {
             treeBuilder.append("  • Max Depth: ${summary.maxDepth}\n\n")
             
             Log.d("MyAccessibilityService", "")
-            Log.d("MyAccessibilityService", "🔍 DETAILED TREE STRUCTURE:")
+            Log.d("MyAccessibilityService", "🔍 CAPTURING TREE STRUCTURE")
             treeBuilder.append("🔍 DETAILED TREE STRUCTURE:\n")
             
-            // Traverse and log the tree
+            // Traverse and append the tree for backend processing.
             Log.d("MyAccessibilityService", "Starting tree traversal...")
-            traverseAndLogTree(rootNode, 0)
             traverseAndAppendTree(treeBuilder, rootNode, 0)
             Log.d("MyAccessibilityService", "Tree traversal completed")
             

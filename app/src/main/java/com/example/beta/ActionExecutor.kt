@@ -26,7 +26,48 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         Log.d(TAG, "Permission check - Gestures: $hasGestureCapability, Retrieve: $hasRetrieveCapability")
         return hasGestureCapability && hasRetrieveCapability
     }
-    
+
+    private fun containsAnrText(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+
+        val text = node.text?.toString().orEmpty().lowercase()
+        val description = node.contentDescription?.toString().orEmpty().lowercase()
+
+        if (text.contains("isn't responding", ignoreCase = true) ||
+                text.contains("not responding", ignoreCase = true) ||
+                description.contains("isn't responding", ignoreCase = true) ||
+                description.contains("not responding", ignoreCase = true)
+        ) {
+            return true
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (containsAnrText(child)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun handleAnrByClickingWait(): Boolean {
+        val rootNode = accessibilityService.rootInActiveWindow ?: return false
+        if (!containsAnrText(rootNode)) {
+            return false
+        }
+        val waitNode = findNodeByExactText(rootNode, "Wait")
+            ?: return false
+        val clickableWaitNode = findClickableSelfOrAncestor(waitNode) ?: waitNode
+        val clicked = clickableWaitNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        if (clicked) {
+            Log.d(TAG, "Tapped ANR 'Wait' button")
+            Thread.sleep(350)
+        } else {
+            Log.w(TAG, "Failed to tap ANR 'Wait' button")
+        }
+        return clicked
+    }
+
     fun executeAction(recommendedAction: JSONObject, minConfidence: Double = 0.7): Boolean {
         return try {
             val actionType = recommendedAction.getString("action_type")
@@ -46,10 +87,38 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 Log.w(TAG, "Action confidence too low ($confidenceScore < $minConfidence), skipping execution")
                 return false
             }
-            
+
+            // Keep ANR dialog from blocking action execution
+            handleAnrByClickingWait()
+
             // Add a small delay to ensure UI is stable
             Thread.sleep(500)
             
+            val firstAttempt = when (actionType.lowercase()) {
+                "click" -> performClick(recommendedAction)
+                "scroll" -> performScroll(recommendedAction)
+                "type" -> performType(recommendedAction)
+                "wait" -> {
+                    Thread.sleep(1500)
+                    true
+                }
+                "back", "press_back" -> accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                "swipe" -> performSwipe(recommendedAction)
+                "long_press" -> performLongPress(recommendedAction)
+                "double_tap" -> performDoubleTap(recommendedAction)
+                else -> {
+                    Log.w(TAG, "Unknown action type: $actionType")
+                    false
+                }
+            }
+            if (firstAttempt) {
+                return firstAttempt
+            }
+
+            if (!handleAnrByClickingWait()) {
+                return false
+            }
+            Thread.sleep(300)
             when (actionType.lowercase()) {
                 "click" -> performClick(recommendedAction)
                 "scroll" -> performScroll(recommendedAction)
@@ -79,6 +148,8 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         // Check if this is a search bar or ADD button - use appropriate method
         val actionTarget = recommendedAction.optString("action_target", "")
         val isSearchBar = actionTarget.contains("search", ignoreCase = true)
+        val isOpenCartAction = actionTarget.contains("cart", ignoreCase = true)
+            && (actionTarget.contains("view cart", ignoreCase = true) || actionTarget.contains("open cart", ignoreCase = true))
         val isAddButton = actionTarget.contains("ADD", ignoreCase = true) || actionTarget.contains("add", ignoreCase = true)
         
         // For search bars, try coordinate-based clicking FIRST (more reliable)
@@ -95,20 +166,75 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 }
             }
         }
+
+        if (isOpenCartAction) {
+            val coordinates = recommendedAction.optJSONObject("coordinates")
+            val openCartAttempts = 3
+            for (attempt in 1..openCartAttempts) {
+                Log.d(TAG, "Cart-opening action attempt $attempt/$openCartAttempts")
+                val openCartNode = findOpenCartNodeByText()
+                if (openCartNode) {
+                    Log.d(TAG, "Direct accessibility click successful for cart-opening action")
+                    return true
+                }
+
+                if (coordinates != null) {
+                    Log.d(TAG, "Cart-opening action detected - trying raw coordinate click")
+                    val rawSuccess = performRawCoordinateClick(recommendedAction)
+                    if (rawSuccess) {
+                        Log.d(TAG, "Raw coordinate click successful for cart-opening action")
+                        return true
+                    }
+                    Log.d(TAG, "Raw coordinate click failed for cart-opening action, trying scaled coordinate path")
+                    val success = performClickByCoordinates(recommendedAction)
+                    if (success) {
+                        Log.d(TAG, "Coordinate click successful for cart-opening action")
+                        return true
+                    }
+                    Log.d(TAG, "Coordinate click failed for cart-opening action")
+                }
+
+                if (attempt < openCartAttempts) {
+                    Thread.sleep(250)
+                }
+            }
+        }
         
         // For ADD buttons, use coordinate validation with retry logic
         if (isAddButton) {
             Log.d(TAG, "ADD button detected - using coordinate validation approach")
             val rootNode = accessibilityService.rootInActiveWindow
+            val hasCoordinates = recommendedAction.optJSONObject("coordinates") != null ||
+                recommendedAction.optJSONObject("fallback_coordinates") != null
+            if (hasCoordinates) {
+                val coordinateSuccess = performAddButtonClickWithValidation(recommendedAction)
+                if (coordinateSuccess) {
+                    return true
+                }
+                Log.w(TAG, "ADD coordinate validation failed; trying accessibility fallback")
+                if (rootNode != null && isVariantAddAction(recommendedAction)) {
+                    val modalAdd = findModalAddButtonElement(rootNode, recommendedAction)
+                    if (modalAdd != null) {
+                        Log.d(TAG, "Found modal ADD button via accessibility tree; clicking nearest match")
+                        val clicked = modalAdd.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        if (clicked) {
+                            return true
+                        }
+                        Log.w(TAG, "Modal ADD ACTION_CLICK failed; giving up after coordinate validation")
+                    }
+                }
+                return false
+            }
+
             if (rootNode != null && isVariantAddAction(recommendedAction)) {
-                val modalAdd = findModalAddButtonElement(rootNode)
+                val modalAdd = findModalAddButtonElement(rootNode, recommendedAction)
                 if (modalAdd != null) {
-                    Log.d(TAG, "Found modal ADD button via accessibility tree; clicking it directly")
+                    Log.d(TAG, "Found modal ADD button via accessibility tree; clicking nearest match")
                     val clicked = modalAdd.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                     if (clicked) {
                         return true
                     }
-                    Log.w(TAG, "Modal ADD ACTION_CLICK failed; falling back to coordinates")
+                    Log.w(TAG, "Modal ADD ACTION_CLICK failed; falling back to coordinate validation")
                 }
             }
             return performAddButtonClickWithValidation(recommendedAction)
@@ -178,6 +304,118 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         val typed = typeTextIntoFocusedField(textToType, waitForFocusMs = 1500)
         Log.d(TAG, "Search click follow-up type '$textToType' result: $typed")
         return true
+    }
+
+    private fun performRawCoordinateClick(recommendedAction: JSONObject): Boolean {
+        Log.d(TAG, "Attempting raw coordinate click")
+
+        val coordinates = recommendedAction.optJSONObject("coordinates") ?: return false
+        val x = coordinates.optInt("x", -1)
+        val y = coordinates.optInt("y", -1)
+        if (x < 0 || y < 0) {
+            return false
+        }
+
+        val path = android.graphics.Path().apply {
+            moveTo(x.toFloat(), y.toFloat())
+        }
+        val gesture = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(
+                android.accessibilityservice.GestureDescription.StrokeDescription(
+                    path,
+                    0,
+                    100
+                )
+            )
+            .build()
+
+        val success = accessibilityService.dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                Log.d(TAG, "Raw coordinate click gesture completed at ($x, $y)")
+            }
+
+            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                Log.w(TAG, "Raw coordinate click gesture cancelled at ($x, $y)")
+            }
+        }, null)
+
+        if (success) {
+            Log.d(TAG, "Raw coordinate click dispatched successfully at ($x, $y)")
+            return true
+        }
+
+        Log.w(TAG, "Raw coordinate click dispatch failed at ($x, $y)")
+        return false
+    }
+
+    private fun findOpenCartNodeByText(): Boolean {
+        val labels = listOf("View cart", "View Cart", "Go to cart", "View items in cart")
+        var bestNode: AccessibilityNodeInfo? = null
+        var bestY = Int.MIN_VALUE
+
+        val roots = mutableListOf<AccessibilityNodeInfo>()
+        accessibilityService.rootInActiveWindow?.let { roots.add(it) }
+        try {
+            accessibilityService.windows?.forEach { window ->
+                try {
+                    val windowRoot = window?.root
+                    if (windowRoot != null) {
+                        roots.add(windowRoot)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to read accessibility window root: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to enumerate accessibility windows: ${e.message}")
+        }
+
+        if (roots.isEmpty()) {
+            return false
+        }
+
+        fun traverse(node: AccessibilityNodeInfo) {
+            val text = node.text?.toString().orEmpty().lowercase()
+            val description = node.contentDescription?.toString().orEmpty().lowercase()
+            if (node.isVisibleToUser && node.isEnabled && labels.any { label ->
+                    text.contains(label.lowercase()) || description.contains(label.lowercase())
+                }) {
+                val bounds = Rect()
+                node.getBoundsInScreen(bounds)
+                val score = if (!bounds.isEmpty) bounds.centerY() else bounds.top
+                if (score > bestY) {
+                    bestY = score
+                    bestNode = node
+                }
+            }
+
+            for (i in 0 until node.childCount) {
+                try {
+                    val child = node.getChild(i) ?: continue
+                    traverse(child)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed traversing accessibility child node: ${e.message}")
+                }
+            }
+        }
+
+        roots.forEach { root ->
+            try {
+                traverse(root)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed traversing accessibility root: ${e.message}")
+            }
+        }
+
+        val targetNode = bestNode ?: return false
+        val clickableNode = findClickableSelfOrAncestor(targetNode) ?: targetNode
+        val clicked = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        if (clicked) {
+            Log.d(TAG, "Tapped direct View cart node at centerY=$bestY")
+        } else {
+            Log.w(TAG, "Failed to tap direct View cart node at centerY=$bestY")
+        }
+        return clicked
     }
     
     private fun performScroll(recommendedAction: JSONObject): Boolean {
@@ -976,7 +1214,36 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             reasoning.contains("variant") || reasoning.contains("bottom sheet")
     }
 
-    private fun findModalAddButtonElement(rootNode: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+    private fun getScaledActionPoint(recommendedAction: JSONObject): Pair<Int, Int>? {
+        val coordinates = recommendedAction.optJSONObject("coordinates")
+            ?: recommendedAction.optJSONObject("fallback_coordinates")
+            ?: return null
+
+        val originalX = coordinates.optInt("x", -1)
+        val originalY = coordinates.optInt("y", -1)
+        if (originalX < 0 || originalY < 0) {
+            return null
+        }
+
+        val (screenWidth, screenHeight) = ScreenMetrics.getScreenDimensions(accessibilityService)
+        val app = accessibilityService.application as? MyApplication
+        val (storedWidth, storedHeight) = app?.getLastScreenshotDimensions() ?: Pair(0, 0)
+        val screenshotWidth = if (storedWidth > 0) storedWidth else screenWidth
+        val screenshotHeight = if (storedHeight > 0) storedHeight else screenHeight
+
+        if (screenshotWidth <= 0 || screenshotHeight <= 0) {
+            return null
+        }
+
+        val scaleX = screenWidth.toFloat() / screenshotWidth.toFloat()
+        val scaleY = screenHeight.toFloat() / screenshotHeight.toFloat()
+        return Pair((originalX * scaleX).toInt(), (originalY * scaleY).toInt())
+    }
+
+    private fun findModalAddButtonElement(
+        rootNode: AccessibilityNodeInfo,
+        recommendedAction: JSONObject? = null
+    ): AccessibilityNodeInfo? {
         val modalRoot = findModalRoot(rootNode)
         if (modalRoot == null) {
             Log.d(TAG, "No modal root found for ADD lookup")
@@ -990,11 +1257,35 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             return null
         }
 
-        val selected = addNodes.sortedWith(compareBy<AccessibilityNodeInfo> {
-            Rect().also { rect -> it.getBoundsInScreen(rect) }.top
-        }.thenBy {
-            Rect().also { rect -> it.getBoundsInScreen(rect) }.left
-        }).lastOrNull()
+        val scaledPoint = recommendedAction?.let { getScaledActionPoint(it) }
+        val selected = if (scaledPoint != null) {
+            val (targetX, targetY) = scaledPoint
+            addNodes.minWithOrNull(
+                compareBy<AccessibilityNodeInfo> {
+                    val bounds = Rect()
+                    it.getBoundsInScreen(bounds)
+                    val centerX = (bounds.left + bounds.right) / 2
+                    val centerY = (bounds.top + bounds.bottom) / 2
+                    val dx = (centerX - targetX).toLong()
+                    val dy = (centerY - targetY).toLong()
+                    dx * dx + dy * dy
+                }.thenBy {
+                    val bounds = Rect()
+                    it.getBoundsInScreen(bounds)
+                    bounds.top
+                }.thenBy {
+                    val bounds = Rect()
+                    it.getBoundsInScreen(bounds)
+                    bounds.left
+                }
+            )
+        } else {
+            addNodes.sortedWith(compareBy<AccessibilityNodeInfo> {
+                Rect().also { rect -> it.getBoundsInScreen(rect) }.top
+            }.thenBy {
+                Rect().also { rect -> it.getBoundsInScreen(rect) }.left
+            }).lastOrNull()
+        }
 
         selected?.let {
             val bounds = Rect()

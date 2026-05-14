@@ -1,0 +1,44 @@
+{
+  "in_stock_common": [
+    "amul butter",
+    "apple",
+    "notebook",
+    "pencil"
+  ],
+  "in_stock_variant_heavy": [
+    "pepsi",
+    "lays",
+    "maggi"
+  ],
+  "out_of_stock_likely": [
+    "raw mango (off-season)",
+    "fresh ber"
+  ],
+  "weight_packed": [
+    {
+      "query": "bhindi",
+      "common_packs_g": [
+        200,
+        250,
+        500
+      ]
+    },
+    {
+      "query": "tomato",
+      "common_packs_g": [
+        500,
+        1000
+      ]
+    }
+  ],
+  "count_packed": [
+    {
+      "query": "apple",
+      "common_pack_count": 4
+    },
+    {
+      "query": "egg",
+      "common_pack_count": 6
+    }
+  ]
+}
