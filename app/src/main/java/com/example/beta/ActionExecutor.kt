@@ -12,6 +12,12 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     companion object {
         private const val TAG = "ActionExecutor"
     }
+
+    private data class TapAdjustment(
+        val x: Int,
+        val y: Int,
+        val overlayDeflection: Int
+    )
     
     private fun hasRequiredPermissions(): Boolean {
         val serviceInfo = accessibilityService.serviceInfo
@@ -298,12 +304,25 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         val actionTarget = recommendedAction.optString("action_target", "")
         if (!actionTarget.contains("search", ignoreCase = true)) return true
 
+        if (!waitForSearchFieldFocus(500)) {
+            Log.d(TAG, "Search field not focused after click; attempting accessibility fallback")
+            if (!focusSearchFieldForTyping(recommendedAction)) {
+                Log.w(TAG, "Search field focus fallback failed after click")
+                return false
+            }
+        }
+
         val textToType = recommendedAction.optString("text_to_type", "")
         if (textToType.isBlank()) return true
 
-        val typed = typeTextIntoFocusedField(textToType, waitForFocusMs = 1500)
+        val typed = typeTextIntoFocusedField(
+            textToType,
+            waitForFocusMs = 1500,
+            submitIme = false,
+            dismissKeyboard = false
+        )
         Log.d(TAG, "Search click follow-up type '$textToType' result: $typed")
-        return true
+        return typed
     }
 
     private fun performRawCoordinateClick(recommendedAction: JSONObject): Boolean {
@@ -573,14 +592,25 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             return false
         }
 
-        val focusedTyped = typeTextIntoFocusedField(textToType, waitForFocusMs = 700)
+        val keepSearchOpen = shouldKeepSearchInputOpen(recommendedAction)
+        val focusedTyped = typeTextIntoFocusedField(
+            textToType,
+            waitForFocusMs = 700,
+            submitIme = !keepSearchOpen,
+            dismissKeyboard = !keepSearchOpen
+        )
         if (focusedTyped) {
             Log.d(TAG, "Type action used already focused editable field")
             return true
         }
 
         if (focusSearchFieldForTyping(recommendedAction)) {
-            val typed = typeTextIntoFocusedField(textToType, waitForFocusMs = 2500)
+            val typed = typeTextIntoFocusedField(
+                textToType,
+                waitForFocusMs = 2500,
+                submitIme = !keepSearchOpen,
+                dismissKeyboard = !keepSearchOpen
+            )
             Log.d(TAG, "Type action text entry after search field focus result: $typed")
             if (typed) return true
         }
@@ -589,7 +619,12 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         val editableNode = if (rootNode != null) findFirstEditable(rootNode) else null
         if (editableNode != null) {
             editableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-            val typed = typeTextIntoFocusedField(textToType, waitForFocusMs = 1200)
+            val typed = typeTextIntoFocusedField(
+                textToType,
+                waitForFocusMs = 1200,
+                submitIme = !keepSearchOpen,
+                dismissKeyboard = !keepSearchOpen
+            )
             Log.d(TAG, "Type action text entry via editable node result: $typed")
             if (typed) return true
         }
@@ -598,7 +633,12 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         if (targetNode != null) {
             targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-            val typed = typeTextIntoFocusedField(textToType, waitForFocusMs = 1800)
+            val typed = typeTextIntoFocusedField(
+                textToType,
+                waitForFocusMs = 1800,
+                submitIme = !keepSearchOpen,
+                dismissKeyboard = !keepSearchOpen
+            )
             Log.d(TAG, "Type action text entry after target focus result: $typed")
             return typed
         }
@@ -616,8 +656,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 val clicked = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 Log.d(TAG, "Focused Blinkit search field via accessibility node result: $clicked")
                 if (clicked) {
-                    Thread.sleep(700)
-                    return true
+                    return waitForSearchFieldFocus(700)
                 }
             }
 
@@ -626,8 +665,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 val clicked = targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 Log.d(TAG, "Focused search field via target node result: $clicked")
                 if (clicked) {
-                    Thread.sleep(700)
-                    return true
+                    return waitForSearchFieldFocus(700)
                 }
             }
 
@@ -684,7 +722,27 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
     }
 
-    fun typeTextIntoFocusedField(text: String, waitForFocusMs: Long = 0): Boolean {
+    private fun shouldKeepSearchInputOpen(recommendedAction: JSONObject): Boolean {
+        val actionTarget = recommendedAction.optString("action_target", "")
+        if (actionTarget.contains("search", ignoreCase = true)) return true
+
+        val selector = recommendedAction.optJSONObject("element_selector")
+        val className = selector?.optString("class_name", "").orEmpty()
+        val resourceId = selector?.optString("resource_id", "").orEmpty()
+        val text = selector?.optString("text", "").orEmpty()
+        val contentDescription = selector?.optString("content_description", "").orEmpty()
+        return className.contains("EditText", ignoreCase = true) ||
+            resourceId.contains("search", ignoreCase = true) ||
+            text.contains("search", ignoreCase = true) ||
+            contentDescription.contains("search", ignoreCase = true)
+    }
+
+    fun typeTextIntoFocusedField(
+        text: String,
+        waitForFocusMs: Long = 0,
+        submitIme: Boolean = true,
+        dismissKeyboard: Boolean = true
+    ): Boolean {
         return try {
             val focusedNode = waitForFocusedEditable(waitForFocusMs) ?: run {
                 Log.w(TAG, "No focused editable field found within ${waitForFocusMs}ms")
@@ -696,8 +754,15 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             val success = focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
             Log.d(TAG, "Type text into focused field result: $success")
             if (success) {
-                submitImeEnter(focusedNode)
-                dismissKeyboardIfStillFocused(text)
+                if (submitIme) {
+                    submitImeEnter(focusedNode)
+                }
+                if (dismissKeyboard) {
+                    dismissKeyboardIfStillFocused(text)
+                } else {
+                    Log.d(TAG, "Keeping focused input open after text entry")
+                    Thread.sleep(500)
+                }
             }
             success
         } catch (e: Exception) {
@@ -809,6 +874,86 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             current = current.parent
         }
         return null
+    }
+
+    private fun waitForSearchFieldFocus(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        do {
+            val rootNode = accessibilityService.rootInActiveWindow
+            if (rootNode != null && hasFocusedSearchField(rootNode)) {
+                return true
+            }
+            if (timeoutMs <= 0) {
+                break
+            }
+            Thread.sleep(100)
+        } while (System.currentTimeMillis() < deadline)
+        return false
+    }
+
+    private fun hasFocusedSearchField(node: AccessibilityNodeInfo): Boolean {
+        if (findFocusedEditable(node) != null) {
+            return true
+        }
+        return findFocusedSearchNode(node) != null
+    }
+
+    private fun findFocusedSearchNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if ((node.isFocused || node.isAccessibilityFocused) && isSearchFieldCandidate(node)) {
+            return node
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findFocusedSearchNode(child)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun isSearchFieldCandidate(node: AccessibilityNodeInfo): Boolean {
+        val resourceId = node.viewIdResourceName.orEmpty()
+        val text = node.text?.toString().orEmpty()
+        val description = node.contentDescription?.toString().orEmpty()
+        val hint = node.hintText?.toString().orEmpty()
+        val className = node.className?.toString().orEmpty()
+        return node.isEditable ||
+            className.contains("EditText", ignoreCase = true) ||
+            resourceId.contains("search", ignoreCase = true) ||
+            text.contains("search", ignoreCase = true) ||
+            description.contains("search", ignoreCase = true) ||
+            hint.contains("search", ignoreCase = true) ||
+            description.contains("what", ignoreCase = true)
+    }
+
+    private fun getOverlayDeflectionAdjustment(x: Int, y: Int): TapAdjustment {
+        var adjustedX = x
+        var adjustedY = y
+        var overlayDeflection = 0
+        try {
+            val app = accessibilityService.application as? MyApplication
+            val screenService = app?.getScreenCaptureService()
+            val overlayRect = screenService?.getOverlayRect()
+            if (overlayRect != null && !overlayRect.isEmpty) {
+                val density = accessibilityService.resources.displayMetrics.density
+                val pad = (24 * density).toInt()
+                val inflated = Rect(
+                    overlayRect.left - pad,
+                    overlayRect.top - pad,
+                    overlayRect.right + pad,
+                    overlayRect.bottom + pad
+                )
+                if (inflated.contains(adjustedX, adjustedY)) {
+                    overlayDeflection = overlayRect.height() + 24
+                    adjustedY += overlayDeflection
+                    Log.d(TAG, "Deflected tap from ($adjustedX, ${adjustedY - overlayDeflection}) to ($adjustedX, $adjustedY) to avoid overlay")
+                    DebugLogger.logDebug(TAG, "Overlay deflection applied: +$overlayDeflection px")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Overlay deflection check failed: ${e.message}")
+        }
+        return TapAdjustment(adjustedX, adjustedY, overlayDeflection)
     }
     
     private fun findTargetElement(recommendedAction: JSONObject): AccessibilityNodeInfo? {
@@ -1447,7 +1592,6 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             var y = (originalY * scaleY).toInt()
             
             val statusBarAdjustment = 0  // No additional status bar adjustment needed
-            var overlayDeflection = 0
             val buttonCenterAdjustment = 0  // No additional button adjustment needed
             
             Log.i(TAG, "SCALING CORRECTION APPLIED:")
@@ -1464,32 +1608,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 return false
             }
 
-            // Deflect taps if inside overlay rectangle (with padding)
-            try {
-                val app = accessibilityService.application as? MyApplication
-                val screenService = app?.getScreenCaptureService()
-                val overlayRect = screenService?.getOverlayRect()
-                if (overlayRect != null && !overlayRect.isEmpty) {
-                    // Inflate by padding (e.g., 24dp on all sides)
-                    val density = accessibilityService.resources.displayMetrics.density
-                    val pad = (24 * density).toInt()
-                    val inflated = Rect(
-                        overlayRect.left - pad,
-                        overlayRect.top - pad,
-                        overlayRect.right + pad,
-                        overlayRect.bottom + pad
-                    )
-                    if (inflated.contains(x, y)) {
-                        // Deflect downward by overlay height + 24px
-                        overlayDeflection = overlayRect.height() + 24
-                        y += overlayDeflection
-                        Log.d(TAG, "Deflected tap from ($x, ${y - overlayDeflection}) to ($x, $y) to avoid overlay")
-                        DebugLogger.logDebug(TAG, "Overlay deflection applied: +$overlayDeflection px")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Overlay deflection check failed: ${e.message}")
-            }
+            val overlayAdjustment = getOverlayDeflectionAdjustment(x, y)
+            x = overlayAdjustment.x
+            y = overlayAdjustment.y
+            val overlayDeflection = overlayAdjustment.overlayDeflection
             
             Log.d(TAG, "Clicking at scaled coordinates: ($x, $y) [Original: ($originalX, $originalY), Scaling: ${String.format("%.3f", scaleY)}x]")
             
@@ -1723,7 +1845,6 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             var y = (originalY * scaleY).toInt()
             
             val statusBarAdjustment = 0  // No additional status bar adjustment needed
-            var overlayDeflection = 0
             val buttonCenterAdjustment = 0  // No additional button adjustment needed
             
             Log.i(TAG, "SCALING CORRECTION APPLIED:")
@@ -1740,32 +1861,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 return false
             }
 
-            // Deflect taps if inside overlay rectangle (with padding)
-            try {
-                val app = accessibilityService.application as? MyApplication
-                val screenService = app?.getScreenCaptureService()
-                val overlayRect = screenService?.getOverlayRect()
-                if (overlayRect != null && !overlayRect.isEmpty) {
-                    // Inflate by padding (e.g., 24dp on all sides)
-                    val density = accessibilityService.resources.displayMetrics.density
-                    val pad = (24 * density).toInt()
-                    val inflated = Rect(
-                        overlayRect.left - pad,
-                        overlayRect.top - pad,
-                        overlayRect.right + pad,
-                        overlayRect.bottom + pad
-                    )
-                    if (inflated.contains(x, y)) {
-                        // Deflect downward by overlay height + 24px
-                        overlayDeflection = overlayRect.height() + 24
-                        y += overlayDeflection
-                        Log.d(TAG, "Deflected tap from ($x, ${y - overlayDeflection}) to ($x, $y) to avoid overlay")
-                        DebugLogger.logDebug(TAG, "Overlay deflection applied: +$overlayDeflection px")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Overlay deflection check failed: ${e.message}")
-            }
+            val overlayAdjustment = getOverlayDeflectionAdjustment(x, y)
+            x = overlayAdjustment.x
+            y = overlayAdjustment.y
+            val overlayDeflection = overlayAdjustment.overlayDeflection
             
             Log.d(TAG, "Clicking at scaled coordinates: ($x, $y) [Original: ($originalX, $originalY), Scaling: ${String.format("%.3f", scaleY)}x]")
             

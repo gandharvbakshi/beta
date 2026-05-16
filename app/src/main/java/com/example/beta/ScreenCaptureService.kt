@@ -27,6 +27,7 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.example.beta.automation.InstructionParser
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
@@ -851,31 +852,81 @@ class ScreenCaptureService : Service() {
         }
     }
 
+    private fun buildOverlayBounds(left: Int, top: Int, width: Int, height: Int, padding: Int): android.graphics.Rect {
+        return android.graphics.Rect(
+            maxOf(0, left - padding),
+            maxOf(0, top - padding),
+            left + width + padding,
+            top + height + padding
+        )
+    }
+
+    private fun getOverlayBoundsFromViewLocation(padding: Int): android.graphics.Rect? {
+        return try {
+            if (::overlayView.isInitialized) {
+                val width = overlayView.width
+                val height = overlayView.height
+                if (width <= 0 || height <= 0) {
+                    return null
+                }
+
+                val location = IntArray(2)
+                overlayView.getLocationOnScreen(location)
+                val bounds = buildOverlayBounds(location[0], location[1], width, height, padding)
+                Log.d("ScreenCaptureService", "Emulator overlay bounds from actual location: $bounds (pos: ${location[0]},${location[1]} size: ${width}x${height})")
+                bounds
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.w("ScreenCaptureService", "Actual overlay location unavailable: ${e.message}")
+            null
+        }
+    }
+
+    private fun resolveOverlayLeftFromLayoutParams(): Int {
+        val screenWidth = resources.displayMetrics.widthPixels
+        val absoluteGravity = Gravity.getAbsoluteGravity(layoutParams.gravity, overlayView.layoutDirection)
+        return when (absoluteGravity and Gravity.HORIZONTAL_GRAVITY_MASK) {
+            Gravity.RIGHT -> maxOf(0, screenWidth - layoutParams.x - overlayView.width)
+            Gravity.CENTER_HORIZONTAL -> maxOf(0, ((screenWidth - overlayView.width) / 2) + layoutParams.x)
+            else -> maxOf(0, layoutParams.x)
+        }
+    }
+
+    private fun getOverlayBoundsFromLayoutParams(padding: Int): android.graphics.Rect? {
+        return try {
+            if (::overlayView.isInitialized && ::layoutParams.isInitialized) {
+                val width = overlayView.width
+                val height = overlayView.height
+                if (width <= 0 || height <= 0) {
+                    return null
+                }
+
+                val left = resolveOverlayLeftFromLayoutParams()
+                val top = layoutParams.y
+                val bounds = buildOverlayBounds(left, top, width, height, padding)
+                Log.d("ScreenCaptureService", "Emulator overlay bounds from gravity fallback: $bounds (gravity: ${layoutParams.gravity}, pos: ${layoutParams.x},${layoutParams.y} size: ${width}x${height})")
+                bounds
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.w("ScreenCaptureService", "Gravity-aware overlay bounds unavailable: ${e.message}")
+            null
+        }
+    }
+
     // Emulator-specific overlay bounds calculation
     private fun getEmulatorOverlayBounds(): android.graphics.Rect? {
         return try {
-            if (::overlayView.isInitialized && ::layoutParams.isInitialized) {
-                // Use simpler bounds calculation for emulator
-                val x = layoutParams.x
-                val y = layoutParams.y
-                val width = overlayView.width
-                val height = overlayView.height
-                
-                // Add minimal padding for emulator
-                val padding = 20
-                val bounds = android.graphics.Rect(
-                    maxOf(0, x - padding),
-                    maxOf(0, y - padding),
-                    x + width + padding,
-                    y + height + padding
-                )
-                
-                Log.d("ScreenCaptureService", "Emulator overlay bounds calculated: $bounds (pos: $x,$y size: ${width}x${height})")
-                bounds
-            } else {
-                Log.d("ScreenCaptureService", "Emulator overlay not initialized, no bounds available")
-                null
-            }
+            val padding = 16
+            getOverlayBoundsFromViewLocation(padding)
+                ?: getOverlayBoundsFromLayoutParams(padding)
+                ?: run {
+                    Log.d("ScreenCaptureService", "Emulator overlay not initialized, no bounds available")
+                    null
+                }
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error getting emulator overlay bounds: ${e.message}", e)
             null
@@ -1348,20 +1399,42 @@ class ScreenCaptureService : Service() {
                 }
             }
             
-            // Create submit button
+            // Create close and submit buttons
+            val closeButton = TextView(this).apply {
+                text = "Close"
+                contentDescription = "Close input overlay"
+                setTextColor(android.graphics.Color.WHITE)
+                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.btn_default)
+                gravity = Gravity.CENTER
+                maxLines = 1
+                setPadding(12, 0, 12, 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    0,
+                    72,
+                    1f
+                ).apply {
+                    rightMargin = 12
+                }
+
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    hideInputOverlay()
+                }
+            }
+
             val submitButton = TextView(this).apply {
                 text = "Submit"
                 setTextColor(android.graphics.Color.WHITE)
                 background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.btn_default)
                 gravity = Gravity.CENTER
-                setPadding(40, 20, 40, 20)
+                maxLines = 1
+                setPadding(12, 0, 12, 0)
                 layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    gravity = Gravity.CENTER
-                    topMargin = 20
-                }
+                    0,
+                    72,
+                    1f
+                )
                 
                 // Make button clickable
                 isClickable = true
@@ -1370,10 +1443,23 @@ class ScreenCaptureService : Service() {
                     submitInstruction(inputOverlay.text.toString().trim())
                 }
             }
+
+            val buttonRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = 20
+                }
+            }
+            buttonRow.addView(closeButton)
+            buttonRow.addView(submitButton)
             
             // Add input and button to container
             containerLayout.addView(inputOverlay)
-            containerLayout.addView(submitButton)
+            containerLayout.addView(buttonRow)
             
             // Store reference to input overlay and its params
             inputOverlayView = containerLayout
@@ -1441,6 +1527,10 @@ class ScreenCaptureService : Service() {
         retryAttempts = 0
         consecutiveFailures = 0
         Log.d("ScreenCaptureService", "🚀 Starting new session: ${currentSession?.sessionId}")
+    }
+
+    fun startNewAutomationSessionForSequenceItem() {
+        startNewSession()
     }
     
     // End current session (can be called from BackendProcessing)
@@ -1551,20 +1641,42 @@ class ScreenCaptureService : Service() {
                 }
             }
             
-            // Create submit button
+            // Create close and submit buttons
+            val closeButton = TextView(this).apply {
+                text = "Close"
+                contentDescription = "Close input overlay"
+                setTextColor(android.graphics.Color.WHITE)
+                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.btn_default)
+                gravity = Gravity.CENTER
+                maxLines = 1
+                setPadding(12, 0, 12, 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    0,
+                    72,
+                    1f
+                ).apply {
+                    rightMargin = 12
+                }
+
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    hideInputOverlay()
+                }
+            }
+
             val submitButton = TextView(this).apply {
                 text = "Submit"
                 setTextColor(android.graphics.Color.WHITE)
                 background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.btn_default)
                 gravity = Gravity.CENTER
-                setPadding(40, 20, 40, 20)
+                maxLines = 1
+                setPadding(12, 0, 12, 0)
                 layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    gravity = Gravity.CENTER
-                    topMargin = 20
-                }
+                    0,
+                    72,
+                    1f
+                )
                 
                 // Make button clickable
                 isClickable = true
@@ -1573,10 +1685,23 @@ class ScreenCaptureService : Service() {
                     submitInstruction(inputOverlay.text.toString().trim())
                 }
             }
+
+            val buttonRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = 20
+                }
+            }
+            buttonRow.addView(closeButton)
+            buttonRow.addView(submitButton)
             
             // Add input and button to container
             containerLayout.addView(inputOverlay)
-            containerLayout.addView(submitButton)
+            containerLayout.addView(buttonRow)
             
             // Store reference to input overlay and its params
             inputOverlayView = containerLayout
@@ -1623,8 +1748,15 @@ class ScreenCaptureService : Service() {
             if (currentSession == null) {
                 startNewSession()
             }
-            currentInputText = inputText
-            originalInputText = inputText
+            val parsedItems = InstructionParser.parse(inputText)
+            val isMultiItemInstruction = parsedItems.size > 1
+            val activeInputText = if (isMultiItemInstruction) {
+                parsedItems.first().query
+            } else {
+                inputText
+            }
+            currentInputText = activeInputText
+            originalInputText = activeInputText
             isActionSequenceActive = true
             
             // Capture tree data first before starting sequence
@@ -1645,10 +1777,17 @@ class ScreenCaptureService : Service() {
                     currentAppName = appName
                     
                     Log.d("ScreenCaptureService", "📤 CAPTURED DATA - Tree length: ${treeData.length}, App: $appName")
-                    Log.i("BetaAgent", "BLINKIT_SEARCH_STARTED: $inputText")
+                    if (isMultiItemInstruction) {
+                        Log.i("BetaAgent", "PARSED: ${parsedItems.joinToString(",") { it.query }}")
+                    }
+                    Log.i("BetaAgent", "BLINKIT_SEARCH_STARTED: $activeInputText")
                     
                     // Start the action sequence with captured data
-                    BackendProcessing.startActionSequence(this, inputText, accessibilityService)
+                    if (isMultiItemInstruction) {
+                        BackendProcessing.startMultiItemSequence(this, parsedItems, accessibilityService)
+                    } else {
+                        BackendProcessing.startActionSequence(this, activeInputText, accessibilityService)
+                    }
                     
                     // Hide input overlay
                     if (isEmulator()) {
@@ -1733,6 +1872,7 @@ class ScreenCaptureService : Service() {
         
         // Store the original input for this sequence
         originalInputText = originalInput
+        currentInputText = originalInput
         isActionSequenceActive = true
         
         // Update overlay to show current action
@@ -1831,6 +1971,8 @@ class ScreenCaptureService : Service() {
                 hideEmulatorInputOverlay()
             } else {
                 inputOverlayView?.let { overlay ->
+                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.hideSoftInputFromWindow(overlay.windowToken, 0)
                     windowManager.removeView(overlay)
                     inputOverlayView = null
                     Log.d("ScreenCaptureService", "Input overlay hidden")
@@ -2449,6 +2591,8 @@ class ScreenCaptureService : Service() {
     private fun hideEmulatorInputOverlay() {
         try {
             inputOverlayView?.let { overlay ->
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.hideSoftInputFromWindow(overlay.windowToken, 0)
                 windowManager.removeView(overlay)
                 inputOverlayView = null
                 Log.d("ScreenCaptureService", "Emulator input overlay hidden")

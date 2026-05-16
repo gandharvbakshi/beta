@@ -31,6 +31,7 @@ import android.graphics.Rect
 import android.os.Build
 import android.util.DisplayMetrics
 import android.view.WindowManager
+import com.example.beta.automation.ParsedItem
 
 object BackendProcessing {
     private const val TAG = "BetaAgent"
@@ -58,6 +59,13 @@ object BackendProcessing {
     private var sequenceContext: Context? = null
     private var emptyBlinkitTreeRetries: Int = 0
     private var hasEmittedItemOutcome = false
+    private var multiItemSequenceActive = false
+    private var multiItemSequenceStartedAtMs: Long = 0L
+    private var multiItemSequenceAccessibilityService: MyAccessibilityService? = null
+    private var multiItemSequenceItems: List<ParsedItem> = emptyList()
+    private var multiItemSequenceIndex: Int = 0
+    private var multiItemSequenceAwaitingNext = false
+    private val multiItemSequenceOutcomes = mutableListOf<ItemOutcome>()
     
     // Historical context tracking
     private val actionHistory = mutableListOf<JSONObject>()
@@ -86,6 +94,16 @@ object BackendProcessing {
         (context.applicationContext as? MyApplication)
             ?.getScreenCaptureService()
             ?.updateSessionStatus(status)
+    }
+
+    private fun endScreenCaptureSession(context: Context, reason: String) {
+        if (multiItemSequenceActive) {
+            Log.d(TAG, "Keeping screen capture session active during multi-item sequence: $reason")
+            return
+        }
+        (context.applicationContext as? MyApplication)
+            ?.getScreenCaptureService()
+            ?.endSession(reason)
     }
 
     private fun statusForAction(actionType: String, actionTarget: String, step: Int, max: Int): String {
@@ -180,6 +198,10 @@ object BackendProcessing {
         Log.i(TAG, formatItemResultLine(itemOutcome))
         updateFlowStatus(context, formatItemResultStateLine(itemOutcome.item, status))
 
+        if (handleMultiItemOutcome(context, itemOutcome)) {
+            return
+        }
+
         val failures = if (status == ItemOutcomeStatus.SUCCESS) {
             emptyList()
         } else {
@@ -193,6 +215,146 @@ object BackendProcessing {
         )
         Log.i(TAG, orderOutcome.orderDoneLine())
         updateFlowStatus(context, formatOrderDoneStateLine())
+    }
+
+    private fun handleMultiItemOutcome(context: Context, itemOutcome: ItemOutcome): Boolean {
+        if (!multiItemSequenceActive) return false
+
+        multiItemSequenceOutcomes.add(itemOutcome)
+        val totalItems = multiItemSequenceItems.size
+        val nextIndex = multiItemSequenceIndex + 1
+        val elapsedMs = System.currentTimeMillis() - multiItemSequenceStartedAtMs
+
+        if (elapsedMs >= TimeUnit.MINUTES.toMillis(10)) {
+            Log.w(TAG, "Multi-item sequence timed out after 10 minutes")
+            finishMultiItemSequence(context, timedOut = true)
+            return true
+        }
+
+        if (nextIndex >= totalItems) {
+            finishMultiItemSequence(context, timedOut = false)
+            return true
+        }
+
+        multiItemSequenceIndex = nextIndex
+        val nextItem = multiItemSequenceItems[nextIndex]
+        updateFlowStatus(context, "Preparing next item (${nextIndex + 1}/$totalItems)")
+        multiItemSequenceAwaitingNext = true
+
+        Thread {
+            try {
+                performMultiItemCleanup()
+                Thread.sleep(1000)
+                if (!multiItemSequenceActive) return@Thread
+                (context.applicationContext as? MyApplication)
+                    ?.getScreenCaptureService()
+                    ?.startNewAutomationSessionForSequenceItem()
+                startActionSequence(context, nextItem.query, multiItemSequenceAccessibilityService)
+                multiItemSequenceAwaitingNext = false
+                val nextIntent = Intent("com.example.beta.TRIGGER_NEXT_ACTION").apply {
+                    putExtra("original_input", nextItem.query)
+                    putExtra("action_number", 1)
+                }
+                LocalBroadcastManager.getInstance(context).sendBroadcast(nextIntent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to advance multi-item sequence: ${e.message}", e)
+                finishMultiItemSequence(context, timedOut = true)
+            }
+        }.start()
+
+        return true
+    }
+
+    private fun performMultiItemCleanup() {
+        val service = multiItemSequenceAccessibilityService ?: return
+        try {
+            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+        } catch (e: Exception) {
+            Log.w(TAG, "Multi-item cleanup back navigation failed: ${e.message}")
+        }
+    }
+
+    private fun resetMultiItemSequenceState() {
+        multiItemSequenceActive = false
+        multiItemSequenceStartedAtMs = 0L
+        multiItemSequenceAccessibilityService = null
+        multiItemSequenceItems = emptyList()
+        multiItemSequenceIndex = 0
+        multiItemSequenceAwaitingNext = false
+        multiItemSequenceOutcomes.clear()
+    }
+
+    private fun finishMultiItemSequence(context: Context, timedOut: Boolean) {
+        if (!multiItemSequenceActive) return
+
+        val totalItems = multiItemSequenceItems.size
+        val succeeded = multiItemSequenceOutcomes.count { it.status == ItemOutcomeStatus.SUCCESS }
+        val failures = mutableListOf<OrderFailure>()
+        multiItemSequenceOutcomes.forEach { outcome ->
+            if (outcome.status != ItemOutcomeStatus.SUCCESS) {
+                failures.add(OrderFailure(item = outcome.item, reason = outcome.status))
+            }
+        }
+        if (timedOut && multiItemSequenceOutcomes.size < totalItems) {
+            multiItemSequenceItems.drop(multiItemSequenceOutcomes.size).forEach { pendingItem ->
+                failures.add(
+                    OrderFailure(
+                        item = normalizeOrderOutcomeItem(pendingItem.rawText),
+                        reason = ItemOutcomeStatus.TIMEOUT
+                    )
+                )
+            }
+        }
+
+        val orderOutcome = OrderOutcomeSummary(
+            itemsTotal = totalItems,
+            itemsSucceeded = succeeded,
+            itemsFailed = totalItems - succeeded,
+            failures = failures
+        )
+        Log.i(TAG, orderOutcome.orderDoneLine())
+        updateFlowStatus(context, formatOrderDoneStateLine())
+
+        resetMultiItemSequenceState()
+    }
+
+    fun startMultiItemSequence(
+        context: Context,
+        parsedItems: List<ParsedItem>,
+        accessibilityService: MyAccessibilityService? = null
+    ) {
+        val validItems = parsedItems.filter { it.query.isNotBlank() }
+        if (validItems.isEmpty()) {
+            Log.w(TAG, "startMultiItemSequence called with no parsed items")
+            return
+        }
+
+        if (validItems.size == 1) {
+            startActionSequence(context, validItems.first().query, accessibilityService)
+            return
+        }
+
+        multiItemSequenceActive = true
+        multiItemSequenceStartedAtMs = System.currentTimeMillis()
+        multiItemSequenceAccessibilityService = accessibilityService
+        multiItemSequenceItems = validItems
+        multiItemSequenceIndex = 0
+        multiItemSequenceOutcomes.clear()
+        multiItemSequenceAwaitingNext = false
+
+        Log.i(TAG, "MULTI_ORDER_STARTED items_total=${validItems.size} items=\"${validItems.joinToString(";") { it.query }}\"")
+        updateFlowStatus(context, "STATE: MULTI_ORDER_STARTED\nITEM 1/${validItems.size}: ${validItems.first().query}")
+        startActionSequence(context, validItems.first().query, accessibilityService)
+
+        val sequenceStartedAt = multiItemSequenceStartedAtMs
+        Thread {
+            Thread.sleep(TimeUnit.MINUTES.toMillis(10))
+            if (multiItemSequenceActive && multiItemSequenceStartedAtMs == sequenceStartedAt) {
+                Log.w(TAG, "Multi-item sequence reached 10-minute cap")
+                finishMultiItemSequence(context, timedOut = true)
+                stopActionSequence()
+            }
+        }.start()
     }
 
     private fun provideOkHttpClient(): OkHttpClient {
@@ -255,6 +417,7 @@ object BackendProcessing {
     
     fun stopActionSequence() {
         // Log.d("BackendProcessing", "Stopping action sequence")
+        val preserveMultiSequence = multiItemSequenceActive && multiItemSequenceAwaitingNext
         isActionSequenceActive = false
         requestInFlight = false
         currentActionNumber = 0
@@ -262,6 +425,9 @@ object BackendProcessing {
         sequenceContext = null
         emptyBlinkitTreeRetries = 0
         hasEmittedItemOutcome = false
+        if (!preserveMultiSequence) {
+            resetMultiItemSequenceState()
+        }
     }
     
     fun isSequenceActive(): Boolean {
@@ -579,7 +745,7 @@ object BackendProcessing {
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     android.widget.Toast.makeText(context, userMessage, android.widget.Toast.LENGTH_LONG).show()
                                 }
-                                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession(userMessage)
+                                endScreenCaptureSession(context, userMessage)
                                 requestInFlight = false
                                 stopActionSequence()
                                 return@let
@@ -604,7 +770,7 @@ object BackendProcessing {
                                     ctx.lastActionResult = confirmationResult
                                     ctx.actionHistory.add(confirmationResult.toJson())
                                 }
-                                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Awaiting confirmation")
+                                endScreenCaptureSession(context, "Awaiting confirmation")
                                 requestInFlight = false
                                 stopActionSequence()
                                 return@let
@@ -628,7 +794,7 @@ object BackendProcessing {
                                     qtyAdded = 1,
                                     notes = completedNotes
                                 )
-                                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Completed")
+                                endScreenCaptureSession(context, "Completed")
                                 requestInFlight = false
                                 return@let
                             }
@@ -641,7 +807,7 @@ object BackendProcessing {
                                     status = terminalStatus,
                                     notes = noteForTerminalReason(terminalStatus, "session_error")
                                 )
-                                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Error state")
+                                endScreenCaptureSession(context, "Error state")
                                 requestInFlight = false
                                 return@let
                             }
@@ -653,7 +819,7 @@ object BackendProcessing {
                                     status = ItemOutcomeStatus.MISCLICK,
                                     notes = "summary_and_edit"
                                 )
-                                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Summary and edit")
+                                endScreenCaptureSession(context, "Summary and edit")
                                 requestInFlight = false
                                     return@let
                                 }
@@ -780,7 +946,7 @@ object BackendProcessing {
                                             notes = "checkout_boundary"
                                         )
                                         requestInFlight = false
-                                        (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Checkout boundary")
+                                        endScreenCaptureSession(context, "Checkout boundary")
                                         stopActionSequence()
                                         hasEmittedItemOutcome = true
                                         return@onResponse
@@ -889,16 +1055,42 @@ object BackendProcessing {
                                             val isTypeAction = actionType.equals("type", ignoreCase = true)
                                             val isScrollAction = actionType.equals("scroll", ignoreCase = true) ||
                                                 actionType.equals("swipe", ignoreCase = true)
-                                            val isAddAction = actionTarget.contains("add", ignoreCase = true)
+                                            val isAddAction = actionTarget.contains("add", ignoreCase = true) ||
+                                                text.equals("ADD", ignoreCase = true) ||
+                                                contentDescription.contains("add", ignoreCase = true)
                                             val isViewCartAction = actionTarget.contains("view cart", ignoreCase = true) ||
-                                                actionTarget.contains("cart", ignoreCase = true)
+                                                actionTarget.contains("cart", ignoreCase = true) ||
+                                                text.contains("view cart", ignoreCase = true) ||
+                                                contentDescription.contains("view cart", ignoreCase = true)
+                                            val noteContext = listOf(
+                                                actionId,
+                                                actionTarget,
+                                                text,
+                                                resourceId,
+                                                contentDescription,
+                                                hierarchyPath
+                                            ).joinToString(" ")
+                                            val isProductOpenAction = listOf(
+                                                "open product",
+                                                "open_product",
+                                                "product_open",
+                                                "product page",
+                                                "product details",
+                                                "product card",
+                                                "product tile",
+                                                "product item",
+                                                "product result",
+                                                "click product",
+                                                "select product"
+                                            ).any { noteContext.contains(it, ignoreCase = true) }
                                             
                                             val notes = when {
                                                 actionSuccess && isTypeAction -> "search_query_typed"
-                                                actionSuccess && isSearchAction -> "search_field_clicked"
-                                                actionSuccess && isScrollAction -> "results_scrolled"
                                                 actionSuccess && isAddAction -> "add_clicked"
                                                 actionSuccess && isViewCartAction -> "view_cart_clicked"
+                                                actionSuccess && isProductOpenAction -> "product_open_clicked"
+                                                actionSuccess && isSearchAction -> "search_field_clicked"
+                                                actionSuccess && isScrollAction -> "results_scrolled"
                                                 actionSuccess -> actionType
                                                 else -> "Action failed"
                                             }
@@ -1006,8 +1198,7 @@ object BackendProcessing {
                                                 android.widget.Toast.LENGTH_LONG
                                             ).show()
                                         }
-                                        (context.applicationContext as? MyApplication)?.getScreenCaptureService()
-                                            ?.endSession("Accessibility service disabled")
+                                        endScreenCaptureSession(context, "Accessibility service disabled")
                                         emitPhase0Outcome(
                                             context = context,
                                             item = originalInputText,
@@ -1105,7 +1296,7 @@ object BackendProcessing {
         )
         
         // End session on error
-        (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Error: $reason")
+        endScreenCaptureSession(context, "Error: $reason")
         
         // Show user message
         android.widget.Toast.makeText(context, "Something went wrong. Please try again.", android.widget.Toast.LENGTH_LONG).show()
@@ -1147,7 +1338,7 @@ object BackendProcessing {
             }
             
             // End session successfully
-            (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Verification successful")
+            endScreenCaptureSession(context, "Verification successful")
             stopActionSequence()
             return
         }
@@ -1183,7 +1374,7 @@ object BackendProcessing {
             if (verificationStatus.retryAction == "return_to_home") {
                 Log.d("BackendProcessing", "🔄 Retry action: Returning to home")
                 // End current session - user can restart manually
-                (context.applicationContext as? MyApplication)?.getScreenCaptureService()?.endSession("Verification failed - retry needed")
+                endScreenCaptureSession(context, "Verification failed - retry needed")
                 stopActionSequence()
                 
                 // Note: Automatic return to home and retry would require additional
