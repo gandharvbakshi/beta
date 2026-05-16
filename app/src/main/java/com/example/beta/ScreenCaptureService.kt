@@ -28,6 +28,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.example.beta.automation.InstructionParser
+import com.example.beta.automation.PreferenceStore
 import com.example.beta.automation.backendInputText
 import com.example.beta.automation.requestedCount
 import java.io.IOException
@@ -1761,7 +1762,11 @@ class ScreenCaptureService : Service() {
             if (currentSession == null) {
                 startNewSession()
             }
-            val parsedItems = InstructionParser.parse(inputText)
+            val parsedItems = InstructionParser.applyPreferences(
+                InstructionParser.parse(inputText),
+                lookup = { PreferenceStore.lookup(this, it) },
+                log = { Log.i("BetaAgent", it) }
+            )
             val isMultiItemInstruction = parsedItems.size > 1
             val firstParsedItem = parsedItems.firstOrNull()
             val activeInputText = firstParsedItem?.backendInputText() ?: inputText

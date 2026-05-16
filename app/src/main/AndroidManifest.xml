@@ -62,6 +62,8 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="com.example.beta.SUBMIT_AUTOMATION_INSTRUCTION" />
+                <action android:name="com.example.beta.SEED_PREFERENCE" />
+                <action android:name="com.example.beta.CLEAR_PREFERENCES" />
             </intent-filter>
         </receiver>
 

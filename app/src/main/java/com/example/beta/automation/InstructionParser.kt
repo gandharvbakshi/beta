@@ -6,6 +6,7 @@ sealed class Quantity {
     data object Default : Quantity()
     data class Count(val n: Int) : Quantity()
     data class Weight(val grams: Int) : Quantity()
+    data class Volume(val ml: Int) : Quantity()
 }
 
 data class ParsedItem(
@@ -21,8 +22,12 @@ fun Quantity.requestedCount(): Int = when (this) {
 }
 
 fun ParsedItem.backendInputText(): String {
-    val count = quantity.requestedCount()
-    return if (count > 1) "$count $query" else query
+    return when (val q = quantity) {
+        is Quantity.Count -> if (q.n > 1) "${q.n} $query" else query
+        is Quantity.Weight -> "${q.grams} g $query"
+        is Quantity.Volume -> "${q.ml} ml $query"
+        Quantity.Default -> query
+    }
 }
 
 object InstructionParser {
@@ -45,6 +50,12 @@ object InstructionParser {
         RegexOption.IGNORE_CASE
     )
     private val leadingCountRegex = Regex("^([1-9]\\d?)\\s+(.+)$")
+    private val leadingWeightRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(g|gm|gms|gram|grams|kg|kgs)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
+    private val leadingVolumeRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(ml|l|ltr|liter|litre|liters|litres)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
+    private val quantityBoundaryRegex = Regex(
+        "\\s+(?=\\d+(?:\\.\\d+)?\\s*(?:g|gm|gms|gram|grams|kg|kgs|ml|l|ltr|liter|litre|liters|litres)\\b|[1-9]\\d?\\s+\\w)",
+        RegexOption.IGNORE_CASE
+    )
     private val noOpRegex = Regex("^(?:i\\s+want\\s+)?(?:nothing|none|no\\s+items?)$", RegexOption.IGNORE_CASE)
 
     fun parse(input: String): List<ParsedItem> {
@@ -60,7 +71,8 @@ object InstructionParser {
         val hasNoisySplitters = noisySplitterRegex.containsMatchIn(withoutPrefix)
         val parsedItems = mutableListOf<ParsedItem>()
 
-        splitterRegex.split(withoutPrefix)
+        val splitReady = withoutPrefix.replace(quantityBoundaryRegex, ",")
+        splitterRegex.split(splitReady)
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .forEach { segment ->
@@ -94,6 +106,24 @@ object InstructionParser {
             }
 
         return parsedItems
+    }
+
+    fun applyPreferences(
+        items: List<ParsedItem>,
+        lookup: (String) -> Preference?,
+        log: (String) -> Unit = {}
+    ): List<ParsedItem> {
+        return items.map { item ->
+            val preference = lookup(item.query)
+            if (preference != null) {
+                val preferred = preference.preferredPhrase.trim().lowercase(Locale.US)
+                log("PREFERENCE_APPLIED token=\"${item.query}\" -> \"$preferred\" conf=${"%.2f".format(Locale.US, preference.confidence)}")
+                item.copy(query = preferred)
+            } else {
+                log("PREFERENCE_NONE token=\"${item.query}\"")
+                item
+            }
+        }
     }
 
     private fun stripLeadingCommands(input: String): String {
@@ -130,6 +160,24 @@ object InstructionParser {
             .trim()
             .replace(leadingFillerRegex, "")
             .trim()
+        leadingWeightRegex.find(normalized)?.let { match ->
+            val amount = match.groupValues[1].toDoubleOrNull() ?: return segment to Quantity.Default
+            val unit = match.groupValues[2].lowercase(Locale.US)
+            val grams = when (unit) {
+                "kg", "kgs" -> (amount * 1000).toInt()
+                else -> amount.toInt()
+            }
+            if (grams > 0) return match.groupValues[3].trim() to Quantity.Weight(grams)
+        }
+        leadingVolumeRegex.find(normalized)?.let { match ->
+            val amount = match.groupValues[1].toDoubleOrNull() ?: return segment to Quantity.Default
+            val unit = match.groupValues[2].lowercase(Locale.US)
+            val ml = when (unit) {
+                "l", "ltr", "liter", "litre", "liters", "litres" -> (amount * 1000).toInt()
+                else -> amount.toInt()
+            }
+            if (ml > 0) return match.groupValues[3].trim() to Quantity.Volume(ml)
+        }
         val match = leadingCountRegex.find(normalized) ?: return segment to Quantity.Default
         val count = match.groupValues[1].toIntOrNull() ?: return segment to Quantity.Default
         if (count <= 0 || count > 20) return segment to Quantity.Default
