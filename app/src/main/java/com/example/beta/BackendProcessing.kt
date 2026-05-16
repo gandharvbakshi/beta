@@ -32,6 +32,8 @@ import android.os.Build
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import com.example.beta.automation.ParsedItem
+import com.example.beta.automation.backendInputText
+import com.example.beta.automation.requestedCount
 import java.util.Locale
 
 object BackendProcessing {
@@ -62,6 +64,7 @@ object BackendProcessing {
     private var emptyBlinkitTreeRetries: Int = 0
     private var hasEmittedItemOutcome = false
     private var currentParserConfidence: Float = 1.0f
+    private var currentQtyRequested: Int = 1
     private val sequenceGenerationLock = Any()
     @Volatile private var actionSequenceGeneration: Long = 0L
     private var multiItemSequenceActive = false
@@ -265,7 +268,7 @@ object BackendProcessing {
         item: String?,
         status: ItemOutcomeStatus,
         matchedSku: String = "",
-        qtyRequested: Int = 1,
+        qtyRequested: Int = 0,
         qtyAdded: Int = 0,
         notes: String = ""
     ) {
@@ -274,13 +277,14 @@ object BackendProcessing {
 
         val normalizedItem = normalizeOrderOutcomeItem(item)
         val normalizedSku = matchedSku.trim()
+        val normalizedQtyRequested = if (qtyRequested > 0) qtyRequested else currentQtyRequested
         val normalizedQtyAdded = if (status == ItemOutcomeStatus.SUCCESS && qtyAdded <= 0) 1 else qtyAdded
         val normalizedNotes = notesWithParserConfidence(notes)
         val itemOutcome = guardMultiItemOutcomeTarget(ItemOutcome(
             item = normalizedItem,
             status = status,
             matchedSku = normalizedSku,
-            qtyRequested = qtyRequested,
+            qtyRequested = normalizedQtyRequested,
             qtyAdded = normalizedQtyAdded,
             notes = normalizedNotes
         ))
@@ -340,14 +344,15 @@ object BackendProcessing {
                     ?.startNewAutomationSessionForSequenceItem()
                 startActionSequence(
                     context,
-                    nextItem.query,
+                    nextItem.backendInputText(),
                     multiItemSequenceAccessibilityService,
-                    nextItem.parserConfidence
+                    nextItem.parserConfidence,
+                    nextItem.quantity.requestedCount()
                 )
                 val nextGeneration = getCurrentSequenceGeneration()
                 multiItemSequenceAwaitingNext = false
                 val nextIntent = Intent("com.example.beta.TRIGGER_NEXT_ACTION").apply {
-                    putExtra("original_input", nextItem.query)
+                    putExtra("original_input", nextItem.backendInputText())
                     putExtra("action_number", 1)
                     putExtra("sequence_generation", nextGeneration)
                 }
@@ -378,6 +383,7 @@ object BackendProcessing {
         multiItemSequenceIndex = 0
         multiItemSequenceAwaitingNext = false
         currentParserConfidence = 1.0f
+        currentQtyRequested = 1
         multiItemSequenceOutcomes.clear()
     }
 
@@ -429,9 +435,10 @@ object BackendProcessing {
         if (validItems.size == 1) {
             startActionSequence(
                 context,
-                validItems.first().query,
+                validItems.first().backendInputText(),
                 accessibilityService,
-                validItems.first().parserConfidence
+                validItems.first().parserConfidence,
+                validItems.first().quantity.requestedCount()
             )
             return
         }
@@ -448,9 +455,10 @@ object BackendProcessing {
         updateFlowStatus(context, "STATE: MULTI_ORDER_STARTED\nITEM 1/${validItems.size}: ${validItems.first().query}")
         startActionSequence(
             context,
-            validItems.first().query,
+            validItems.first().backendInputText(),
             accessibilityService,
-            validItems.first().parserConfidence
+            validItems.first().parserConfidence,
+            validItems.first().quantity.requestedCount()
         )
 
         val sequenceStartedAt = multiItemSequenceStartedAtMs
@@ -502,7 +510,8 @@ object BackendProcessing {
         context: Context,
         inputText: String,
         accessibilityService: MyAccessibilityService? = null,
-        parserConfidence: Float = 1.0f
+        parserConfidence: Float = 1.0f,
+        qtyRequested: Int = 1
     ) {
         // Log.d("BackendProcessing", "Starting action sequence for: '$inputText'")
         
@@ -519,6 +528,7 @@ object BackendProcessing {
         emptyBlinkitTreeRetries = 0
         hasEmittedItemOutcome = false
         currentParserConfidence = parserConfidence
+        currentQtyRequested = qtyRequested.coerceAtLeast(1)
         actionHistory.clear() // Reset history for new sequence
         Log.i(TAG, "INSTRUCTION_RECEIVED: $inputText")
         Log.d(TAG, "Action sequence generation $sequenceGeneration for '$inputText'")
@@ -958,7 +968,7 @@ object BackendProcessing {
                                     item = completedItem,
                                     status = ItemOutcomeStatus.SUCCESS,
                                     matchedSku = verificationStatus?.targetItem ?: "",
-                                    qtyAdded = 1,
+                                    qtyAdded = currentQtyRequested,
                                     notes = completedNotes
                                 )
                                 endScreenCaptureSession(context, "Completed")
@@ -1109,7 +1119,7 @@ object BackendProcessing {
                                             } else {
                                                 ItemOutcomeStatus.MISCLICK
                                             },
-                                            qtyAdded = if (verificationStatus?.itemFoundInCart == true) 1 else 0,
+                                            qtyAdded = if (verificationStatus?.itemFoundInCart == true) currentQtyRequested else 0,
                                             notes = "checkout_boundary"
                                         )
                                         requestInFlight = false
@@ -1305,7 +1315,7 @@ object BackendProcessing {
                                                         item = verificationStatus?.targetItem ?: requestInputText,
                                                         status = ItemOutcomeStatus.SUCCESS,
                                                         matchedSku = verificationStatus?.targetItem ?: "",
-                                                        qtyAdded = 1,
+                                                        qtyAdded = currentQtyRequested,
                                                         notes = if (taskCompleted) "task_completed" else "is_completed"
                                                     )
                                                     requestInFlight = false
@@ -1496,7 +1506,7 @@ object BackendProcessing {
                 item = verificationStatus.targetItem ?: originalInputText,
                 status = ItemOutcomeStatus.SUCCESS,
                 matchedSku = verificationStatus.targetItem ?: "",
-                qtyAdded = 1,
+                qtyAdded = currentQtyRequested,
                 notes = notes
             )
             

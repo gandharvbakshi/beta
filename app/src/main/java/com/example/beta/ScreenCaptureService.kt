@@ -28,6 +28,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.example.beta.automation.InstructionParser
+import com.example.beta.automation.backendInputText
+import com.example.beta.automation.requestedCount
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
@@ -1761,11 +1763,8 @@ class ScreenCaptureService : Service() {
             }
             val parsedItems = InstructionParser.parse(inputText)
             val isMultiItemInstruction = parsedItems.size > 1
-            val activeInputText = if (isMultiItemInstruction) {
-                parsedItems.first().query
-            } else {
-                inputText
-            }
+            val firstParsedItem = parsedItems.firstOrNull()
+            val activeInputText = firstParsedItem?.backendInputText() ?: inputText
             currentInputText = activeInputText
             originalInputText = activeInputText
             isActionSequenceActive = true
@@ -1813,7 +1812,8 @@ class ScreenCaptureService : Service() {
                             this,
                             activeInputText,
                             accessibilityService,
-                            parsedItems.firstOrNull()?.parserConfidence ?: 1.0f
+                            firstParsedItem?.parserConfidence ?: 1.0f,
+                            firstParsedItem?.quantity?.requestedCount() ?: 1
                         )
                     }
                     currentSequenceGeneration = BackendProcessing.getCurrentSequenceGeneration()

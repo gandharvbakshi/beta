@@ -43,4 +43,14 @@ class InstructionParserTest {
         assertEquals(ParsedItem(rawText = "bread", query = "bread"), items[0])
         assertEquals(ParsedItem(rawText = "eggs", query = "eggs"), items[1])
     }
+
+    @Test
+    fun parse_extractsLeadingCountForSingleItem() {
+        val items = InstructionParser.parse("order 2 butter")
+
+        assertEquals(1, items.size)
+        assertEquals("butter", items[0].query)
+        assertEquals(Quantity.Count(2), items[0].quantity)
+        assertEquals("2 butter", items[0].backendInputText())
+    }
 }

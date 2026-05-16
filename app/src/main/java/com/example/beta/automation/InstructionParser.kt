@@ -15,6 +15,16 @@ data class ParsedItem(
     val parserConfidence: Float = 1.0f
 )
 
+fun Quantity.requestedCount(): Int = when (this) {
+    is Quantity.Count -> n.coerceAtLeast(1)
+    else -> 1
+}
+
+fun ParsedItem.backendInputText(): String {
+    val count = quantity.requestedCount()
+    return if (count > 1) "$count $query" else query
+}
+
 object InstructionParser {
     private val leadingCommandRegex = Regex(
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
@@ -30,6 +40,11 @@ object InstructionParser {
         "(?:\\s*\\b(?:and|then|also|plus|with|some|a|an|the|maybe|perhaps|please|kindly|of|for\\s+me|for|me|\\d+)\\b)+$",
         RegexOption.IGNORE_CASE
     )
+    private val leadingFillerRegex = Regex(
+        "^(?:(?:and|then|also|plus|with|some|a|an|the|maybe|perhaps|please|kindly|of|for\\s+me|for|me)\\b\\s*)+",
+        RegexOption.IGNORE_CASE
+    )
+    private val leadingCountRegex = Regex("^([1-9]\\d?)\\s+(.+)$")
     private val noOpRegex = Regex("^(?:i\\s+want\\s+)?(?:nothing|none|no\\s+items?)$", RegexOption.IGNORE_CASE)
 
     fun parse(input: String): List<ParsedItem> {
@@ -49,7 +64,8 @@ object InstructionParser {
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .forEach { segment ->
-                val cleaned = cleanSegment(segment)
+                val (withoutQuantity, quantity) = extractQuantityPrefix(segment)
+                val cleaned = cleanSegment(withoutQuantity)
                 if (cleaned.isEmpty() || noOpRegex.matches(cleaned.lowercase(Locale.US))) {
                     return@forEach
                 }
@@ -64,10 +80,12 @@ object InstructionParser {
                 expanded.forEach { item ->
                     val query = item.lowercase(Locale.US)
                     if (query.isNotBlank() && seenQueries.add(query)) {
+                        val itemQuantity = if (expanded.size == 1) quantity else Quantity.Default
                         parsedItems.add(
                             ParsedItem(
                                 rawText = item,
                                 query = query,
+                                quantity = itemQuantity,
                                 parserConfidence = confidence
                             )
                         )
@@ -87,7 +105,6 @@ object InstructionParser {
                 .trim()
                 .trimStart(',', ';')
                 .trim()
-            text = cleanSegment(text)
             if (text == before) return text
         }
     }
@@ -104,6 +121,19 @@ object InstructionParser {
                 .trim()
             if (text == before) return text
         }
+    }
+
+    private fun extractQuantityPrefix(segment: String): Pair<String, Quantity> {
+        val normalized = segment
+            .trim()
+            .trim(',', ';', '&')
+            .trim()
+            .replace(leadingFillerRegex, "")
+            .trim()
+        val match = leadingCountRegex.find(normalized) ?: return segment to Quantity.Default
+        val count = match.groupValues[1].toIntOrNull() ?: return segment to Quantity.Default
+        if (count <= 0 || count > 20) return segment to Quantity.Default
+        return match.groupValues[2].trim() to Quantity.Count(count)
     }
 
     private fun expandKnownProductSequence(segment: String): List<String> {
