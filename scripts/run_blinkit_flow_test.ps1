@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Package = "com.example.beta"
-$Service = "com.example.beta/.MyAccessibilityService"
+$Service = "com.example.beta/com.example.beta.MyAccessibilityService"
 $BlinkitPackage = "com.grofers.customerapp"
 $ProjectDir = Split-Path -Parent $PSScriptRoot
 $LogsDir = Join-Path $ProjectDir "logs"
@@ -66,7 +66,7 @@ function Wait-BetaAccessibilityConnected([int]$TimeoutSeconds = 15) {
 }
 
 function ConvertTo-AdbShellArg([string]$Value) {
-    return ($Value -replace "\\", "\\\\" -replace "'", "'\\''" -replace " ", "\ ")
+    return ($Value -replace "\\", "\\\\" -replace "'", "\'" -replace " ", "\ ")
 }
 
 function Get-UiDump {
@@ -1441,12 +1441,6 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120) {
                     if (Test-FlowFailureLog) {
                         return "failed"
                     }
-                    if (Try-LiveCartVerification $Instruction) {
-                        if (Test-FlowFailureLog) {
-                            return "failed"
-                        }
-                        return "success"
-                    }
                 } elseif (Test-FlowFailureLog) {
                     return "failed"
                 }
@@ -1514,12 +1508,6 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120) {
             $lastLiveCartCheck = Get-Date
             if (Test-FlowFailureLog) {
                 return "failed"
-            }
-            if (Try-LiveCartVerification $Instruction) {
-                if (Test-FlowFailureLog) {
-                    return "failed"
-                }
-                return "success"
             }
         }
         Start-Sleep -Seconds 2

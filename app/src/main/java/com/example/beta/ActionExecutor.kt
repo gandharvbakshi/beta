@@ -302,6 +302,8 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         if (!clickSuccess) return false
 
         val actionTarget = recommendedAction.optString("action_target", "")
+        val textToType = recommendedAction.optString("text_to_type", "")
+        if (textToType.isBlank()) return true
         if (!actionTarget.contains("search", ignoreCase = true)) return true
 
         if (!waitForSearchFieldFocus(500)) {
@@ -311,9 +313,6 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 return false
             }
         }
-
-        val textToType = recommendedAction.optString("text_to_type", "")
-        if (textToType.isBlank()) return true
 
         val typed = typeTextIntoFocusedField(
             textToType,

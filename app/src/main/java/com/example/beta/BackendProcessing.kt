@@ -32,6 +32,7 @@ import android.os.Build
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import com.example.beta.automation.ParsedItem
+import java.util.Locale
 
 object BackendProcessing {
     private const val TAG = "BetaAgent"
@@ -42,6 +43,7 @@ object BackendProcessing {
     private var currentAppName: String? = null
     private var currentTreeData: String? = null
     private var actionExecutor: ActionExecutor? = null
+    private var actionExecutorService: MyAccessibilityService? = null
 
     private fun appNameForBackend(appName: String?): String {
         return when (appName?.trim()) {
@@ -59,6 +61,9 @@ object BackendProcessing {
     private var sequenceContext: Context? = null
     private var emptyBlinkitTreeRetries: Int = 0
     private var hasEmittedItemOutcome = false
+    private var currentParserConfidence: Float = 1.0f
+    private val sequenceGenerationLock = Any()
+    @Volatile private var actionSequenceGeneration: Long = 0L
     private var multiItemSequenceActive = false
     private var multiItemSequenceStartedAtMs: Long = 0L
     private var multiItemSequenceAccessibilityService: MyAccessibilityService? = null
@@ -72,20 +77,51 @@ object BackendProcessing {
     
     // Services removed - not available in current version
 
-    private fun ensureActionExecutor(context: Context, accessibilityService: MyAccessibilityService? = null): Boolean {
-        if (actionExecutor != null) return true
+    private fun advanceActionSequenceGeneration(): Long {
+        return synchronized(sequenceGenerationLock) {
+            actionSequenceGeneration += 1L
+            actionSequenceGeneration
+        }
+    }
 
+    fun getCurrentSequenceGeneration(): Long = actionSequenceGeneration
+
+    fun isCurrentSequenceTrigger(inputText: String?, sequenceGeneration: Long): Boolean {
+        val currentInput = originalInputText
+        return isActionSequenceActive &&
+            sequenceGeneration == actionSequenceGeneration &&
+            !inputText.isNullOrBlank() &&
+            currentInput == inputText
+    }
+
+    private fun isRequestStillCurrent(
+        requestWasSequenced: Boolean,
+        inputText: String,
+        sequenceGeneration: Long
+    ): Boolean {
+        return !requestWasSequenced || isCurrentSequenceTrigger(inputText, sequenceGeneration)
+    }
+
+    private fun ensureActionExecutor(context: Context, accessibilityService: MyAccessibilityService? = null): Boolean {
         val service = accessibilityService
             ?: (context.applicationContext as? MyApplication)?.getAccessibilityService()
 
-        return if (service != null) {
-            actionExecutor = ActionExecutor(service)
-            Log.d("BackendProcessing", "ActionExecutor initialized from active AccessibilityService")
-            true
-        } else {
-            Log.w("BackendProcessing", "ActionExecutor unavailable: AccessibilityService is not active")
-            false
+        if (service != null) {
+            if (actionExecutor == null || actionExecutorService !== service) {
+                actionExecutor = ActionExecutor(service)
+                actionExecutorService = service
+                Log.d("BackendProcessing", "ActionExecutor initialized from active AccessibilityService")
+            }
+            return true
         }
+
+        if (actionExecutor != null) {
+            Log.w("BackendProcessing", "Active AccessibilityService lookup unavailable; using existing ActionExecutor")
+            return true
+        }
+
+        Log.w("BackendProcessing", "ActionExecutor unavailable: AccessibilityService is not active")
+        return false
     }
 
     private fun updateFlowStatus(context: Context?, status: String) {
@@ -172,6 +208,58 @@ object BackendProcessing {
         }
     }
 
+    private fun notesWithParserConfidence(notes: String): String {
+        if (!multiItemSequenceActive) return notes
+        val confidence = multiItemSequenceItems
+            .getOrNull(multiItemSequenceIndex)
+            ?.parserConfidence
+            ?: currentParserConfidence
+        val confidenceNote = "parser_conf=${String.format(Locale.US, "%.2f", confidence)}"
+        return listOf(notes.trim(), confidenceNote)
+            .filter { it.isNotEmpty() }
+            .joinToString(";")
+    }
+
+    private fun canonicalOutcomeToken(value: String?): String {
+        return normalizeOrderOutcomeItem(value)
+            .lowercase(Locale.US)
+            .replace(Regex("[^a-z0-9]+"), "")
+    }
+
+    private fun outcomeMatchesExpectedItem(expectedItem: String, outcome: ItemOutcome): Boolean {
+        val expected = canonicalOutcomeToken(expectedItem)
+        val actual = canonicalOutcomeToken(outcome.item)
+        val matchedSku = canonicalOutcomeToken(outcome.matchedSku)
+        if (expected.isBlank()) return true
+
+        fun matches(probe: String): Boolean {
+            return probe == expected ||
+                (expected.length >= 4 && probe.contains(expected)) ||
+                (probe.length >= 4 && expected.contains(probe))
+        }
+
+        return matches(actual) || matches(matchedSku)
+    }
+
+    private fun guardMultiItemOutcomeTarget(outcome: ItemOutcome): ItemOutcome {
+        if (!multiItemSequenceActive || outcome.status != ItemOutcomeStatus.SUCCESS) return outcome
+        val expectedItem = multiItemSequenceItems.getOrNull(multiItemSequenceIndex) ?: return outcome
+        if (outcomeMatchesExpectedItem(expectedItem.query, outcome)) return outcome
+
+        val expected = normalizeOrderOutcomeItem(expectedItem.query)
+        val actual = normalizeOrderOutcomeItem(outcome.item)
+        val mismatchNote = listOf(outcome.notes, "target_mismatch:$actual")
+            .filter { it.isNotBlank() }
+            .joinToString(";")
+        Log.w(TAG, "Rejecting success for '$actual' while expecting '$expected'")
+        return outcome.copy(
+            item = expected,
+            status = ItemOutcomeStatus.MISCLICK,
+            qtyAdded = 0,
+            notes = mismatchNote
+        )
+    }
+
     private fun emitPhase0Outcome(
         context: Context,
         item: String?,
@@ -187,14 +275,15 @@ object BackendProcessing {
         val normalizedItem = normalizeOrderOutcomeItem(item)
         val normalizedSku = matchedSku.trim()
         val normalizedQtyAdded = if (status == ItemOutcomeStatus.SUCCESS && qtyAdded <= 0) 1 else qtyAdded
-        val itemOutcome = ItemOutcome(
+        val normalizedNotes = notesWithParserConfidence(notes)
+        val itemOutcome = guardMultiItemOutcomeTarget(ItemOutcome(
             item = normalizedItem,
             status = status,
             matchedSku = normalizedSku,
             qtyRequested = qtyRequested,
             qtyAdded = normalizedQtyAdded,
-            notes = notes
-        )
+            notes = normalizedNotes
+        ))
         Log.i(TAG, formatItemResultLine(itemOutcome))
         updateFlowStatus(context, formatItemResultStateLine(itemOutcome.item, status))
 
@@ -249,11 +338,18 @@ object BackendProcessing {
                 (context.applicationContext as? MyApplication)
                     ?.getScreenCaptureService()
                     ?.startNewAutomationSessionForSequenceItem()
-                startActionSequence(context, nextItem.query, multiItemSequenceAccessibilityService)
+                startActionSequence(
+                    context,
+                    nextItem.query,
+                    multiItemSequenceAccessibilityService,
+                    nextItem.parserConfidence
+                )
+                val nextGeneration = getCurrentSequenceGeneration()
                 multiItemSequenceAwaitingNext = false
                 val nextIntent = Intent("com.example.beta.TRIGGER_NEXT_ACTION").apply {
                     putExtra("original_input", nextItem.query)
                     putExtra("action_number", 1)
+                    putExtra("sequence_generation", nextGeneration)
                 }
                 LocalBroadcastManager.getInstance(context).sendBroadcast(nextIntent)
             } catch (e: Exception) {
@@ -281,6 +377,7 @@ object BackendProcessing {
         multiItemSequenceItems = emptyList()
         multiItemSequenceIndex = 0
         multiItemSequenceAwaitingNext = false
+        currentParserConfidence = 1.0f
         multiItemSequenceOutcomes.clear()
     }
 
@@ -330,7 +427,12 @@ object BackendProcessing {
         }
 
         if (validItems.size == 1) {
-            startActionSequence(context, validItems.first().query, accessibilityService)
+            startActionSequence(
+                context,
+                validItems.first().query,
+                accessibilityService,
+                validItems.first().parserConfidence
+            )
             return
         }
 
@@ -344,7 +446,12 @@ object BackendProcessing {
 
         Log.i(TAG, "MULTI_ORDER_STARTED items_total=${validItems.size} items=\"${validItems.joinToString(";") { it.query }}\"")
         updateFlowStatus(context, "STATE: MULTI_ORDER_STARTED\nITEM 1/${validItems.size}: ${validItems.first().query}")
-        startActionSequence(context, validItems.first().query, accessibilityService)
+        startActionSequence(
+            context,
+            validItems.first().query,
+            accessibilityService,
+            validItems.first().parserConfidence
+        )
 
         val sequenceStartedAt = multiItemSequenceStartedAtMs
         Thread {
@@ -391,13 +498,19 @@ object BackendProcessing {
         currentTreeData = treeData
     }
 
-    fun startActionSequence(context: Context, inputText: String, accessibilityService: MyAccessibilityService? = null) {
+    fun startActionSequence(
+        context: Context,
+        inputText: String,
+        accessibilityService: MyAccessibilityService? = null,
+        parserConfidence: Float = 1.0f
+    ) {
         // Log.d("BackendProcessing", "Starting action sequence for: '$inputText'")
         
         // Log test run start for easy identification in logs
         DebugLogger.logTestRunStart("Action sequence: '$inputText'")
         
         // Reset sequence tracking
+        val sequenceGeneration = advanceActionSequenceGeneration()
         currentActionNumber = 0
         isActionSequenceActive = true
         requestInFlight = false
@@ -405,8 +518,10 @@ object BackendProcessing {
         sequenceContext = context
         emptyBlinkitTreeRetries = 0
         hasEmittedItemOutcome = false
+        currentParserConfidence = parserConfidence
         actionHistory.clear() // Reset history for new sequence
         Log.i(TAG, "INSTRUCTION_RECEIVED: $inputText")
+        Log.d(TAG, "Action sequence generation $sequenceGeneration for '$inputText'")
         updateFlowStatus(context, "STATE: INSTRUCTION_RECEIVED\nTARGET: $inputText")
         
         // Initialize action executor if accessibility service is available
@@ -418,6 +533,7 @@ object BackendProcessing {
     fun stopActionSequence() {
         // Log.d("BackendProcessing", "Stopping action sequence")
         val preserveMultiSequence = multiItemSequenceActive && multiItemSequenceAwaitingNext
+        advanceActionSequenceGeneration()
         isActionSequenceActive = false
         requestInFlight = false
         currentActionNumber = 0
@@ -425,6 +541,7 @@ object BackendProcessing {
         sequenceContext = null
         emptyBlinkitTreeRetries = 0
         hasEmittedItemOutcome = false
+        currentParserConfidence = 1.0f
         if (!preserveMultiSequence) {
             resetMultiItemSequenceState()
         }
@@ -446,7 +563,12 @@ object BackendProcessing {
         Log.d("BackendProcessing", "🔍 DEBUG: triggerNextAction called")
         Log.d("BackendProcessing", "🔍 DEBUG: isActionSequenceActive=$isActionSequenceActive, sequenceContext=${sequenceContext != null}, originalInputText=$originalInputText")
         
-        if (!isActionSequenceActive || sequenceContext == null || originalInputText == null) {
+        val triggerContext = sequenceContext
+        val triggerInput = originalInputText
+        val triggerGeneration = getCurrentSequenceGeneration()
+        val nextActionNumber = currentActionNumber + 1
+
+        if (!isActionSequenceActive || triggerContext == null || triggerInput == null) {
             Log.w("BackendProcessing", "🔍 DEBUG: Cannot trigger next action - sequence not active or missing data")
             return
         }
@@ -466,7 +588,7 @@ object BackendProcessing {
             return
         }
         
-        Log.d("BackendProcessing", "🔍 DEBUG: Triggering next action #${currentActionNumber + 1} in sequence")
+        Log.d("BackendProcessing", "🔍 DEBUG: Triggering next action #$nextActionNumber in sequence")
         
         // Wait a bit for UI to stabilize after the previous action
         Thread {
@@ -474,27 +596,29 @@ object BackendProcessing {
                 Thread.sleep(1500) // Wait 1.5 seconds for UI to respond
                 
                 // Double-check that sequence is still active after delay
-                if (!isActionSequenceActive) {
-                    Log.w("BackendProcessing", "🔍 DEBUG: Sequence was stopped during delay, aborting next action")
+                if (!isCurrentSequenceTrigger(triggerInput, triggerGeneration)) {
+                    Log.w("BackendProcessing", "🔍 DEBUG: Sequence changed during delay, aborting stale trigger for '$triggerInput'")
                     return@Thread
                 }
                 
                 // Trigger the next screenshot and tree capture sequence
                 val intent = android.content.Intent("com.example.beta.TRIGGER_NEXT_ACTION")
-                intent.putExtra("original_input", originalInputText)
-                intent.putExtra("action_number", currentActionNumber + 1)
-                updateFlowStatus(sequenceContext, "Reading screen (${currentActionNumber + 1}/$maxActions)")
+                intent.putExtra("original_input", triggerInput)
+                intent.putExtra("action_number", nextActionNumber)
+                intent.putExtra("sequence_generation", triggerGeneration)
+                updateFlowStatus(triggerContext, "Reading screen ($nextActionNumber/$maxActions)")
                 
                 Log.d("BackendProcessing", "🔍 DEBUG: About to send broadcast with:")
                 Log.d("BackendProcessing", "🔍 DEBUG: - Action: com.example.beta.TRIGGER_NEXT_ACTION")
-                Log.d("BackendProcessing", "🔍 DEBUG: - Original input: '$originalInputText'")
-                Log.d("BackendProcessing", "🔍 DEBUG: - Action number: ${currentActionNumber + 1}")
-                Log.d("BackendProcessing", "🔍 DEBUG: - Context: ${sequenceContext?.javaClass?.simpleName}")
+                Log.d("BackendProcessing", "🔍 DEBUG: - Original input: '$triggerInput'")
+                Log.d("BackendProcessing", "🔍 DEBUG: - Action number: $nextActionNumber")
+                Log.d("BackendProcessing", "🔍 DEBUG: - Generation: $triggerGeneration")
+                Log.d("BackendProcessing", "🔍 DEBUG: - Context: ${triggerContext.javaClass.simpleName}")
                 
                 // Use one delivery path. Sending both global and local creates duplicate
                 // screenshots and overlapping backend actions on the emulator.
                 try {
-                    LocalBroadcastManager.getInstance(sequenceContext!!).sendBroadcast(intent)
+                    LocalBroadcastManager.getInstance(triggerContext).sendBroadcast(intent)
                     Log.d("BackendProcessing", "🔍 DEBUG: Local broadcast sent successfully")
                 } catch (e: Exception) {
                     Log.e("BackendProcessing", "🔍 DEBUG: Local broadcast failed: ${e.message}")
@@ -506,9 +630,30 @@ object BackendProcessing {
         }.start()
     }
     
-    fun processScreenshotWithInput(context: Context, bitmap: Bitmap, filename: String, inputText: String, appName: String? = null, treeData: String? = null, accessibilityService: MyAccessibilityService? = null, sessionContext: SessionContext? = null) {
+    fun processScreenshotWithInput(
+        context: Context,
+        bitmap: Bitmap,
+        filename: String,
+        inputText: String,
+        appName: String? = null,
+        treeData: String? = null,
+        accessibilityService: MyAccessibilityService? = null,
+        sessionContext: SessionContext? = null,
+        sequenceGeneration: Long = getCurrentSequenceGeneration()
+    ) {
         // Log.d("BackendProcessing", "processScreenshotWithInput called with filename: $filename")
-        
+
+        val requestInputText = inputText
+        val requestGeneration = sequenceGeneration
+        val requestWasSequenced = isActionSequenceActive
+        if (requestWasSequenced && !isCurrentSequenceTrigger(requestInputText, requestGeneration)) {
+            Log.w(
+                "BackendProcessing",
+                "Ignoring stale screenshot for '$requestInputText' generation=$requestGeneration current=${getCurrentSequenceGeneration()}"
+            )
+            return
+        }
+
         // Store the additional data
         currentAppName = appName
         currentTreeData = treeData
@@ -524,17 +669,20 @@ object BackendProcessing {
         ensureActionExecutor(context, accessibilityService)
         
         // If this is part of an action sequence, increment action number
+        var requestActionNumber = currentActionNumber
         if (isActionSequenceActive) {
             currentActionNumber++
+            requestActionNumber = currentActionNumber
             updateFlowStatus(context, "Analyzing screen ($currentActionNumber/$maxActions)")
             // Log.d("BackendProcessing", "Processing action #$currentActionNumber in sequence")
         }
 
-        val backendAppName = appNameForBackend(currentAppName)
+        val backendAppName = appNameForBackend(appName)
+        val requestTreeData = treeData
         if (
             isActionSequenceActive &&
             backendAppName == "Blinkit" &&
-            currentTreeData.isNullOrBlank() &&
+            requestTreeData.isNullOrBlank() &&
             emptyBlinkitTreeRetries < 3
         ) {
             emptyBlinkitTreeRetries++
@@ -569,7 +717,7 @@ object BackendProcessing {
             val requestBodyBuilder = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("file", filename, fileBody)
-                .addFormDataPart("input_text", inputText ?: "")
+                .addFormDataPart("input_text", requestInputText)
                 .addFormDataPart("api_version", apiVersion)
                 .addFormDataPart("client_version", clientVersion)
             
@@ -602,18 +750,18 @@ object BackendProcessing {
             Log.d("BackendProcessing", "📤 SENDING TO BACKEND - App name: $backendAppName")
             
             // Add tree data if available
-            if (!currentTreeData.isNullOrEmpty()) {
-                requestBodyBuilder.addFormDataPart("detailed_tree_data", currentTreeData!!)
-                Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Tree data length: ${currentTreeData!!.length}")
+            if (!requestTreeData.isNullOrEmpty()) {
+                requestBodyBuilder.addFormDataPart("detailed_tree_data", requestTreeData)
+                Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Tree data length: ${requestTreeData.length}")
             } else {
                 Log.w("BackendProcessing", "⚠️ Tree data is null or empty - not sending to backend")
             }
             
             // Add sequence tracking data
-            if (isActionSequenceActive) {
-                requestBodyBuilder.addFormDataPart("sequence_step", currentActionNumber.toString())
+            if (requestWasSequenced) {
+                requestBodyBuilder.addFormDataPart("sequence_step", requestActionNumber.toString())
                 requestBodyBuilder.addFormDataPart("max_sequence_steps", maxActions.toString())
-                Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Sequence step: $currentActionNumber/$maxActions")
+                Log.d("BackendProcessing", "📤 SENDING TO BACKEND - Sequence step: $requestActionNumber/$maxActions")
                 
             }
             
@@ -622,9 +770,9 @@ object BackendProcessing {
             
             // Log complete backend request details
             DebugLogger.logBackendRequest(
-                inputText = inputText ?: "",
+                inputText = requestInputText,
                 appName = backendAppName,
-                treeDataLength = currentTreeData?.length ?: 0,
+                treeDataLength = requestTreeData?.length ?: 0,
                 imageWidth = bitmap.width,
                 imageHeight = bitmap.height
             )
@@ -638,6 +786,13 @@ object BackendProcessing {
 
             client.newCall(request).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
+                    if (!isRequestStillCurrent(requestWasSequenced, requestInputText, requestGeneration)) {
+                        Log.w(
+                            "UploadFailure",
+                            "Ignoring stale upload failure for '$requestInputText' generation=$requestGeneration"
+                        )
+                        return
+                    }
                     e.printStackTrace()
                     Log.e("UploadFailure", "Failed to upload image: ${e.message}")
                     requestInFlight = false
@@ -646,6 +801,14 @@ object BackendProcessing {
                 }
 
                 override fun onResponse(call: Call, response: Response) {
+                    if (!isRequestStillCurrent(requestWasSequenced, requestInputText, requestGeneration)) {
+                        Log.w(
+                            "UploadResponse",
+                            "Ignoring stale backend response for '$requestInputText' generation=$requestGeneration current=${getCurrentSequenceGeneration()}"
+                        )
+                        response.close()
+                        return
+                    }
                     if (!response.isSuccessful) {
                         Log.e("UploadResponse", "Unexpected response: $response")
                         requestInFlight = false
@@ -738,7 +901,7 @@ object BackendProcessing {
                                 Log.w("BackendProcessing", "🛑 Workflow stopped: $userMessage")
                                 emitPhase0Outcome(
                                     context = context,
-                                    item = verificationStatus?.targetItem ?: originalInputText,
+                                    item = verificationStatus?.targetItem ?: requestInputText,
                                     status = terminalStatus,
                                     notes = noteForTerminalReason(terminalStatus, "workflow_failed")
                                 )
@@ -780,9 +943,13 @@ object BackendProcessing {
                             when (sessionState) {
                             SessionState.COMPLETED -> {
                                 Log.d("BackendProcessing", "🏁 Session completed - ending session")
-                                val completedItem = verificationStatus?.targetItem ?: originalInputText
+                                val completedItem = verificationStatus?.targetItem ?: requestInputText
                                 val completedNotes = if (verificationStatus?.itemFoundInCart == true) {
-                                    "verified_in_cart"
+                                    if (verificationStatus.verificationDetails?.contains("already_in_cart", ignoreCase = true) == true) {
+                                        "already_in_cart"
+                                    } else {
+                                        "verified_in_cart"
+                                    }
                                 } else {
                                     "session_completed"
                                 }
@@ -803,7 +970,7 @@ object BackendProcessing {
                                 val terminalStatus = statusForTerminalReason(failureReason.ifBlank { stateStr })
                                 emitPhase0Outcome(
                                     context = context,
-                                    item = verificationStatus?.targetItem ?: originalInputText,
+                                    item = verificationStatus?.targetItem ?: requestInputText,
                                     status = terminalStatus,
                                     notes = noteForTerminalReason(terminalStatus, "session_error")
                                 )
@@ -815,7 +982,7 @@ object BackendProcessing {
                                 Log.d("BackendProcessing", "📝 Summary and edit state - ending session")
                                 emitPhase0Outcome(
                                     context = context,
-                                    item = originalInputText,
+                                    item = requestInputText,
                                     status = ItemOutcomeStatus.MISCLICK,
                                     notes = "summary_and_edit"
                                 )
@@ -930,13 +1097,13 @@ object BackendProcessing {
                                     ).joinToString(" ")
                                     val isCheckoutBoundary = isCheckoutBoundaryDetected(
                                         responseBoundaryText,
-                                        currentTreeData
+                                        requestTreeData
                                     )
                                     if (backendAppName == "Blinkit" && isCheckoutBoundary) {
                                         Log.w("BackendProcessing", "🚫 Checkout/payment boundary detected in response - ending flow for safety.")
                                         emitPhase0Outcome(
                                             context = context,
-                                            item = verificationStatus?.targetItem ?: originalInputText,
+                                            item = verificationStatus?.targetItem ?: requestInputText,
                                             status = if (verificationStatus?.itemFoundInCart == true) {
                                                 ItemOutcomeStatus.SKIPPED
                                             } else {
@@ -1010,9 +1177,9 @@ object BackendProcessing {
                                     if (actionExecutor != null) {
                                         // Check if this was part of a sequence that's no longer active
                                         // (This prevents late backend responses from executing actions after sequence ended)
-                                        val wasSequenceAction = currentActionNumber > 0
-                                        if (wasSequenceAction && !isActionSequenceActive) {
-                                            Log.w("BackendProcessing", "⚠️ Backend response received but action sequence is no longer active - ignoring action")
+                                        val wasSequenceAction = requestWasSequenced && requestActionNumber > 0
+                                        if (wasSequenceAction && !isRequestStillCurrent(requestWasSequenced, requestInputText, requestGeneration)) {
+                                            Log.w("BackendProcessing", "⚠️ Backend response is stale before action execution - ignoring action")
                                             return@onResponse
                                         }
                                         
@@ -1020,7 +1187,7 @@ object BackendProcessing {
                                         
                                         // Store action in history before executing
                                         val actionToStore = JSONObject()
-                                        actionToStore.put("step", currentActionNumber)
+                                        actionToStore.put("step", requestActionNumber)
                                         actionToStore.put("action_type", recommendedAction.optString("action_type", "unknown"))
                                         actionToStore.put("action_target", recommendedAction.optString("action_target", ""))
                                         actionToStore.put("confidence", recommendedAction.optDouble("confidence", 0.0))
@@ -1132,10 +1299,10 @@ object BackendProcessing {
                                                 
                                                 if (isCompleted || taskCompleted) {
                                                     Log.d("BackendProcessing", "🏁 TASK COMPLETED! Stopping action sequence.")
-                                                    Log.i(TAG, "FLOW_SUCCESS: target=$originalInputText")
+                                                    Log.i(TAG, "FLOW_SUCCESS: target=$requestInputText")
                                                     emitPhase0Outcome(
                                                         context = context,
-                                                        item = verificationStatus?.targetItem ?: originalInputText,
+                                                        item = verificationStatus?.targetItem ?: requestInputText,
                                                         status = ItemOutcomeStatus.SUCCESS,
                                                         matchedSku = verificationStatus?.targetItem ?: "",
                                                         qtyAdded = 1,
@@ -1179,7 +1346,7 @@ object BackendProcessing {
                                              Log.e(TAG, "FLOW_FAILED: reason=action_execution_failed")
                                              emitPhase0Outcome(
                                                  context = context,
-                                                 item = originalInputText,
+                                                 item = requestInputText,
                                                  status = ItemOutcomeStatus.MISCLICK,
                                                  notes = "action_execution_failed"
                                              )
@@ -1201,7 +1368,7 @@ object BackendProcessing {
                                         endScreenCaptureSession(context, "Accessibility service disabled")
                                         emitPhase0Outcome(
                                             context = context,
-                                            item = originalInputText,
+                                            item = requestInputText,
                                             status = ItemOutcomeStatus.SKIPPED,
                                             notes = "accessibility_service_disabled"
                                         )
@@ -1247,7 +1414,7 @@ object BackendProcessing {
                     requestInFlight = false
                     emitPhase0Outcome(
                         context = context,
-                        item = originalInputText,
+                        item = requestInputText,
                         status = ItemOutcomeStatus.TIMEOUT,
                         notes = "upload_timeout"
                     )
@@ -1319,13 +1486,18 @@ object BackendProcessing {
             Log.d("BackendProcessing", "✅ Details: ${verificationStatus.verificationDetails}")
             Log.i(TAG, "BLINKIT_CART_INCREMENT_CONFIRMED")
             Log.i(TAG, "FLOW_SUCCESS: target=${verificationStatus.targetItem}")
+            val notes = if (verificationStatus.verificationDetails?.contains("already_in_cart", ignoreCase = true) == true) {
+                "already_in_cart"
+            } else {
+                "verified_in_cart"
+            }
             emitPhase0Outcome(
                 context = context,
                 item = verificationStatus.targetItem ?: originalInputText,
                 status = ItemOutcomeStatus.SUCCESS,
                 matchedSku = verificationStatus.targetItem ?: "",
                 qtyAdded = 1,
-                notes = "verified_in_cart"
+                notes = notes
             )
             
             // Show success message to user

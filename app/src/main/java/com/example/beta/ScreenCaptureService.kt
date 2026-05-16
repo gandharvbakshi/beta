@@ -74,6 +74,7 @@ class ScreenCaptureService : Service() {
     // Sequential action support
     private var isActionSequenceActive: Boolean = false
     private var originalInputText: String? = null
+    private var currentSequenceGeneration: Long = -1L
 
     // Check if running on emulator
     private fun isEmulator(): Boolean {
@@ -374,11 +375,19 @@ class ScreenCaptureService : Service() {
             if (intent?.action == "com.example.beta.TRIGGER_NEXT_ACTION") {
                 val originalInput = intent.getStringExtra("original_input")
                 val actionNumber = intent.getIntExtra("action_number", 0)
-                Log.d("ScreenCaptureService", "🔍 DEBUG: Received next action trigger - Action #$actionNumber for: '$originalInput'")
+                val sequenceGeneration = intent.getLongExtra("sequence_generation", -1L)
+                Log.d("ScreenCaptureService", "🔍 DEBUG: Received next action trigger - Action #$actionNumber for: '$originalInput' generation=$sequenceGeneration")
                 
                 if (originalInput != null) {
+                    if (!BackendProcessing.isCurrentSequenceTrigger(originalInput, sequenceGeneration)) {
+                        Log.w(
+                            "ScreenCaptureService",
+                            "Ignoring stale next-action trigger for '$originalInput' generation=$sequenceGeneration"
+                        )
+                        return
+                    }
                     Log.d("ScreenCaptureService", "🔍 DEBUG: Triggering next action in sequence...")
-                    triggerNextActionInSequence(originalInput, actionNumber)
+                    triggerNextActionInSequence(originalInput, actionNumber, sequenceGeneration)
                 } else {
                     Log.w("ScreenCaptureService", "🔍 DEBUG: Original input is null, cannot trigger next action")
                 }
@@ -1052,7 +1061,8 @@ class ScreenCaptureService : Service() {
                     currentAppName,
                     currentTreeData,
                     (application as? MyApplication)?.getAccessibilityService(),
-                    currentSession
+                    currentSession,
+                    currentSequenceGeneration
                 )
                 
                 // Only clear data if not in a sequence
@@ -1187,7 +1197,8 @@ class ScreenCaptureService : Service() {
                     currentAppName,
                     currentTreeData,
                     (application as? MyApplication)?.getAccessibilityService(),
-                    currentSession
+                    currentSession,
+                    currentSequenceGeneration
                 )
                 
                 // Only clear data if not in a sequence
@@ -1779,6 +1790,18 @@ class ScreenCaptureService : Service() {
                     Log.d("ScreenCaptureService", "📤 CAPTURED DATA - Tree length: ${treeData.length}, App: $appName")
                     if (isMultiItemInstruction) {
                         Log.i("BetaAgent", "PARSED: ${parsedItems.joinToString(",") { it.query }}")
+                        val lowConfidenceItems = parsedItems.filter { it.parserConfidence < 0.6f }
+                        if (lowConfidenceItems.isNotEmpty()) {
+                            Log.w(
+                                "BetaAgent",
+                                "PARSER_LOW_CONFIDENCE items=\"${lowConfidenceItems.joinToString(";") { "${it.query}:${"%.2f".format(java.util.Locale.US, it.parserConfidence)}" }}\""
+                            )
+                            if (isEmulator()) {
+                                updateEmulatorOverlayText("PARSER_LOW_CONFIDENCE")
+                            } else {
+                                updateOverlayText("PARSER_LOW_CONFIDENCE")
+                            }
+                        }
                     }
                     Log.i("BetaAgent", "BLINKIT_SEARCH_STARTED: $activeInputText")
                     
@@ -1786,8 +1809,14 @@ class ScreenCaptureService : Service() {
                     if (isMultiItemInstruction) {
                         BackendProcessing.startMultiItemSequence(this, parsedItems, accessibilityService)
                     } else {
-                        BackendProcessing.startActionSequence(this, activeInputText, accessibilityService)
+                        BackendProcessing.startActionSequence(
+                            this,
+                            activeInputText,
+                            accessibilityService,
+                            parsedItems.firstOrNull()?.parserConfidence ?: 1.0f
+                        )
                     }
+                    currentSequenceGeneration = BackendProcessing.getCurrentSequenceGeneration()
                     
                     // Hide input overlay
                     if (isEmulator()) {
@@ -1812,6 +1841,7 @@ class ScreenCaptureService : Service() {
             } else {
                 Log.w("ScreenCaptureService", "Accessibility service not available; cannot execute automated actions")
                 isActionSequenceActive = false
+                currentSequenceGeneration = -1L
                 BackendProcessing.stopActionSequence()
 
                 if (isEmulator()) {
@@ -1867,12 +1897,20 @@ class ScreenCaptureService : Service() {
         }
     }
     
-    private fun triggerNextActionInSequence(originalInput: String, actionNumber: Int) {
+    private fun triggerNextActionInSequence(originalInput: String, actionNumber: Int, sequenceGeneration: Long) {
         // Log.d("ScreenCaptureService", "Triggering next action #$actionNumber in sequence for: '$originalInput'")
+        if (!BackendProcessing.isCurrentSequenceTrigger(originalInput, sequenceGeneration)) {
+            Log.w(
+                "ScreenCaptureService",
+                "Ignoring stale sequence setup for '$originalInput' generation=$sequenceGeneration"
+            )
+            return
+        }
         
         // Store the original input for this sequence
         originalInputText = originalInput
         currentInputText = originalInput
+        currentSequenceGeneration = sequenceGeneration
         isActionSequenceActive = true
         
         // Update overlay to show current action
@@ -1883,8 +1921,15 @@ class ScreenCaptureService : Service() {
         }
         
         // Trigger the same sequence as submitInstruction but for the next action
-        Handler(Looper.getMainLooper()).postDelayed({
+        Handler(Looper.getMainLooper()).postDelayed(outerTrigger@{
             try {
+                if (!BackendProcessing.isCurrentSequenceTrigger(originalInput, sequenceGeneration)) {
+                    Log.w(
+                        "ScreenCaptureService",
+                        "Ignoring stale delayed sequence trigger for '$originalInput' generation=$sequenceGeneration"
+                    )
+                    return@outerTrigger
+                }
                 val myApp = application as? MyApplication
                 val accessibilityService = myApp?.getAccessibilityService()
                 
@@ -1892,7 +1937,14 @@ class ScreenCaptureService : Service() {
                     accessibilityService.showBlinkitTree()
                     
                     // Wait for tree data to be captured, then trigger screenshot
-                    Handler(Looper.getMainLooper()).postDelayed({
+                    Handler(Looper.getMainLooper()).postDelayed(treeCapture@{
+                        if (!BackendProcessing.isCurrentSequenceTrigger(originalInput, sequenceGeneration)) {
+                            Log.w(
+                                "ScreenCaptureService",
+                                "Ignoring stale tree capture for '$originalInput' generation=$sequenceGeneration"
+                            )
+                            return@treeCapture
+                        }
                         // Get the captured tree data and app name
                         val treeData = accessibilityService.getLastTreeData()
                         val appName = accessibilityService.getLastAppName()
@@ -1933,6 +1985,7 @@ class ScreenCaptureService : Service() {
         // Log.d("ScreenCaptureService", "Stopping action sequence")
         isActionSequenceActive = false
         originalInputText = null
+        currentSequenceGeneration = -1L
         BackendProcessing.stopActionSequence()
     }
     
