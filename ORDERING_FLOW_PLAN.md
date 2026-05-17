@@ -717,6 +717,359 @@ Runs A, B, C above and asserts the preference-applied lines via
 
 ---
 
+## Phase 6 — Commerce App Adapter Architecture
+
+### INTENT
+
+Beta should become a shared grocery-ordering assistant, not a Blinkit-only
+script. The core ordering brain must stay common, while each commerce app gets
+its own wrapper for launch, search, result cards, modals, cart verification,
+and app-specific behaviour.
+
+### WORK
+
+1. **Define a `CommerceAppAdapter` contract**
+   - App identity: display name, package name(s), launch activity.
+   - Readiness checks: app installed, app logged in enough to search, home/search
+     surface reachable.
+   - Search operations: focus search, type query, submit search, clear search.
+   - Result interpretation: product cards, sponsored markers, out-of-stock
+     markers, pack/variant modal shape.
+   - Cart operations: open cart, verify cart line, stop before payment boundary.
+
+2. **Move Blinkit-specific logic behind `BlinkitAdapter`**
+   - Keep Blinkit-specific ideas here:
+     - "Bought Earlier"
+     - "People also bought"
+     - Blinkit variant sheets
+     - Blinkit `View cart` banner
+     - Blinkit address/home handling
+   - Keep global product logic out of this adapter.
+
+3. **Keep shared logic central**
+   - Instruction parsing.
+   - Product aliases (`Lay's = lays`, `bhindi = lady finger`).
+   - Quantity and pack solving.
+   - User preferences.
+   - Substitution policy.
+   - Order result model.
+
+4. **Adapter selection**
+   - User can pick preferred grocery app.
+   - If none is selected, default to the last successful app.
+   - Future: route item-by-item across apps only after single-app flows are
+     reliable.
+
+### ACCEPTANCE
+
+- Blinkit behaviour stays unchanged after moving it behind the adapter.
+- Backend/app profiles can add Zepto or Instamart without modifying the shared
+  parser, pack solver, or preference store.
+- Logs include `APP_ADAPTER=<blinkit|zepto|instamart>`.
+
+### TEST PLAN
+
+- Unit tests for adapter selection and profile loading.
+- Existing Blinkit Phase 1-5 tests pass without behavioural regression.
+
+---
+
+## Phase 7 — Preflight and Older-User Safety
+
+### INTENT
+
+Before placing anything in a cart, Beta should run a clear, friendly preflight
+that catches common problems for non-technical users: permissions, app login,
+location, selected address, stale cart state, and capture/accessibility health.
+
+### WORK
+
+1. **Preflight policy**
+   - Add a policy object/config:
+     - `production`: all safety checks enabled.
+     - `emulator_test`: skip location-distance checks by default.
+     - `manual_test`: developer can selectively disable checks.
+   - Location checks must be off for emulator test scripts unless explicitly
+     enabled.
+
+2. **Required checks**
+   - Accessibility service enabled.
+   - Screen capture/overlay ready when required.
+   - Target app installed.
+   - Target app can be launched.
+   - User appears logged in enough to search.
+   - Cart state known or cleanup offered.
+   - Stop-before-payment boundary active.
+
+3. **Production location checks**
+   - Device location services on.
+   - App location permission usable.
+   - Delivery address readable from the commerce app when possible.
+   - If current device location appears far from selected delivery address,
+     ask the user before proceeding:
+     `"You seem far from the delivery address. Continue with this address?"`
+   - Do not auto-change address.
+
+4. **Older-user UI rules**
+   - Plain language.
+   - Large tap targets.
+   - One decision per screen.
+   - No technical errors; translate failures into actionable prompts.
+
+### ACCEPTANCE
+
+- Emulator runs can skip location checks and remain deterministic.
+- Production mode blocks or confirms risky states before ordering.
+- The user can understand what is wrong without reading logs.
+
+### TEST PLAN
+
+- Unit tests for preflight policy decisions.
+- Emulator tests with location checks disabled.
+- Manual production-device smoke with location on/off and address mismatch.
+
+---
+
+## Phase 8 — Interactive Substitution Review
+
+### INTENT
+
+If an item is out of stock or low-confidence, Beta should finish the rest of
+the list, then present a review screen with close alternatives. The user can
+accept or reject each suggestion before Beta adds substitutes.
+
+### WORK
+
+1. **Substitution queue**
+   - For each failed item, store:
+     - original query
+     - failure reason
+     - closest alternatives
+     - confidence
+     - price/pack info when visible
+
+2. **End-of-run review**
+   - Show:
+     - Added items.
+     - Items not added.
+     - Suggested alternatives.
+   - User can accept/reject each alternative.
+   - Accepted alternatives run through the same safe add/cart verification flow.
+
+3. **Backend candidate alternatives**
+   - For OOS/not-found/low-confidence states, return nearby candidate cards
+     instead of only failing.
+   - Mark why each suggestion was proposed.
+
+4. **Safety**
+   - Never substitute automatically unless user preferences explicitly allow it.
+   - Never proceed past cart/payment.
+
+### ACCEPTANCE
+
+- OOS item does not abort the order.
+- Alternatives are shown only at the end unless a safety issue needs immediate
+  confirmation.
+- Accepted alternatives produce normal `ITEM_RESULT` lines.
+
+### TEST PLAN
+
+- Unit tests for substitution ranking and review-state model.
+- Emulator test with one OOS item and one successful item.
+- Manual smoke where user accepts one substitute and rejects another.
+
+---
+
+## Phase 9 — Voice and Multilingual Input
+
+### INTENT
+
+The primary user input should become voice. Users may speak in English, Hindi,
+Kannada, Tamil, Telugu, Malayalam, Marathi, Bengali, Gujarati, Punjabi, Odia, or
+mixed language, while the commerce apps usually show English product names.
+Voice and translation must feed the same ordering pipeline as typed text.
+
+### WORK
+
+1. **Input channel split**
+   - Typed input, voice input, and test broadcasts all produce the same
+     `OrderRequest`.
+   - No ordering logic belongs in the voice layer.
+
+2. **Speech-to-text**
+   - Capture user speech.
+   - Keep raw transcript for review/debugging.
+   - Add confidence score.
+
+3. **Language detection and translation**
+   - Detect spoken language or mixed language before parsing.
+   - Persist the user's likely preferred language after successful
+     confirmation.
+   - Re-run language detection when parsing confidence is low, the transcript is
+     not understood, or the user explicitly changes language.
+   - Translate/transliterate product terms into the English query used by the
+     commerce app.
+   - Examples:
+     - Common Indian-language grocery terms to English product names.
+     - Brand names preserved as spoken.
+     - Quantities preserved exactly.
+
+4. **Confirmation when uncertain**
+   - If transcript or translation confidence is low, ask:
+     `"I heard: butter, apples, pencil. Is that right?"`
+   - Default to confirmation for older-user mode.
+
+5. **Central multilingual product lexicon**
+   - Shared across all apps.
+   - Separate from app-specific knowledge.
+   - Learns common terms over time.
+   - Store language, script, transliteration, canonical English query, and
+     confidence/source for every learned term.
+
+6. **Language-agnostic backend contract**
+   - Backend receives raw transcript/text plus optional user language hint.
+   - Backend returns detected language, normalized English order text, parsed
+     items, and confidence.
+   - App adapters only receive canonical English product queries.
+
+### ACCEPTANCE
+
+- A voice transcript and a typed command produce identical `ParsedItem` output.
+- Common Indian-language product terms can map to English app searches.
+- Low-confidence translation triggers a confirmation screen before ordering.
+- A previously confirmed user language is reused until confidence drops or the
+  user changes language.
+
+### TEST PLAN
+
+- Unit tests for common Indian-language and mixed-language command fixtures.
+- Manual voice smoke with English, Hindi, Kannada, Tamil, Telugu, Malayalam,
+  Marathi, Bengali, Gujarati, Punjabi, Odia, and mixed-language lists.
+- Emulator tests continue to use typed/broadcast input for determinism.
+
+---
+
+## Phase 9.5 — Accessibility Capability Knowledge
+
+### INTENT
+
+Blinkit accessibility data is inconsistent. Beta should continuously learn
+which screen facts are reliable from accessibility, which require OCR, and
+which require full screenshots/model reasoning. This keeps cost down without
+pretending accessibility can answer everything.
+
+### WORK
+
+1. **Capability ledger per app/screen**
+   - For each observed screen state, record whether the following were readable
+     through accessibility, OCR, or screenshot/model:
+     - search field
+     - product title
+     - price/pack
+     - sponsored/ad marker
+     - out-of-stock marker
+     - ADD button
+     - variant sheet
+     - cart line
+     - checkout/payment boundary
+
+2. **Decision policy**
+   - Prefer accessibility when it has been reliable for that screen fact.
+   - Use OCR when accessibility lacks labels but text is visible.
+   - Use screenshot/model only when the cheaper evidence is missing,
+     contradictory, or low confidence.
+
+3. **Blinkit-specific knowledge**
+   - Store Blinkit capability observations in the Blinkit knowledge store.
+   - Keep the same schema reusable for Zepto and Instamart.
+   - Include examples of unreliable accessibility labels so future tests do not
+     over-trust them.
+
+4. **Telemetry**
+   - Log `EVIDENCE_SOURCE=<accessibility|ocr|screenshot_model>` per decision.
+   - Track screenshot calls avoided by accessibility/OCR.
+
+### ACCEPTANCE
+
+- Every order run updates the app capability knowledge when new evidence is
+  observed.
+- Debug logs explain why a screenshot/model call was needed.
+- Cost telemetry can report screenshot/model calls avoided.
+
+### TEST PLAN
+
+- Unit tests for source-selection policy.
+- Emulator/manual Blinkit probes that compare accessibility tree facts against
+  OCR/screenshot facts.
+
+---
+
+## Phase 10 — Second Commerce App Adapter
+
+### INTENT
+
+After Blinkit is stable behind the adapter boundary, add one more app adapter
+to prove the architecture. Pick Zepto or Swiggy Instamart based on which app is
+easier to automate reliably on the test device.
+
+### WORK
+
+1. Add app profile and adapter.
+2. Implement preflight for that app.
+3. Implement search, product selection, add-to-cart, cart verification.
+4. Keep shared parser/preferences/product semantics unchanged.
+5. Add app-specific behaviour knowledge store.
+
+### ACCEPTANCE
+
+- Same typed `OrderRequest` can run on Blinkit or the second app.
+- At least three single-item probes pass on the second app.
+- No shared product-learning code is duplicated into the app adapter.
+
+### TEST PLAN
+
+- Adapter unit tests.
+- Three single-item emulator/manual probes.
+- One OOS/not-found probe.
+
+### CURRENT FOUNDATION
+
+- App support is profile-gated; adding a JSON profile is the first step, but a
+  second app should not be enabled until its emulator/manual probes pass.
+- Shared language/product/preference logic remains outside app profiles.
+- Blinkit-specific observations stay in the Blinkit profile or knowledge store.
+
+---
+
+## Cost and Telemetry
+
+### INTENT
+
+Every order should expose a rough cost and latency profile so we can decide
+which observations need multimodal/backend reasoning and which can be handled
+locally.
+
+### WORK
+
+- Log per order:
+  - screenshot/backend calls
+  - input/output token estimate
+  - OCR calls
+  - model used
+  - latency per step
+  - total estimated cost
+- Prefer local/parser/accessibility decisions where reliable.
+- Use multimodal calls only when the cheaper evidence is insufficient.
+
+### ACCEPTANCE
+
+- `ORDER_RESULT` is accompanied by a cost summary in debug logs.
+- Test scripts can export average cost/order for a scenario.
+- Cost summary separates accessibility-only, OCR, and screenshot/model
+  decisions so monthly user cost can be estimated from real usage.
+
+---
+
 ## Cross-Phase Test Matrix Summary
 
 | Scenario        | Trigger script                                                  | Pass criteria                                                                 |
@@ -726,6 +1079,10 @@ Runs A, B, C above and asserts the preference-applied lines via
 | `multi-noisy`   | `run_blinkit_matrix.ps1 -Scenario multi-noisy`                  | parsed list matches unit-test expectation; same cart outcome as `multi-clean` |
 | `quantity`      | `run_blinkit_matrix.ps1 -Scenario quantity`                     | every item within `deviation_pct` bound, rationale logged                     |
 | `context`       | `run_blinkit_matrix.ps1 -Scenario context`                      | A applies preference, B avoids, C is unchanged                                |
+| `preflight`     | `run_blinkit_matrix.ps1 -Scenario preflight`                    | emulator policy skips location checks; production policy blocks risky states  |
+| `substitution`  | `run_blinkit_matrix.ps1 -Scenario substitution`                 | OOS alternatives are reviewed and only accepted choices are added             |
+| `voice-i18n`    | unit fixtures + manual voice smoke                              | transcript/translation produces the same `OrderRequest` as typed input        |
+| `evidence-src`  | unit fixtures + Blinkit probes                                  | accessibility/OCR/screenshot source is logged and matches policy              |
 
 CI hook (suggested, not required): nightly run of all scenarios on the
 medium-phone API-34 emulator already used in `*.logcat` artefacts. CSVs

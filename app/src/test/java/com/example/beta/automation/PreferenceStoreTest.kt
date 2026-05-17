@@ -25,6 +25,37 @@ class PreferenceStoreTest {
     }
 
     @Test
+    fun lookupUsesCentralProductAliases() {
+        PreferenceStore.upsert(
+            Preference(
+                token = "Lay's",
+                preferredPhrase = "Lay's classic salted chips",
+                avoidPhrases = listOf("Bingo"),
+                confidence = 0.9f
+            )
+        )
+
+        val preference = PreferenceStore.lookup("lay s")
+
+        assertEquals("lays", preference?.token)
+        assertEquals("lays classic salted chips", preference?.preferredPhrase)
+        assertEquals(listOf("bingo"), preference?.avoidPhrases)
+    }
+
+    @Test
+    fun lookupUsesMultilingualProductAliases() {
+        PreferenceStore.upsert(
+            Preference(
+                token = "मक्खन",
+                preferredPhrase = "unsalted butter",
+                confidence = 0.9f
+            )
+        )
+
+        assertEquals("unsalted butter", PreferenceStore.lookup("butter")?.preferredPhrase)
+    }
+
+    @Test
     fun lookupReturnsNullForUnknownAndLowConfidence() {
         PreferenceStore.upsert(
             Preference(

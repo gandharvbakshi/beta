@@ -35,8 +35,11 @@ object InstructionParser {
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
         RegexOption.IGNORE_CASE
     )
-    private val splitterRegex = Regex("\\s*(?:[,;]+|\\s+&\\s+|\\s+and\\s+|\\s+plus\\s+)\\s*", RegexOption.IGNORE_CASE)
-    private val noisySplitterRegex = Regex("\\s+(?:&|and|plus)\\s+", RegexOption.IGNORE_CASE)
+    private val splitterRegex = Regex(
+        "\\s*(?:[,;]+|\\s+&\\s+|\\s+and\\s+|\\s+plus\\s+|\\s+और\\s+|\\s+ಮತ್ತು\\s+|\\s+ಹಾಗೂ\\s+)\\s*",
+        RegexOption.IGNORE_CASE
+    )
+    private val noisySplitterRegex = Regex("\\s+(?:&|and|plus|और|ಮತ್ತು|ಹಾಗೂ)\\s+", RegexOption.IGNORE_CASE)
     private val leadingNoiseRegex = Regex(
         "^(?:(?:and|then|also|plus|with|some|a|an|the|maybe|perhaps|please|kindly|of|for\\s+me|for|me|\\d+)\\b\\s*)+",
         RegexOption.IGNORE_CASE
@@ -90,7 +93,7 @@ object InstructionParser {
                 }
 
                 expanded.forEach { item ->
-                    val query = item.lowercase(Locale.US)
+                    val query = ProductLexicon.canonicalizeProductText(item).lowercase(Locale.US)
                     if (query.isNotBlank() && seenQueries.add(query)) {
                         val itemQuantity = if (expanded.size == 1) quantity else Quantity.Default
                         parsedItems.add(

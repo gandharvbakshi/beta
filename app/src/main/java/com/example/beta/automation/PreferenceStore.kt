@@ -32,7 +32,11 @@ object PreferenceStore {
     fun upsert(preference: Preference) {
         val token = normalize(preference.token)
         if (token.isBlank()) return
-        preferences[token] = preference.copy(token = token)
+        preferences[token] = preference.copy(
+            token = token,
+            preferredPhrase = normalize(preference.preferredPhrase),
+            avoidPhrases = preference.avoidPhrases.map(::normalize).filter { it.isNotBlank() }
+        )
     }
 
     @Synchronized
@@ -81,7 +85,10 @@ object PreferenceStore {
     fun snapshot(): List<Preference> = preferences.values.toList()
 
     fun normalize(value: String): String {
-        return value.trim().lowercase(Locale.US)
+        return ProductLexicon.canonicalizeProductText(value)
+            .trim()
+            .replace(Regex("\\s+"), " ")
+            .lowercase(Locale.US)
     }
 
     private fun Preference.toJson(): JSONObject {

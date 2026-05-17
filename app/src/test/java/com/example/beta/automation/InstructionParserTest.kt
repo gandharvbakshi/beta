@@ -53,4 +53,13 @@ class InstructionParserTest {
         assertEquals(Quantity.Count(2), items[0].quantity)
         assertEquals("2 butter", items[0].backendInputText())
     }
+
+    @Test
+    fun parse_translatesHindiAndKannadaProductTermsToEnglishQueries() {
+        val hindiItems = InstructionParser.parse("order दूध, मक्खन और पेंसिल")
+        val kannadaItems = InstructionParser.parse("order ಹಾಲು, ಬೆಣ್ಣೆ ಮತ್ತು ಪೆನ್ಸಿಲ್")
+
+        assertEquals(listOf("milk", "butter", "pencil"), hindiItems.map { it.query })
+        assertEquals(listOf("milk", "butter", "pencil"), kannadaItems.map { it.query })
+    }
 }
