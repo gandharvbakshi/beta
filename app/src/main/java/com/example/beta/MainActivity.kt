@@ -7,26 +7,40 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
 import android.util.DisplayMetrics
 import android.util.Log
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var captureScreenButton: Button
     private lateinit var textRecognitionButton: Button
+    private lateinit var voiceOrderButton: Button
+    private lateinit var feedbackMessageInput: EditText
+    private lateinit var includeLogsCheckbox: CheckBox
+    private lateinit var feedbackWorkedButton: Button
+    private lateinit var feedbackIssueButton: Button
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private val screenCaptureRequestCode = 100
     private var isCapturing = false // Track capture state
 
     // Declare the screenCaptureResult as a lateinit var
     private lateinit var screenCaptureResult: ActivityResultLauncher<Intent>
+    private lateinit var voiceInputResult: ActivityResultLauncher<Intent>
+    private lateinit var microphonePermissionResult: ActivityResultLauncher<String>
+    private var textToSpeech: TextToSpeech? = null
 
     /*// Activity result launcher for screen capture
     private var screenCaptureResult =
@@ -58,10 +72,21 @@ class MainActivity : ComponentActivity() {
         // Initialize UI elements
         captureScreenButton = findViewById(R.id.captureScreenButton)
         textRecognitionButton = findViewById(R.id.textRecognitionButton)
+        voiceOrderButton = findViewById(R.id.voiceOrderButton)
+        feedbackMessageInput = findViewById(R.id.feedbackMessageInput)
+        includeLogsCheckbox = findViewById(R.id.includeLogsCheckbox)
+        feedbackWorkedButton = findViewById(R.id.feedbackWorkedButton)
+        feedbackIssueButton = findViewById(R.id.feedbackIssueButton)
 
         // Get MediaProjectionManager
         mediaProjectionManager =
             getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+
+        textToSpeech = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                textToSpeech?.language = Locale("en", "IN")
+            }
+        }
 
         // Initialize ActivityResultLauncher
         screenCaptureResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -126,6 +151,18 @@ class MainActivity : ComponentActivity() {
             startActivity(intent)
         }
 
+        voiceOrderButton.setOnClickListener {
+            checkMicrophoneAndStartVoice()
+        }
+
+        feedbackWorkedButton.setOnClickListener {
+            sendFeedback("worked", "order_flow")
+        }
+
+        feedbackIssueButton.setOnClickListener {
+            sendFeedback("did_not_work", "order_flow")
+        }
+
         // AutomatedActionTestActivity removed - not available in current version
 
         (application as MyApplication).registerActivity(this)
@@ -133,7 +170,49 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        textToSpeech?.shutdown()
+        textToSpeech = null
         (application as MyApplication).unregisterActivity(this)
+    }
+
+    private fun speak(message: String) {
+        textToSpeech?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "beta_voice_prompt")
+    }
+
+    private fun checkMicrophoneAndStartVoice() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            startVoiceRecognition()
+        } else {
+            microphonePermissionResult.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun startVoiceRecognition() {
+        speak(getString(R.string.voice_listening))
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-IN")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.voice_listening))
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+        }
+        runCatching {
+            voiceInputResult.launch(intent)
+        }.onFailure {
+            Toast.makeText(this, "Voice recognition is not available on this device", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun handleVoiceInstruction(instruction: String) {
+        val service = (application as MyApplication).getScreenCaptureService()
+        if (service == null) {
+            speak(getString(R.string.voice_start_capture_first))
+            Toast.makeText(this, getString(R.string.voice_start_capture_first), Toast.LENGTH_LONG).show()
+            return
+        }
+        speak("I heard $instruction")
+        Log.i("BetaAgent", "VOICE_INSTRUCTION_RECOGNIZED: $instruction")
+        service.submitAutomationInstruction(instruction)
     }
 
     private fun checkPermissionsAndStartCapture() {
@@ -153,7 +232,81 @@ class MainActivity : ComponentActivity() {
             Log.d("MainActivity", "Storage permission granted, checking overlay permission")
             checkOverlayPermissionAndStartCapture()
         }*/
-        checkOverlayPermissionAndStartCapture()
+        if (BuildConfig.REQUIRE_AUTOMATION_DISCLOSURE && !automationDisclosureAccepted()) {
+            showAutomationDisclosure()
+        } else {
+            checkOverlayPermissionAndStartCapture()
+        }
+    }
+
+    private fun automationDisclosureAccepted(): Boolean {
+        return getSharedPreferences("beta_release_prefs", MODE_PRIVATE)
+            .getBoolean("automation_disclosure_accepted", false)
+    }
+
+    private fun markAutomationDisclosureAccepted() {
+        getSharedPreferences("beta_release_prefs", MODE_PRIVATE)
+            .edit()
+            .putBoolean("automation_disclosure_accepted", true)
+            .apply()
+    }
+
+    private fun showAutomationDisclosure() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.automation_disclosure_title)
+            .setMessage(R.string.automation_disclosure_message)
+            .setPositiveButton(R.string.automation_disclosure_accept) { _, _ ->
+                markAutomationDisclosureAccepted()
+                checkOverlayPermissionAndStartCapture()
+            }
+            .setNegativeButton(R.string.automation_disclosure_cancel, null)
+            .show()
+    }
+
+    private fun sendFeedback(rating: String, category: String) {
+        val message = feedbackMessageInput.text?.toString().orEmpty()
+        val includeLogs = includeLogsCheckbox.isChecked
+        feedbackWorkedButton.isEnabled = false
+        feedbackIssueButton.isEnabled = false
+        FeedbackClient.submit(
+            context = this,
+            rating = rating,
+            category = category,
+            message = message,
+            includeLogs = includeLogs
+        ) { success, detail ->
+            runOnUiThread {
+                feedbackWorkedButton.isEnabled = true
+                feedbackIssueButton.isEnabled = true
+                if (success) {
+                    feedbackMessageInput.setText("")
+                    includeLogsCheckbox.isChecked = false
+                    Toast.makeText(this, "Feedback sent", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Feedback failed: $detail", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
+        voiceInputResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS).orEmpty()
+                val instruction = matches.firstOrNull()?.trim().orEmpty()
+                if (instruction.isNotBlank()) {
+                    handleVoiceInstruction(instruction)
+                } else {
+                    Toast.makeText(this, "No voice order heard", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        microphonePermissionResult = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                startVoiceRecognition()
+            } else {
+                Toast.makeText(this, "Microphone permission is required for voice orders", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun checkOverlayPermissionAndStartCapture() {

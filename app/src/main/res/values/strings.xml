@@ -1,5 +1,17 @@
 <resources>
-    <string name="app_name">beta</string>
-    <string name="accessibility_service_name">My Accessibility Service</string>
-    <string name="accessibility_service_description">This service is used to help click recommended buttons on the screen.</string>
+    <string name="app_name">Beta</string>
+    <string name="accessibility_service_name">Beta ordering assistant</string>
+    <string name="accessibility_service_description">Beta uses this service, with your permission, to read supported grocery app screens and tap only the cart-building actions you request. It stops before payment.</string>
+    <string name="feedback_label">Feedback</string>
+    <string name="feedback_hint">Tell us what worked or where it got stuck</string>
+    <string name="feedback_include_logs">Include recent diagnostic logs</string>
+    <string name="feedback_worked">Worked</string>
+    <string name="feedback_issue">Report issue</string>
+    <string name="voice_order">Voice order</string>
+    <string name="voice_listening">Listening for your order</string>
+    <string name="voice_start_capture_first">Start capture before using voice order</string>
+    <string name="automation_disclosure_title">Before Beta controls other apps</string>
+    <string name="automation_disclosure_message">Beta uses screen capture and AccessibilityService only after you start an order. It reads supported grocery app screens, taps cart-building actions for your request, and stops before payment. Diagnostic feedback is optional.</string>
+    <string name="automation_disclosure_accept">I understand</string>
+    <string name="automation_disclosure_cancel">Cancel</string>
 </resources>

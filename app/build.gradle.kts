@@ -7,12 +7,24 @@ android {
     namespace = "com.example.beta"
     compileSdk = 35
 
+    fun configValue(name: String, fallback: String): String {
+        return providers.gradleProperty(name).orNull ?: System.getenv(name) ?: fallback
+    }
+
+    fun optionalConfigValue(name: String): String {
+        return providers.gradleProperty(name).orNull ?: System.getenv(name) ?: ""
+    }
+
+    fun configIntValue(name: String, fallback: Int): Int {
+        return configValue(name, fallback.toString()).toIntOrNull() ?: fallback
+    }
+
     defaultConfig {
         applicationId = "com.example.beta"
         minSdk = 33
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 35
+        versionCode = configIntValue("BETA_VERSION_CODE", 2)
+        versionName = configValue("BETA_VERSION_NAME", "0.2.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -20,9 +32,39 @@ android {
         }
     }
 
+    signingConfigs {
+        val storeFilePath = providers.gradleProperty("BETA_RELEASE_STORE_FILE").orNull
+        if (!storeFilePath.isNullOrBlank()) {
+            create("release") {
+                storeFile = file(storeFilePath)
+                storePassword = providers.gradleProperty("BETA_RELEASE_STORE_PASSWORD").orNull
+                    ?: System.getenv("BETA_RELEASE_STORE_PASSWORD")
+                keyAlias = providers.gradleProperty("BETA_RELEASE_KEY_ALIAS").orNull
+                    ?: System.getenv("BETA_RELEASE_KEY_ALIAS")
+                keyPassword = providers.gradleProperty("BETA_RELEASE_KEY_PASSWORD").orNull
+                    ?: System.getenv("BETA_RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            buildConfigField("String", "BETA_BACKEND_BASE_URL", "\"https://10.0.2.2:8000\"")
+            buildConfigField("String", "BETA_FEEDBACK_API_KEY", "\"${optionalConfigValue("BETA_FEEDBACK_API_KEY")}\"")
+            buildConfigField("boolean", "REQUIRE_AUTOMATION_DISCLOSURE", "false")
+        }
         release {
             isMinifyEnabled = false
+            buildConfigField(
+                "String",
+                "BETA_BACKEND_BASE_URL",
+                "\"${configValue("BETA_BACKEND_RELEASE_URL", "https://beta-backend-staging.run.app")}\""
+            )
+            buildConfigField("String", "BETA_FEEDBACK_API_KEY", "\"${optionalConfigValue("BETA_FEEDBACK_API_KEY")}\"")
+            buildConfigField("boolean", "REQUIRE_AUTOMATION_DISCLOSURE", "true")
+            signingConfigs.findByName("release")?.let {
+                signingConfig = it
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -38,6 +80,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.1"

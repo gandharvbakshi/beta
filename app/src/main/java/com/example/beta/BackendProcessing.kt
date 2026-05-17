@@ -473,6 +473,16 @@ object BackendProcessing {
     }
 
     private fun provideOkHttpClient(): OkHttpClient {
+        if (!BuildConfig.DEBUG && !AppConfig.isLocalBackend) {
+            return OkHttpClient.Builder()
+                .connectTimeout(120, TimeUnit.SECONDS)
+                .writeTimeout(120, TimeUnit.SECONDS)
+                .readTimeout(300, TimeUnit.SECONDS)
+                .callTimeout(300, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+        }
+
         val trustManager = object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
             override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
@@ -790,7 +800,7 @@ object BackendProcessing {
             val requestBody = requestBodyBuilder.build()
 
             val request = Request.Builder()
-                .url("https://10.0.2.2:8000/analyze-screenshot")
+                .url(AppConfig.analyzeScreenshotUrl)
                 .post(requestBody)
                 .build()
 

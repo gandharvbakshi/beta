@@ -21,6 +21,14 @@
         android:layout_marginBottom="16dp" />
 
     <Button
+        android:id="@+id/voiceOrderButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:contentDescription="button_voice_order"
+        android:text="@string/voice_order"
+        android:layout_marginBottom="16dp" />
+
+    <Button
         android:id="@+id/testAutomatedActionButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -33,6 +41,54 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:contentDescription="text_agent_status"
-        android:text="STATE: IDLE" />
+        android:text="STATE: IDLE"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/feedbackLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/feedback_label"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/feedbackMessageInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:contentDescription="feedback_message_input"
+        android:hint="@string/feedback_hint"
+        android:inputType="textMultiLine"
+        android:minLines="2"
+        android:maxLines="4"
+        android:layout_marginBottom="8dp" />
+
+    <CheckBox
+        android:id="@+id/includeLogsCheckbox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/feedback_include_logs"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/feedbackWorkedButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/feedback_worked"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/feedbackIssueButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/feedback_issue" />
+    </LinearLayout>
 
 </LinearLayout>
