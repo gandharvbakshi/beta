@@ -21,6 +21,25 @@ data class ItemOutcome(
 
 private fun String.outcomeQuoted() = this.replace("\"", "\\\"")
 
+private const val STORE_UNAVAILABLE_GUIDANCE = "Beta has paused. Try again later or continue manually."
+
+fun isStoreUnavailableFailureReason(reason: String?): Boolean {
+    val normalized = reason?.trim()?.lowercase().orEmpty()
+    if (normalized.isBlank()) return false
+
+    return listOf(
+        "store unavailable",
+        "unserviceable",
+        "currently unavailable",
+        "delivery location",
+        "service not available"
+    ).any { normalized.contains(it) }
+}
+
+fun storeUnavailableGuidanceMessage(): String = STORE_UNAVAILABLE_GUIDANCE
+
+fun formatStoreUnavailableStateLine(): String = "STATE: STORE_UNAVAILABLE\n$STORE_UNAVAILABLE_GUIDANCE"
+
 fun normalizeOrderOutcomeItem(rawItem: String?, matchedTarget: String? = null): String {
     val matched = matchedTarget?.trim()?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
     if (matched != null) {

@@ -634,6 +634,15 @@ used to disambiguate Phase 1–4 product choices.
      change as `source=USER_OVERRIDE, confidence=1.0`. (Detection is
      best-effort; this is a stretch goal for Phase 5.)
 
+5. **Category ordering decision policy**:
+   - For broad requests like `soft drink`, `chips`, or `biscuits`, resolve in
+     this order: category match, representative flavor/category, largest or
+     default brand, then visible Blinkit rating/review count.
+   - If the match is still ambiguous, stop for a review choice with simple
+     options like `Always ask me` or `Pick the best match`.
+   - Keep the decision wording plain and reuse the same choice on later runs
+     only when the user has explicitly selected it.
+
 ### WORK (Backend)
 
 - Accept and honour an optional `disprefer_keywords: List[str]` field in
@@ -815,12 +824,25 @@ location, selected address, stale cart state, and capture/accessibility health.
    - Large tap targets.
    - One decision per screen.
    - No technical errors; translate failures into actionable prompts.
+   - Keep onboarding short and readable, with simple permission and
+     accessibility guidance shown before the first run.
+
+5. **Run controls**
+   - The user can stop or dismiss Beta during any run and continue manually
+     later; do not clean up the cart unless the user asks.
+   - If the app is minimized or sent to the foreground by the system, pause
+     automation, show a plain-language prompt, and resume only when the user
+     returns or confirms continuation.
+   - Use stop / pause / resume language consistently so older users can tell
+     what will happen next.
 
 ### ACCEPTANCE
 
 - Emulator runs can skip location checks and remain deterministic.
 - Production mode blocks or confirms risky states before ordering.
 - The user can understand what is wrong without reading logs.
+- A run can be paused, stopped, dismissed, or resumed without an automatic
+  cart cleanup unless the user explicitly requests it.
 
 ### TEST PLAN
 
@@ -1088,6 +1110,33 @@ CI hook (suggested, not required): nightly run of all scenarios on the
 medium-phone API-34 emulator already used in `*.logcat` artefacts. CSVs
 get archived under `logs/matrix_*.csv` and a small Python script (out of
 scope here) flags regressions phase-over-phase.
+
+---
+
+## Current Test Status
+
+### Today’s status
+
+- Backend test suite: **88 tests OK**.
+- Android unit tests: **OK**.
+- Matrix runs: **single**, **multi-clean**, **multi-noisy**, and
+  **quantity** passed.
+- Fixture simulations: **preflight**, **substitution**, and **evidence**
+  passed.
+- Context matrix: **1 pass, 2 failures**; the failures are due to
+  preference / natural-language wording coverage gaps.
+- Real-device voice: **not possible today**, so voice remains blocked on
+  a device-capable follow-up.
+- Cloud staging: **private**; feedback smoke **previously passed**.
+- OOS checkout cart UI patch: **covered in backend tests**.
+
+### Latest plan additions
+
+- Implement **store-unavailable handling before live tests**.
+- Keep **UI redesign / onboarding** as upcoming work; it is **not done
+  yet**.
+- Preserve the current safe test boundary: cart verification only, no
+  payment or final checkout actions.
 
 ---
 

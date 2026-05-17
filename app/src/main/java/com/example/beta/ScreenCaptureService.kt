@@ -1563,6 +1563,7 @@ class ScreenCaptureService : Service() {
             if (::overlayView.isInitialized) {
                 overlayView.visibility = View.VISIBLE
                 val terminalText = when {
+                    reason.trimStart().startsWith("STATE:", ignoreCase = true) -> reason.trim()
                     reason.contains("await", ignoreCase = true) -> "Paused - check cart"
                     reason.contains("complete", ignoreCase = true) ||
                         reason.contains("success", ignoreCase = true) -> "Done"

@@ -66,7 +66,9 @@ function Wait-BetaAccessibilityConnected([int]$TimeoutSeconds = 15) {
 }
 
 function ConvertTo-AdbShellArg([string]$Value) {
-    return ($Value -replace "\\", "\\\\" -replace "'", "\'" -replace " ", "\ ")
+    $singleQuote = "'"
+    $escaped = ($Value -split [regex]::Escape($singleQuote)) -join "$singleQuote\$singleQuote$singleQuote"
+    return "$singleQuote$escaped$singleQuote"
 }
 
 function Get-UiDump {

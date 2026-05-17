@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("single", "multi-clean", "multi-noisy", "quantity", "context")]
+    [ValidateSet("single", "multi-clean", "multi-noisy", "quantity", "context", "preflight", "substitution", "evidence")]
     [string]$Scenario = "single",
     [switch]$SkipBuild
 )
@@ -21,6 +21,20 @@ if (-not (Test-Path -LiteralPath $FixturePath)) {
 }
 
 $Fixture = Get-Content -Raw $FixturePath | ConvertFrom-Json
+$FixtureOnlyScenarios = @("preflight", "substitution", "evidence")
+
+function Get-FixtureScenarioInstructions {
+    param([string]$ScenarioName)
+
+    $scenarioGroup = $Fixture.matrix_scenarios
+    if ($scenarioGroup) {
+        $scenarioProperty = $scenarioGroup.PSObject.Properties[$ScenarioName]
+        if ($scenarioProperty) {
+            return @($scenarioProperty.Value)
+        }
+    }
+    return @()
+}
 
 function Get-ScenarioInstructions {
     param([string]$ScenarioName)
@@ -34,20 +48,65 @@ function Get-ScenarioInstructions {
             return @($Fixture.in_stock_common | ForEach-Object { "order $_" })
         }
         "multi-clean" {
-            Write-Host "Scenario 'multi-clean' is declared for future phases and is not implemented yet."
-            return @()
+            $fixtureInstructions = Get-FixtureScenarioInstructions $ScenarioName
+            if ($fixtureInstructions.Count -gt 0) { return $fixtureInstructions }
+            return @(
+                "order $($Fixture.in_stock_common[0]), $($Fixture.in_stock_common[1]), $($Fixture.in_stock_common[2])",
+                "order $($Fixture.in_stock_common[0]), $($Fixture.in_stock_common[1]), $($Fixture.in_stock_common[2]), $($Fixture.in_stock_variant_heavy[0]), $($Fixture.in_stock_common[3])"
+            )
         }
         "multi-noisy" {
-            Write-Host "Scenario 'multi-noisy' is declared for future phases and is not implemented yet."
-            return @()
+            $fixtureInstructions = Get-FixtureScenarioInstructions $ScenarioName
+            if ($fixtureInstructions.Count -gt 0) { return $fixtureInstructions }
+            return @(
+                "butter , and apple, and maybe notebook",
+                "order butter apple and notebook",
+                "please buy   butter,,, apple ;; notebook"
+            )
         }
         "quantity" {
-            Write-Host "Scenario 'quantity' is declared for future phases and is not implemented yet."
-            return @()
+            $fixtureInstructions = Get-FixtureScenarioInstructions $ScenarioName
+            if ($fixtureInstructions.Count -gt 0) { return $fixtureInstructions }
+            return @(
+                "2 butter",
+                "6 apples",
+                "500 g bhindi",
+                "500 g bhindi, 2 butter, 6 apples"
+            )
         }
         "context" {
-            Write-Host "Scenario 'context' is currently a placeholder for future phases."
-            return @()
+            $fixtureInstructions = Get-FixtureScenarioInstructions $ScenarioName
+            if ($fixtureInstructions.Count -gt 0) { return $fixtureInstructions }
+            return @(
+                "order butter with my usual preference",
+                "order apple without the sour ones",
+                "order notebook as-is"
+            )
+        }
+        "preflight" {
+            $fixtureInstructions = Get-FixtureScenarioInstructions $ScenarioName
+            if ($fixtureInstructions.Count -gt 0) { return $fixtureInstructions }
+            return @(
+                "fixture-only: emulator preflight skips location-distance checks",
+                "fixture-only: production preflight blocks risky location states"
+            )
+        }
+        "substitution" {
+            $fixtureInstructions = Get-FixtureScenarioInstructions $ScenarioName
+            if ($fixtureInstructions.Count -gt 0) { return $fixtureInstructions }
+            return @(
+                "fixture-only: review out-of-stock alternatives before adding",
+                "fixture-only: accept only the non-oos substitute"
+            )
+        }
+        "evidence" {
+            $fixtureInstructions = Get-FixtureScenarioInstructions $ScenarioName
+            if ($fixtureInstructions.Count -gt 0) { return $fixtureInstructions }
+            return @(
+                "fixture-only: log accessibility evidence first",
+                "fixture-only: fall back to OCR only when accessibility is missing",
+                "fixture-only: use screenshot/model evidence as the last resort"
+            )
         }
     }
 }
@@ -144,6 +203,11 @@ if (-not $instructions -or $instructions.Count -eq 0) {
 $rows = New-Object System.Collections.Generic.List[object]
 
 foreach ($instruction in $instructions) {
+    if ($FixtureOnlyScenarios -contains $Scenario) {
+        $rows.Add((Get-ResultRow -Instruction $instruction -DurationSeconds 0 -OrderResult $null -Failure "fixture_only"))
+        continue
+    }
+
     $token = Get-SanitizedScenarioToken $instruction
     $fullLogPath = Join-Path $LogsDir "$token`_full_log.txt"
     Write-Host "Running scenario '$Scenario' instruction: $instruction"

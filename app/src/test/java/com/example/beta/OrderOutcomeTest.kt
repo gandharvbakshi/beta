@@ -1,6 +1,7 @@
 package com.example.beta
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OrderOutcomeTest {
@@ -66,5 +67,22 @@ class OrderOutcomeTest {
     fun normalizeOrderOutcomeItem_prefersMatchedTargetWhenProvided() {
         assertEquals("apple", normalizeOrderOutcomeItem("order something noisy", matchedTarget = "apple"))
         assertEquals("unknown_item", normalizeOrderOutcomeItem("   "))
+    }
+
+    @Test
+    fun storeUnavailableFailureReason_matchesExpectedBackendVariants() {
+        assertTrue(isStoreUnavailableFailureReason("Store unavailable for this location"))
+        assertTrue(isStoreUnavailableFailureReason("Delivery location not serviceable"))
+        assertTrue(isStoreUnavailableFailureReason("Service not available right now"))
+        assertTrue(isStoreUnavailableFailureReason("Currently unavailable in Blinkit"))
+        assertTrue(isStoreUnavailableFailureReason("Unserviceable area"))
+    }
+
+    @Test
+    fun formatStoreUnavailableStateLine_isUserFriendly() {
+        assertEquals(
+            "STATE: STORE_UNAVAILABLE\nBeta has paused. Try again later or continue manually.",
+            formatStoreUnavailableStateLine()
+        )
     }
 }
