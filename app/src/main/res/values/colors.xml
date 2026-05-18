@@ -7,4 +7,11 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="beta_background">#FFF5F7FA</color>
+    <color name="beta_surface">#FFFFFFFF</color>
+    <color name="beta_primary">#FF2457D6</color>
+    <color name="beta_secondary">#FFE9EEF8</color>
+    <color name="beta_text_primary">#FF172033</color>
+    <color name="beta_text_secondary">#FF5E6A7D</color>
+    <color name="beta_success">#FF1E7A3D</color>
 </resources>

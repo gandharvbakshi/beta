@@ -13,7 +13,8 @@ data class ParsedItem(
     val rawText: String,
     val query: String,
     val quantity: Quantity = Quantity.Default,
-    val parserConfidence: Float = 1.0f
+    val parserConfidence: Float = 1.0f,
+    val avoidPhrases: List<String> = emptyList()
 )
 
 fun Quantity.requestedCount(): Int = when (this) {
@@ -52,6 +53,18 @@ object InstructionParser {
         "^(?:(?:and|then|also|plus|with|some|a|an|the|maybe|perhaps|please|kindly|of|for\\s+me|for|me)\\b\\s*)+",
         RegexOption.IGNORE_CASE
     )
+    private val trailingPreferenceNoiseRegex = Regex(
+        "(?:\\s+(?:with\\s+my\\s+usual\\s+preference|with\\s+my\\s+usual|my\\s+usual\\s+preference|usual\\s+preference|usual|as\\s*-?is|normally|normal|regular|default))+$",
+        RegexOption.IGNORE_CASE
+    )
+    private val negativePreferenceClauseRegex = Regex(
+        "^(.*?)\\s+(?:without|no|not)\\s+(.+)$",
+        RegexOption.IGNORE_CASE
+    )
+    private val avoidPhraseNoiseRegex = Regex(
+        "^(?:(?:the|a|an)\\b\\s*)+|(?:\\s*\\b(?:one|ones|type|types|variant|variants|flavor|flavors|flavour|flavours)\\b)+$",
+        RegexOption.IGNORE_CASE
+    )
     private val leadingCountRegex = Regex("^([1-9]\\d?)\\s+(.+)$")
     private val leadingWeightRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(g|gm|gms|gram|grams|kg|kgs)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
     private val leadingVolumeRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(ml|l|ltr|liter|litre|liters|litres)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
@@ -80,7 +93,8 @@ object InstructionParser {
             .filter { it.isNotEmpty() }
             .forEach { segment ->
                 val (withoutQuantity, quantity) = extractQuantityPrefix(segment)
-                val cleaned = cleanSegment(withoutQuantity)
+                val (withoutModifiers, avoidPhrases) = extractPreferenceModifiers(withoutQuantity)
+                val cleaned = cleanSegment(withoutModifiers)
                 if (cleaned.isEmpty() || noOpRegex.matches(cleaned.lowercase(Locale.US))) {
                     return@forEach
                 }
@@ -101,7 +115,8 @@ object InstructionParser {
                                 rawText = item,
                                 query = query,
                                 quantity = itemQuantity,
-                                parserConfidence = confidence
+                                parserConfidence = confidence,
+                                avoidPhrases = if (expanded.size == 1) avoidPhrases else emptyList()
                             )
                         )
                     }
@@ -121,7 +136,13 @@ object InstructionParser {
             if (preference != null) {
                 val preferred = preference.preferredPhrase.trim().lowercase(Locale.US)
                 log("PREFERENCE_APPLIED token=\"${item.query}\" -> \"$preferred\" conf=${"%.2f".format(Locale.US, preference.confidence)}")
-                item.copy(query = preferred)
+                item.copy(
+                    query = preferred,
+                    avoidPhrases = (item.avoidPhrases + preference.avoidPhrases)
+                        .map(::cleanAvoidPhrase)
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                )
             } else {
                 log("PREFERENCE_NONE token=\"${item.query}\"")
                 item
@@ -153,6 +174,32 @@ object InstructionParser {
                 .trim(',', ';', '&')
                 .trim()
             if (text == before) return text
+        }
+    }
+
+    private fun extractPreferenceModifiers(segment: String): Pair<String, List<String>> {
+        var text = segment.trim().trim(',', ';', '&').trim()
+        text = text.replace(trailingPreferenceNoiseRegex, "").trim()
+
+        val match = negativePreferenceClauseRegex.find(text) ?: return text to emptyList()
+        val core = match.groupValues[1].trim().trim(',', ';', '&').trim()
+        val avoid = cleanAvoidPhrase(match.groupValues[2])
+        return core to listOf(avoid).filter { it.isNotBlank() }
+    }
+
+    private fun cleanAvoidPhrase(value: String): String {
+        var text = ProductLexicon.canonicalizeProductText(value)
+            .trim()
+            .trim(',', ';', '&')
+            .trim()
+        while (true) {
+            val before = text
+            text = text
+                .replace(avoidPhraseNoiseRegex, "")
+                .trim()
+                .trim(',', ';', '&')
+                .trim()
+            if (text == before) return text.lowercase(Locale.US)
         }
     }
 

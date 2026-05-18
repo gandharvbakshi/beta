@@ -1,6 +1,7 @@
 package com.example.beta
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
@@ -140,6 +141,26 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        voiceInputResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS).orEmpty()
+                val instruction = matches.firstOrNull()?.trim().orEmpty()
+                if (instruction.isNotBlank()) {
+                    handleVoiceInstruction(instruction)
+                } else {
+                    Toast.makeText(this, R.string.voice_no_order_heard, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        microphonePermissionResult = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                startVoiceRecognition()
+            } else {
+                Toast.makeText(this, R.string.voice_microphone_required, Toast.LENGTH_LONG).show()
+            }
+        }
+
         // Set click listener for the capture screen button
         captureScreenButton.setOnClickListener {
             checkPermissionsAndStartCapture()
@@ -232,11 +253,33 @@ class MainActivity : ComponentActivity() {
             Log.d("MainActivity", "Storage permission granted, checking overlay permission")
             checkOverlayPermissionAndStartCapture()
         }*/
-        if (BuildConfig.REQUIRE_AUTOMATION_DISCLOSURE && !automationDisclosureAccepted()) {
+        if (!isBetaAccessibilityEnabled()) {
+            showAccessibilitySetupHelp()
+        } else if (BuildConfig.REQUIRE_AUTOMATION_DISCLOSURE && !automationDisclosureAccepted()) {
             showAutomationDisclosure()
         } else {
             checkOverlayPermissionAndStartCapture()
         }
+    }
+
+    private fun isBetaAccessibilityEnabled(): Boolean {
+        val expected = ComponentName(this, MyAccessibilityService::class.java).flattenToString()
+        val enabled = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ).orEmpty()
+        return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
+    }
+
+    private fun showAccessibilitySetupHelp() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.accessibility_setup_title)
+            .setMessage(R.string.accessibility_setup_message)
+            .setPositiveButton(R.string.accessibility_setup_open_settings) { _, _ ->
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+            .setNegativeButton(R.string.automation_disclosure_cancel, null)
+            .show()
     }
 
     private fun automationDisclosureAccepted(): Boolean {
@@ -288,25 +331,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        voiceInputResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK && result.data != null) {
-                val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS).orEmpty()
-                val instruction = matches.firstOrNull()?.trim().orEmpty()
-                if (instruction.isNotBlank()) {
-                    handleVoiceInstruction(instruction)
-                } else {
-                    Toast.makeText(this, "No voice order heard", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
-        microphonePermissionResult = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                startVoiceRecognition()
-            } else {
-                Toast.makeText(this, "Microphone permission is required for voice orders", Toast.LENGTH_LONG).show()
-            }
-        }
     }
 
     private fun checkOverlayPermissionAndStartCapture() {
