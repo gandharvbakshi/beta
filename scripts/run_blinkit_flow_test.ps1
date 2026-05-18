@@ -997,6 +997,23 @@ function Wait-BetaScreenCaptureReady([int]$TimeoutSeconds = 75) {
     return $false
 }
 
+function Tap-BetaStartCaptureButton {
+    $xml = Get-UiDump
+    $startPoint = Get-NodeCenterByTextOrDesc @(
+        "Get started",
+        "Start Screen Capture",
+        "Start screen capture",
+        "Start capture",
+        "Capture screen"
+    ) $xml
+    if ($startPoint) {
+        adb shell input tap $startPoint.X $startPoint.Y | Out-Null
+        return
+    }
+
+    adb shell input tap 540 900 | Out-Null
+}
+
 function Start-BetaScreenCapture {
     Write-Phase "launching beta app and starting screen capture"
     adb shell am force-stop $Package | Out-Null
@@ -1005,6 +1022,8 @@ function Start-BetaScreenCapture {
     adb shell settings put secure accessibility_enabled 0 | Out-Null
     adb shell settings delete secure enabled_accessibility_services | Out-Null
     Start-Sleep -Seconds 1
+    Enable-BetaAccessibility
+    Wait-BetaAccessibilityConnected 15 | Out-Null
     adb shell am start -n "$Package/.MainActivity" | Out-Null
     Start-Sleep -Seconds 9
     if (Dismiss-AnrFromWindowState) {
@@ -1018,7 +1037,7 @@ function Start-BetaScreenCapture {
             Start-Sleep -Milliseconds 900
             continue
         }
-        adb shell input tap 540 168
+        Tap-BetaStartCaptureButton
         Start-Sleep -Seconds 2
         if (Dismiss-AnrFromWindowState) {
             adb shell am start -n "$Package/.MainActivity" | Out-Null

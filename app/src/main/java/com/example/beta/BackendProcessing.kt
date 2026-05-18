@@ -51,8 +51,13 @@ object BackendProcessing {
     private fun appNameForBackend(appName: String?): String {
         return when (appName?.trim()) {
             null, "", "com.grofers.customerapp" -> "Blinkit"
+            "in.swiggy.android.instamart" -> "Swiggy Instamart"
             else -> appName.trim()
         }
+    }
+
+    private fun isSupportedCommerceApp(appName: String?): Boolean {
+        return appName == "Blinkit" || appName == "Swiggy Instamart"
     }
     
     // Sequential action tracking
@@ -181,36 +186,11 @@ object BackendProcessing {
             checkoutBoundaryPhrases.any { normalizedTreeData.contains(it) }
     }
 
-    private fun statusForTerminalReason(reason: String): ItemOutcomeStatus {
-        val normalized = reason.lowercase()
-        return when {
-            normalized.contains("out of stock") ||
-                normalized.contains("sold out") ||
-                normalized.contains("notify me") ||
-                normalized.contains("currently unavailable") ||
-                normalized.contains("unavailable") -> ItemOutcomeStatus.OOS
-            normalized.contains("low") && normalized.contains("confidence") -> ItemOutcomeStatus.LOW_CONFIDENCE
-            normalized.contains("timeout") ||
-                normalized.contains("timed out") ||
-                normalized.contains("max steps") ||
-                normalized.contains("maximum actions") -> ItemOutcomeStatus.TIMEOUT
-            normalized.contains("misclick") ||
-                normalized.contains("wrong") ||
-                normalized.contains("wishlist") ||
-                normalized.contains("summary_and_edit") -> ItemOutcomeStatus.MISCLICK
-            else -> ItemOutcomeStatus.NOT_FOUND
-        }
-    }
+    private fun statusForTerminalReason(reason: String): ItemOutcomeStatus =
+        terminalFailureStatusForReason(reason)
 
-    private fun noteForTerminalReason(status: ItemOutcomeStatus, fallback: String): String {
-        return when (status) {
-            ItemOutcomeStatus.OOS -> "out_of_stock"
-            ItemOutcomeStatus.LOW_CONFIDENCE -> "low_confidence"
-            ItemOutcomeStatus.TIMEOUT -> "timeout"
-            ItemOutcomeStatus.MISCLICK -> "misclick"
-            else -> fallback
-        }
-    }
+    private fun noteForTerminalReason(status: ItemOutcomeStatus, fallback: String): String =
+        terminalFailureNoteForStatus(status, fallback)
 
     private fun notesWithParserConfidence(notes: String): String {
         if (!multiItemSequenceActive) return notes
@@ -703,7 +683,7 @@ object BackendProcessing {
         val requestTreeData = treeData
         if (
             isActionSequenceActive &&
-            backendAppName == "Blinkit" &&
+            isSupportedCommerceApp(backendAppName) &&
             requestTreeData.isNullOrBlank() &&
             emptyBlinkitTreeRetries < 3
         ) {
@@ -920,30 +900,32 @@ object BackendProcessing {
 
                             if (failureReason.isNotBlank() || workflowState == "FAILED_NEEDS_USER") {
                                 val userMessage = failureReason.ifBlank { "Manual help needed to continue this order." }
+                                val storeAppUnavailable = isStoreAppUnavailableFailureReason(userMessage)
                                 val storeUnavailable = isStoreUnavailableFailureReason(userMessage)
-                                val terminalStatus = if (storeUnavailable) {
-                                    ItemOutcomeStatus.OOS
-                                } else {
-                                    statusForTerminalReason(userMessage)
+                                val terminalStatus = when {
+                                    storeAppUnavailable -> ItemOutcomeStatus.STORE_UNAVAILABLE
+                                    storeUnavailable -> ItemOutcomeStatus.OOS
+                                    else -> statusForTerminalReason(userMessage)
                                 }
+                                val terminalNotes = noteForTerminalReason(terminalStatus, "workflow_failed")
                                 Log.w("BackendProcessing", "🛑 Workflow stopped: $userMessage")
                                 emitPhase0Outcome(
                                     context = context,
                                     item = verificationStatus?.targetItem ?: requestInputText,
                                     status = terminalStatus,
-                                    notes = noteForTerminalReason(terminalStatus, "workflow_failed"),
-                                    stateLineOverride = if (storeUnavailable) formatStoreUnavailableStateLine() else null
+                                    notes = terminalNotes,
+                                    stateLineOverride = if (storeAppUnavailable || storeUnavailable) formatStoreUnavailableStateLine() else null
                                 )
                                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                                     android.widget.Toast.makeText(
                                         context,
-                                        if (storeUnavailable) storeUnavailableGuidanceMessage() else userMessage,
+                                        if (storeAppUnavailable || storeUnavailable) storeUnavailableGuidanceMessage() else userMessage,
                                         android.widget.Toast.LENGTH_LONG
                                     ).show()
                                 }
                                 endScreenCaptureSession(
                                     context,
-                                    if (storeUnavailable) formatStoreUnavailableStateLine() else userMessage
+                                    if (storeAppUnavailable || storeUnavailable) formatStoreUnavailableStateLine() else userMessage
                                 )
                                 requestInFlight = false
                                 stopActionSequence()
@@ -1004,22 +986,24 @@ object BackendProcessing {
                             SessionState.ERROR -> {
                                 Log.e("BackendProcessing", "🚨 Session error state - ending session")
                                 val errorMessage = failureReason.ifBlank { stateStr }
+                                val storeAppUnavailable = isStoreAppUnavailableFailureReason(errorMessage)
                                 val storeUnavailable = isStoreUnavailableFailureReason(errorMessage)
-                                val terminalStatus = if (storeUnavailable) {
-                                    ItemOutcomeStatus.OOS
-                                } else {
-                                    statusForTerminalReason(errorMessage)
+                                val terminalStatus = when {
+                                    storeAppUnavailable -> ItemOutcomeStatus.STORE_UNAVAILABLE
+                                    storeUnavailable -> ItemOutcomeStatus.OOS
+                                    else -> statusForTerminalReason(errorMessage)
                                 }
+                                val terminalNotes = noteForTerminalReason(terminalStatus, "session_error")
                                 emitPhase0Outcome(
                                     context = context,
                                     item = verificationStatus?.targetItem ?: requestInputText,
                                     status = terminalStatus,
-                                    notes = noteForTerminalReason(terminalStatus, "session_error"),
-                                    stateLineOverride = if (storeUnavailable) formatStoreUnavailableStateLine() else null
+                                    notes = terminalNotes,
+                                    stateLineOverride = if (storeAppUnavailable || storeUnavailable) formatStoreUnavailableStateLine() else null
                                 )
                                 endScreenCaptureSession(
                                     context,
-                                    if (storeUnavailable) formatStoreUnavailableStateLine() else "Error state"
+                                    if (storeAppUnavailable || storeUnavailable) formatStoreUnavailableStateLine() else "Error state"
                                 )
                                 requestInFlight = false
                                 return@let
@@ -1145,7 +1129,7 @@ object BackendProcessing {
                                         responseBoundaryText,
                                         requestTreeData
                                     )
-                                    if (backendAppName == "Blinkit" && isCheckoutBoundary) {
+                                    if (isSupportedCommerceApp(backendAppName) && isCheckoutBoundary) {
                                         Log.w("BackendProcessing", "🚫 Checkout/payment boundary detected in response - ending flow for safety.")
                                         emitPhase0Outcome(
                                             context = context,
@@ -1497,8 +1481,11 @@ object BackendProcessing {
         }
 
         val storeUnavailable = isStoreUnavailableFailureReason("$reason $details")
+        val storeAppUnavailable = isStoreAppUnavailableFailureReason("$reason $details")
         val terminalStatus = if (isTransientError) {
             ItemOutcomeStatus.TIMEOUT
+        } else if (storeAppUnavailable) {
+            ItemOutcomeStatus.STORE_UNAVAILABLE
         } else if (storeUnavailable) {
             ItemOutcomeStatus.OOS
         } else {
@@ -1509,19 +1496,19 @@ object BackendProcessing {
             item = originalInputText,
             status = terminalStatus,
             notes = noteForTerminalReason(terminalStatus, "backend_error"),
-            stateLineOverride = if (storeUnavailable) formatStoreUnavailableStateLine() else null
+            stateLineOverride = if (storeAppUnavailable || storeUnavailable) formatStoreUnavailableStateLine() else null
         )
         
         // End session on error
         endScreenCaptureSession(
             context,
-            if (storeUnavailable) formatStoreUnavailableStateLine() else "Error: $reason"
+            if (storeAppUnavailable || storeUnavailable) formatStoreUnavailableStateLine() else "Error: $reason"
         )
         
         // Show user message
         android.widget.Toast.makeText(
             context,
-            if (storeUnavailable) storeUnavailableGuidanceMessage() else "Something went wrong. Please try again.",
+            if (storeAppUnavailable || storeUnavailable) storeUnavailableGuidanceMessage() else "Something went wrong. Please try again.",
             android.widget.Toast.LENGTH_LONG
         ).show()
     }
@@ -1579,8 +1566,11 @@ object BackendProcessing {
             Log.e("BackendProcessing", "❌ Details: ${verificationStatus.verificationDetails}")
             Log.e(TAG, "FLOW_FAILED: reason=cart_verification_failed")
             val verificationFailureReason = verificationStatus.verificationDetails ?: "cart_verification_failed"
+            val storeAppUnavailable = isStoreAppUnavailableFailureReason(verificationFailureReason)
             val storeUnavailable = isStoreUnavailableFailureReason(verificationFailureReason)
-            val terminalStatus = if (storeUnavailable) {
+            val terminalStatus = if (storeAppUnavailable) {
+                ItemOutcomeStatus.STORE_UNAVAILABLE
+            } else if (storeUnavailable) {
                 ItemOutcomeStatus.OOS
             } else {
                 statusForTerminalReason(verificationFailureReason)
@@ -1594,14 +1584,14 @@ object BackendProcessing {
                     terminalStatus,
                     verificationStatus.verificationDetails ?: "cart_verification_failed"
                 ),
-                stateLineOverride = if (storeUnavailable) formatStoreUnavailableStateLine() else null
+                stateLineOverride = if (storeAppUnavailable || storeUnavailable) formatStoreUnavailableStateLine() else null
             )
             
             // Show failure message to user
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 android.widget.Toast.makeText(
                     context, 
-                    if (storeUnavailable) storeUnavailableGuidanceMessage() else "⚠️ Item not found in cart. Returning to home to retry...", 
+                    if (storeAppUnavailable || storeUnavailable) storeUnavailableGuidanceMessage() else "⚠️ Item not found in cart. Returning to home to retry...",
                     android.widget.Toast.LENGTH_LONG
                 ).show()
             }
@@ -1612,7 +1602,7 @@ object BackendProcessing {
                 // End current session - user can restart manually
                 endScreenCaptureSession(
                     context,
-                    if (storeUnavailable) formatStoreUnavailableStateLine() else "Verification failed - retry needed"
+                    if (storeAppUnavailable || storeUnavailable) formatStoreUnavailableStateLine() else "Verification failed - retry needed"
                 )
                 stopActionSequence()
                 

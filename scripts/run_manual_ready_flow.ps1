@@ -2,7 +2,9 @@ param(
     [string]$Instruction = "order pencil",
     [int]$TimeoutSeconds = 240,
     [string]$Package = "com.example.beta",
-    [switch]$AllowFailedItems
+    [switch]$AllowFailedItems,
+    [switch]$AllowStoreUnavailable,
+    [switch]$AllowExternalAppUnresponsive
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,7 +41,7 @@ function ConvertTo-AdbShellArg([string]$Value) {
 }
 
 function Get-FilteredLogText {
-    $pattern = "AUTOMATION_INSTRUCTION_RECEIVED|AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE|INSTRUCTION_RECEIVED|MULTI_ORDER_STARTED|BLINKIT_SEARCH_STARTED|PARSED:|ITEM_RESULT|ORDER_RESULT|FLOW_FAILED|STATE: FAILED|checkout_boundary|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|ANR in com\.example\.beta|ANR in com\.grofers\.customerapp|DeadSystemException"
+    $pattern = "AUTOMATION_INSTRUCTION_RECEIVED|AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE|INSTRUCTION_RECEIVED|MULTI_ORDER_STARTED|BLINKIT_SEARCH_STARTED|PARSED:|ITEM_RESULT|ORDER_RESULT|FLOW_FAILED|STATE: FAILED|checkout_boundary|store_unavailable|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|ANR in com\.example\.beta|ANR in com\.grofers\.customerapp|ANR in in\.swiggy\.android\.instamart|Application Not Responding: in\.swiggy\.android\.instamart|in\.swiggy\.android\.instamart isn't responding|DeadSystemException"
     $matches = adb logcat -d -v time | Select-String $pattern
     if (-not $matches) {
         return ""
@@ -109,6 +111,12 @@ function Resolve-ManualReadyOutcome([string]$LogText, [bool]$InstructionReceived
     if ($LogText -match "MediaProjection state: null|Cannot trigger screenshot: Service not capturing") {
         return "capture_lost"
     }
+    if ($LogText -match "ANR in in\.swiggy\.android\.instamart|Application Not Responding: in\.swiggy\.android\.instamart|in\.swiggy\.android\.instamart isn't responding") {
+        if ($AllowExternalAppUnresponsive) {
+            return "external_app_unresponsive"
+        }
+        return "failed"
+    }
     if ($LogText -match "ANR in com\.example\.beta|ANR in com\.grofers\.customerapp|DeadSystemException") {
         return "emulator_unresponsive"
     }
@@ -127,6 +135,9 @@ function Resolve-ManualReadyOutcome([string]$LogText, [bool]$InstructionReceived
 
         $last = $orderMatches[$orderMatches.Count - 1]
         if ([int]$last.Groups[3].Value -gt 0) {
+            if ($AllowStoreUnavailable -and $last.Groups[4].Value -match "store_unavailable") {
+                return "store_unavailable"
+            }
             $isMultiItemResult = [int]$last.Groups[1].Value -gt 1
             if ($AllowFailedItems -and ($multiOrderStarted -or $isMultiItemResult)) {
                 return "success_with_failed_items"
@@ -220,7 +231,7 @@ if (-not $outcome) {
 
 Save-Artifacts $outcome
 
-if ($outcome -notin @("success", "success_with_failed_items")) {
+if ($outcome -notin @("success", "success_with_failed_items", "store_unavailable", "external_app_unresponsive")) {
     throw "Manual-ready Blinkit flow failed for '$Instruction': $outcome. See $FullLogPath and $FinalScreenPath."
 }
 

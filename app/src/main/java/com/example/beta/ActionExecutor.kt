@@ -6,11 +6,21 @@ import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONObject
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class ActionExecutor(private val accessibilityService: AccessibilityService) {
     
     companion object {
         private const val TAG = "ActionExecutor"
+        private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
+        private val SUPPORTED_COMMERCE_PACKAGES = setOf(
+            "com.grofers.customerapp",
+            SWIGGY_INSTAMART_PACKAGE,
+        )
+        private val COMMERCE_SEARCH_FIELD_VIEW_IDS = listOf(
+            "in.swiggy.android.instamart:id/et_search_query_v2",
+        )
     }
 
     private data class TapAdjustment(
@@ -324,7 +334,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return typed
     }
 
-    private fun performRawCoordinateClick(recommendedAction: JSONObject): Boolean {
+    private fun performRawCoordinateClick(
+        recommendedAction: JSONObject,
+        callback: AccessibilityService.GestureResultCallback? = null
+    ): Boolean {
         Log.d(TAG, "Attempting raw coordinate click")
 
         val coordinates = recommendedAction.optJSONObject("coordinates") ?: return false
@@ -347,7 +360,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             )
             .build()
 
-        val success = accessibilityService.dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+        val gestureCallback = callback ?: object : AccessibilityService.GestureResultCallback() {
             override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
                 Log.d(TAG, "Raw coordinate click gesture completed at ($x, $y)")
             }
@@ -355,7 +368,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
                 Log.w(TAG, "Raw coordinate click gesture cancelled at ($x, $y)")
             }
-        }, null)
+        }
+
+        val success = accessibilityService.dispatchGesture(gesture, gestureCallback, null)
 
         if (success) {
             Log.d(TAG, "Raw coordinate click dispatched successfully at ($x, $y)")
@@ -592,6 +607,22 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
 
         val keepSearchOpen = shouldKeepSearchInputOpen(recommendedAction)
+        if (isSwiggyForeground() && keepSearchOpen && isKeyboardLikelyActive()) {
+            val typed = typeTextByKeyboardGesture(textToType, submitIme = false)
+            Log.d(TAG, "Swiggy visible keyboard text entry result: $typed")
+            return typed
+        }
+
+        val searchNodeTyped = typeTextIntoSearchFieldNode(
+            textToType,
+            submitIme = !keepSearchOpen,
+            dismissKeyboard = !keepSearchOpen
+        )
+        if (searchNodeTyped) {
+            Log.d(TAG, "Type action used direct search field node")
+            return true
+        }
+
         val focusedTyped = typeTextIntoFocusedField(
             textToType,
             waitForFocusMs = 700,
@@ -614,7 +645,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             if (typed) return true
         }
 
-        val rootNode = accessibilityService.rootInActiveWindow
+        val rootNode = bestCommerceRootNode()
         val editableNode = if (rootNode != null) findFirstEditable(rootNode) else null
         if (editableNode != null) {
             editableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
@@ -642,18 +673,25 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             return typed
         }
 
+        if ((keepSearchOpen || isKeyboardLikelyActive()) &&
+            typeTextByKeyboardGesture(textToType, submitIme = !keepSearchOpen)
+        ) {
+            Log.d(TAG, "Type action used keyboard gesture fallback")
+            return true
+        }
+
         Log.w(TAG, "Target element not found for type and no editable field available")
         return false
     }
 
     private fun focusSearchFieldForTyping(recommendedAction: JSONObject): Boolean {
         return try {
-            val rootNode = accessibilityService.rootInActiveWindow ?: return false
-            val searchNode = findBlinkitSearchField(rootNode)
+            val rootNode = bestCommerceRootNode() ?: return false
+            val searchNode = findCommerceSearchField(rootNode)
             if (searchNode != null) {
                 val clickableNode = findClickableSelfOrAncestor(searchNode) ?: searchNode
                 val clicked = clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                Log.d(TAG, "Focused Blinkit search field via accessibility node result: $clicked")
+                Log.d(TAG, "Focused commerce search field via accessibility node result: $clicked")
                 if (clicked) {
                     return waitForSearchFieldFocus(700)
                 }
@@ -736,6 +774,251 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             contentDescription.contains("search", ignoreCase = true)
     }
 
+    private fun isKeyboardLikelyActive(): Boolean {
+        return visibleWindowPackages().any { packageName ->
+            packageName.contains("inputmethod", ignoreCase = true) ||
+                packageName.contains("keyboard", ignoreCase = true) ||
+                packageName.contains("latin", ignoreCase = true)
+        }
+    }
+
+    private fun isSwiggyForeground(): Boolean {
+        return visibleWindowPackages().any { it == SWIGGY_INSTAMART_PACKAGE }
+    }
+
+    private fun visibleWindowPackages(): List<String> {
+        val packages = mutableListOf<String>()
+        try {
+            accessibilityService.rootInActiveWindow?.packageName?.toString()?.let { packages.add(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read active root package: ${e.message}")
+        }
+
+        try {
+            accessibilityService.windows?.forEach { window ->
+                try {
+                    window?.root?.packageName?.toString()?.let { packages.add(it) }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to read window package: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to enumerate window packages: ${e.message}")
+        }
+
+        return packages
+    }
+
+    private fun typeTextByKeyboardGesture(text: String, submitIme: Boolean): Boolean {
+        val (screenWidth, screenHeight) = ScreenMetrics.getScreenDimensions(accessibilityService)
+        val keyCenters = keyboardKeyCenters(screenWidth, screenHeight)
+        var typedAny = false
+
+        for (char in text.lowercase()) {
+            val point = keyCenters[char] ?: continue
+            if (!performRawClick(point.first, point.second, waitForCompletion = true)) {
+                return false
+            }
+            typedAny = true
+            Thread.sleep(90)
+        }
+
+        if (typedAny && submitIme) {
+            performRawClick((screenWidth * 0.92f).toInt(), (screenHeight * 0.91f).toInt(), waitForCompletion = true)
+            Thread.sleep(250)
+        }
+        return typedAny
+    }
+
+    private fun performRawClick(x: Int, y: Int, waitForCompletion: Boolean = false): Boolean {
+        val coordinates = JSONObject().apply {
+            put("x", x)
+            put("y", y)
+        }
+        val action = JSONObject().apply {
+            put("coordinates", coordinates)
+        }
+        if (!waitForCompletion) {
+            return performRawCoordinateClick(action)
+        }
+
+        val completionLatch = CountDownLatch(1)
+        val resultHolder = BooleanArray(1)
+        val success = performRawCoordinateClick(action, object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                resultHolder[0] = true
+                completionLatch.countDown()
+            }
+
+            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                resultHolder[0] = false
+                completionLatch.countDown()
+            }
+        })
+
+        if (!success) {
+            return false
+        }
+
+        if (!completionLatch.await(900, TimeUnit.MILLISECONDS)) {
+            Log.w(TAG, "Timed out waiting for raw keyboard tap to finish at ($x, $y)")
+            return true
+        }
+
+        return resultHolder[0]
+    }
+
+    private fun keyboardKeyCenters(screenWidth: Int, screenHeight: Int): Map<Char, Pair<Int, Int>> {
+        val centers = mutableMapOf<Char, Pair<Int, Int>>()
+        val topRow = "qwertyuiop"
+        val middleRow = "asdfghjkl"
+        val bottomRow = "zxcvbnm"
+        val topY = (screenHeight * 0.715f).toInt()
+        val middleY = (screenHeight * 0.782f).toInt()
+        val bottomY = (screenHeight * 0.852f).toInt()
+
+        topRow.forEachIndexed { index, char ->
+            centers[char] = Pair(((index + 0.5f) * screenWidth / 10f).toInt(), topY)
+        }
+        middleRow.forEachIndexed { index, char ->
+            centers[char] = Pair(((index + 1f) * screenWidth / 10f).toInt(), middleY)
+        }
+        bottomRow.forEachIndexed { index, char ->
+            centers[char] = Pair(((index + 2f) * screenWidth / 10f).toInt(), bottomY)
+        }
+        centers[' '] = Pair((screenWidth * 0.55f).toInt(), (screenHeight * 0.915f).toInt())
+        return centers
+    }
+
+    private fun typeTextIntoSearchFieldNode(
+        text: String,
+        submitIme: Boolean,
+        dismissKeyboard: Boolean
+    ): Boolean {
+        val roots = allAvailableWindowRoots()
+        for (root in roots) {
+            val commerceFallback = if (isSupportedCommercePackage(root.packageName?.toString())) {
+                findSearchEditableNode(root)
+            } else {
+                null
+            }
+            val searchNode = findSearchEditableNodeByKnownId(root)
+                ?: findFocusedSearchEditableNode(root)
+                ?: commerceFallback
+                ?: continue
+            searchNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            searchNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            val args = android.os.Bundle()
+            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            val success = searchNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            Log.d(TAG, "Direct search field text entry result: $success")
+            if (success) {
+                if (submitIme) {
+                    submitImeEnter(searchNode)
+                }
+                if (dismissKeyboard) {
+                    dismissKeyboardIfStillFocused(text)
+                } else {
+                    Thread.sleep(500)
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun allAvailableWindowRoots(): List<AccessibilityNodeInfo> {
+        val roots = mutableListOf<AccessibilityNodeInfo>()
+        accessibilityService.rootInActiveWindow?.let { roots.add(it) }
+
+        try {
+            accessibilityService.windows?.forEach { window ->
+                try {
+                    val root = window?.root ?: return@forEach
+                    if (!roots.any { it === root }) {
+                        roots.add(root)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to read accessibility window root: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to enumerate accessibility windows: ${e.message}")
+        }
+
+        return roots
+    }
+
+    private fun findSearchEditableNodeByKnownId(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        for (viewId in COMMERCE_SEARCH_FIELD_VIEW_IDS) {
+            val nodes = try {
+                root.findAccessibilityNodeInfosByViewId(viewId)
+            } catch (e: Exception) {
+                Log.w(TAG, "Search field lookup failed for $viewId: ${e.message}")
+                emptyList()
+            }
+
+            val match = nodes.firstOrNull { isUsableSearchEditableNode(it) }
+            if (match != null) {
+                Log.d(TAG, "Found commerce search field by view id: $viewId")
+                return match
+            }
+        }
+        return null
+    }
+
+    private fun findFocusedSearchEditableNode(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val focusedNode = try {
+            root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        } catch (e: Exception) {
+            null
+        }
+        return focusedNode?.takeIf { isUsableSearchEditableNode(it) }
+    }
+
+    private fun findSearchEditableNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+
+        if (isUsableSearchEditableNode(node)) {
+            return node
+        }
+
+        if (bounds.top > 700 && bounds.height() > 0) {
+            return null
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findSearchEditableNode(child)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun isUsableSearchEditableNode(node: AccessibilityNodeInfo): Boolean {
+        val resourceId = node.viewIdResourceName.orEmpty()
+        val className = node.className?.toString().orEmpty()
+        val text = node.text?.toString().orEmpty()
+        val hint = node.hintText?.toString().orEmpty()
+        val description = node.contentDescription?.toString().orEmpty()
+        return node.isVisibleToUser && node.isEnabled &&
+            (node.isEditable || className.contains("EditText", ignoreCase = true)) &&
+            (
+                resourceId.contains("search", ignoreCase = true) ||
+                    description.contains("search", ignoreCase = true) ||
+                    text.contains("search", ignoreCase = true) ||
+                    hint.contains("search", ignoreCase = true)
+            )
+    }
+
+    private fun isUsableEditableNode(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+        val className = node.className?.toString().orEmpty()
+        return node.isVisibleToUser && node.isEnabled &&
+            (node.isEditable || className.contains("EditText", ignoreCase = true))
+    }
+
     fun typeTextIntoFocusedField(
         text: String,
         waitForFocusMs: Long = 0,
@@ -773,8 +1056,14 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     private fun waitForFocusedEditable(timeoutMs: Long): AccessibilityNodeInfo? {
         val deadline = System.currentTimeMillis() + timeoutMs
         do {
-            val root = accessibilityService.rootInActiveWindow
-            val focusedNode = if (root != null) findFocusedEditable(root) else null
+            val focusedNode = allAvailableWindowRoots().firstNotNullOfOrNull { root ->
+                val directFocus = try {
+                    root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                } catch (e: Exception) {
+                    null
+                }
+                if (isUsableEditableNode(directFocus)) directFocus else null
+            } ?: commerceWindowRoots().firstNotNullOfOrNull { root -> findFocusedEditable(root) }
             if (focusedNode != null) return focusedNode
             if (timeoutMs <= 0) break
             Thread.sleep(100)
@@ -844,7 +1133,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return null
     }
 
-    private fun findBlinkitSearchField(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+    private fun findCommerceSearchField(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        findSearchEditableNodeByKnownId(node)?.let { return it }
+        findFocusedSearchEditableNode(node)?.let { return it }
+
         val resourceId = node.viewIdResourceName.orEmpty()
         val text = node.text?.toString().orEmpty()
         val description = node.contentDescription?.toString().orEmpty()
@@ -858,7 +1150,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            val result = findBlinkitSearchField(child)
+            val result = findCommerceSearchField(child)
             if (result != null) return result
         }
         return null
@@ -878,8 +1170,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     private fun waitForSearchFieldFocus(timeoutMs: Long): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         do {
-            val rootNode = accessibilityService.rootInActiveWindow
-            if (rootNode != null && hasFocusedSearchField(rootNode)) {
+            if (commerceWindowRoots().any { rootNode -> hasFocusedSearchField(rootNode) }) {
                 return true
             }
             if (timeoutMs <= 0) {
@@ -908,6 +1199,42 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             if (result != null) return result
         }
         return null
+    }
+
+    private fun bestCommerceRootNode(): AccessibilityNodeInfo? {
+        return commerceWindowRoots().firstOrNull()
+    }
+
+    private fun commerceWindowRoots(): List<AccessibilityNodeInfo> {
+        val roots = mutableListOf<AccessibilityNodeInfo>()
+        val activeRoot = accessibilityService.rootInActiveWindow
+        if (isSupportedCommercePackage(activeRoot?.packageName?.toString())) {
+            roots.add(activeRoot!!)
+        }
+
+        try {
+            accessibilityService.windows?.forEach { window ->
+                try {
+                    val root = window?.root ?: return@forEach
+                    if (isSupportedCommercePackage(root.packageName?.toString()) && !roots.any { it === root }) {
+                        roots.add(root)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to read commerce window root: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to enumerate accessibility windows: ${e.message}")
+        }
+
+        if (roots.isEmpty() && activeRoot != null) {
+            roots.add(activeRoot)
+        }
+        return roots
+    }
+
+    private fun isSupportedCommercePackage(packageName: String?): Boolean {
+        return packageName in SUPPORTED_COMMERCE_PACKAGES
     }
 
     private fun isSearchFieldCandidate(node: AccessibilityNodeInfo): Boolean {
