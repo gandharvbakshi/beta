@@ -32,6 +32,7 @@ import android.os.Build
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import com.example.beta.automation.ParsedItem
+import com.example.beta.automation.InstructionParser
 import com.example.beta.automation.backendInputText
 import com.example.beta.automation.requestedCount
 import java.util.Locale
@@ -741,6 +742,7 @@ object BackendProcessing {
                 .addFormDataPart("input_text", requestInputText)
                 .addFormDataPart("api_version", apiVersion)
                 .addFormDataPart("client_version", clientVersion)
+                .addFormDataPart("parser_version", InstructionParser.PARSER_VERSION)
             
             // Add session_id if available
             if (sessionContext != null) {

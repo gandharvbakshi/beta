@@ -5,6 +5,11 @@ import org.junit.Test
 
 class InstructionParserTest {
     @Test
+    fun parserVersion_tracksLearningContract() {
+        assertEquals("2026.05.18.1", InstructionParser.PARSER_VERSION)
+    }
+
+    @Test
     fun parse_stripsLeadingCommandPrefixForSingleItem() {
         val items = InstructionParser.parse("get me apples")
 

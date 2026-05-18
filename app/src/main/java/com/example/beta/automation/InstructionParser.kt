@@ -32,6 +32,8 @@ fun ParsedItem.backendInputText(): String {
 }
 
 object InstructionParser {
+    const val PARSER_VERSION = "2026.05.18.1"
+
     private val leadingCommandRegex = Regex(
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
         RegexOption.IGNORE_CASE
