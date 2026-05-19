@@ -165,7 +165,7 @@ object BackendProcessing {
             actionType.equals("error", ignoreCase = true) -> "Needs attention"
             else -> "Working"
         }
-        return "$phase ($step/$max)"
+        return phase
     }
 
     private fun isCheckoutBoundaryDetected(responseText: String?, treeData: String?): Boolean {
@@ -313,7 +313,7 @@ object BackendProcessing {
 
         multiItemSequenceIndex = nextIndex
         val nextItem = multiItemSequenceItems[nextIndex]
-        updateFlowStatus(context, "Preparing next item (${nextIndex + 1}/$totalItems)")
+        updateFlowStatus(context, "Preparing next item: ${nextItem.query}")
         multiItemSequenceAwaitingNext = true
 
         Thread {
@@ -608,7 +608,7 @@ object BackendProcessing {
                 intent.putExtra("original_input", triggerInput)
                 intent.putExtra("action_number", nextActionNumber)
                 intent.putExtra("sequence_generation", triggerGeneration)
-                updateFlowStatus(triggerContext, "Reading screen ($nextActionNumber/$maxActions)")
+                updateFlowStatus(triggerContext, "Reading screen")
                 
                 Log.d("BackendProcessing", "🔍 DEBUG: About to send broadcast with:")
                 Log.d("BackendProcessing", "🔍 DEBUG: - Action: com.example.beta.TRIGGER_NEXT_ACTION")
@@ -662,7 +662,7 @@ object BackendProcessing {
 
         if (isActionSequenceActive && requestInFlight) {
             Log.w("BackendProcessing", "Ignoring screenshot because backend request/action is already in flight")
-            updateFlowStatus(context, "Working ($currentActionNumber/$maxActions)")
+            updateFlowStatus(context, "Working")
             return
         }
         requestInFlight = true
@@ -675,7 +675,7 @@ object BackendProcessing {
         if (isActionSequenceActive) {
             currentActionNumber++
             requestActionNumber = currentActionNumber
-            updateFlowStatus(context, "Analyzing screen ($currentActionNumber/$maxActions)")
+            updateFlowStatus(context, "Analyzing screen")
             // Log.d("BackendProcessing", "Processing action #$currentActionNumber in sequence")
         }
 
@@ -689,7 +689,7 @@ object BackendProcessing {
         ) {
             emptyBlinkitTreeRetries++
             Log.w("BackendProcessing", "Blinkit tree was empty; retrying capture before asking backend ($emptyBlinkitTreeRetries/3)")
-            updateFlowStatus(context, "Reading screen ($currentActionNumber/$maxActions)")
+            updateFlowStatus(context, "Reading screen")
             requestInFlight = false
             triggerNextAction()
             return

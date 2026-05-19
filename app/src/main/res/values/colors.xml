@@ -14,6 +14,7 @@
     <color name="beta_primary">#FFC2410C</color>
     <color name="beta_primary_pressed">#FFA8380A</color>
     <color name="beta_primary_soft">#FFFBE8DC</color>
+    <color name="beta_on_primary">#FFFFFFFF</color>
     <color name="beta_secondary">#FFF2EDE3</color>
     <color name="beta_text_primary">#FF1F2433</color>
     <color name="beta_text_secondary">#FF6B6862</color>
@@ -21,4 +22,5 @@
     <color name="beta_success_bg">#FFE7EFE7</color>
     <color name="beta_amber">#FF9A5B0E</color>
     <color name="beta_amber_bg">#FFFFF0DC</color>
+    <color name="beta_scrim">#73151B2A</color>
 </resources>

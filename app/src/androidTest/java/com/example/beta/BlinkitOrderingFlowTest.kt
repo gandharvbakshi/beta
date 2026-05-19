@@ -79,7 +79,7 @@ class BlinkitOrderingFlowTest {
 
         acceptScreenCapturePrompt()
 
-        waitAny(12_000, "Tap for input", "Tap to add instruction")
+        waitAny(12_000, "Tap to tell Beta")
     }
 
     private fun acceptScreenCapturePrompt() {
@@ -92,7 +92,7 @@ class BlinkitOrderingFlowTest {
     }
 
     private fun submitInstructionFromOverlay(instruction: String) {
-        val overlay = waitAny(15_000, "Tap for input", "Tap to add instruction", "Emulator Mode")
+        val overlay = waitAny(15_000, "Tap to tell Beta")
             ?: error("Instruction overlay was not visible after screen capture setup")
         overlay.click()
 
@@ -100,8 +100,8 @@ class BlinkitOrderingFlowTest {
             ?: error("Instruction input was not visible")
         input.text = instruction
 
-        val submit = waitAny(8_000, "Submit")
-            ?: error("Submit button was not visible")
+        val submit = waitAny(8_000, "Send to Beta")
+            ?: error("Send to Beta button was not visible")
         submit.click()
     }
 

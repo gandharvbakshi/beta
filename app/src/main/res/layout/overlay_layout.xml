@@ -1,15 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:background="#80000000"  android:padding="8dp">
+    android:minHeight="44dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="10dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
+    android:background="@drawable/beta_pill_overlay"
+    android:elevation="12dp">
+
+    <TextView
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:background="@drawable/beta_step_current"
+        android:gravity="center"
+        android:fontFamily="serif"
+        android:text="β"
+        android:textColor="@color/beta_on_primary"
+        android:textSize="16sp" />
 
     <TextView
         android:id="@+id/overlay_text"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Capturing..."
-        android:textColor="#FFFFFF"
-        android:textSize="16sp" />
+        android:layout_marginStart="10dp"
+        android:fontFamily="sans-serif-medium"
+        android:text="@string/overlay_status_ready"
+        android:textColor="@color/beta_text_primary"
+        android:textSize="14sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:maxWidth="180dp" />
 
+    <View
+        android:id="@+id/overlay_dot"
+        android:layout_width="10dp"
+        android:layout_height="10dp"
+        android:layout_marginStart="10dp"
+        android:background="@drawable/beta_dot_sage" />
 </LinearLayout>

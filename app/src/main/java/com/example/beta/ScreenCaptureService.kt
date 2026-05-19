@@ -18,19 +18,17 @@ import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.*
-import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.Button
 import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.example.beta.automation.InstructionParser
+import com.example.beta.automation.ParsedItem
 import com.example.beta.automation.PreferenceStore
-import com.example.beta.automation.backendInputText
-import com.example.beta.automation.requestedCount
+import com.example.beta.automation.Quantity
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
@@ -73,11 +71,28 @@ class ScreenCaptureService : Service() {
     private var overlayBounds: android.graphics.Rect? = null
     private var currentTreeData: String? = null
     private var currentAppName: String? = null
+    private var lastImageDrainWarningAt = 0L
     
     // Sequential action support
     private var isActionSequenceActive: Boolean = false
     private var originalInputText: String? = null
     private var currentSequenceGeneration: Long = -1L
+
+    private fun requestedCount(quantity: Quantity): Int {
+        return when (quantity) {
+            is Quantity.Count -> quantity.n.coerceAtLeast(1)
+            else -> 1
+        }
+    }
+
+    private fun backendInputText(item: ParsedItem): String {
+        return when (val quantity = item.quantity) {
+            is Quantity.Count -> if (quantity.n > 1) "${quantity.n} ${item.query}" else item.query
+            is Quantity.Weight -> "${quantity.grams} g ${item.query}"
+            is Quantity.Volume -> "${quantity.ml} ml ${item.query}"
+            Quantity.Default -> item.query
+        }
+    }
 
     // Check if running on emulator
     private fun isEmulator(): Boolean {
@@ -809,7 +824,7 @@ class ScreenCaptureService : Service() {
         
         try {
             // Use emulator-specific settings if running on emulator
-            val bufferSize = if (isEmulator()) 1 else 2
+            val bufferSize = if (isEmulator()) 3 else 2
             val pixelFormat = PixelFormat.RGBA_8888
             
             // Try to create ImageReader with the selected format
@@ -841,14 +856,13 @@ class ScreenCaptureService : Service() {
 
     // ImageAvailableListener moved outside createImageReader
     private val imageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
-        Log.d("ScreenCaptureService", "ImageAvailableListener triggered - pendingScreenshot: $pendingScreenshot")
         if (pendingScreenshot) {
             pendingScreenshot = false
+            var image: Image? = null
             try {
-                val image = reader.acquireLatestImage()
+                image = reader.acquireLatestImage()
                 if (image != null) {
                     processImage(image)
-                    image.close()
                 } else {
                     Log.e("ScreenCaptureService", "Failed to acquire image for pending screenshot - image is null")
                     // Restore overlay visibility if we can't get the image
@@ -858,9 +872,19 @@ class ScreenCaptureService : Service() {
                 Log.e("ScreenCaptureService", "Error processing pending screenshot: ", e)
                 // Restore overlay visibility on error
                 restoreOverlayVisibility(currentInputText)
+            } finally {
+                image?.close()
             }
         } else {
-            Log.d("ScreenCaptureService", "Image available but no pending screenshot - ignoring")
+            try {
+                reader.acquireLatestImage()?.close()
+            } catch (e: Exception) {
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastImageDrainWarningAt > 5000) {
+                    lastImageDrainWarningAt = now
+                    Log.w("ScreenCaptureService", "Failed to close non-pending image frame: ${e.message}")
+                }
+            }
         }
     }
 
@@ -1275,10 +1299,6 @@ class ScreenCaptureService : Service() {
                 y = getOverlayTopOffsetPx()
             }
             
-            // Setup overlay text with emulator-specific message
-            val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
-            overlayText.text = "Emulator Mode - Tap for input"
-            
             // Make the overlay non-focusable so it doesn't steal focus from Blinkit
             overlayView.isFocusable = false
             overlayView.isFocusableInTouchMode = false
@@ -1294,6 +1314,7 @@ class ScreenCaptureService : Service() {
             
             try {
                 windowManager.addView(overlayView, layoutParams)
+                setOverlayState(OverlayState.READY)
                 Log.d("ScreenCaptureService", "Emulator overlay window created successfully")
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error adding emulator overlay view: ${e.message}", e)
@@ -1348,10 +1369,6 @@ class ScreenCaptureService : Service() {
                 y = getOverlayTopOffsetPx()
             }
             
-            // Setup overlay text with initial message
-            val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
-            overlayText.text = "Tap to add instruction"
-            
             // Make the overlay non-focusable so it doesn't steal focus from Blinkit
             overlayView.isFocusable = false
             overlayView.isFocusableInTouchMode = false
@@ -1367,6 +1384,7 @@ class ScreenCaptureService : Service() {
             
             try {
                 windowManager.addView(overlayView, layoutParams)
+                setOverlayState(OverlayState.READY)
                 Log.d("ScreenCaptureService", "Overlay window created successfully")
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error adding overlay view to window manager: ${e.message}", e)
@@ -1380,137 +1398,8 @@ class ScreenCaptureService : Service() {
     
     // Emulator-specific input dialog
     private fun showEmulatorInputDialog() {
-        try {
-            Log.d("ScreenCaptureService", "Showing emulator input dialog")
-            
-            // Create a simple input overlay for emulator
-            val containerLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.edit_text)
-                setPadding(20, 20, 20, 20)
-            }
-            
-            // Create the input field
-            val inputOverlay = EditText(this).apply {
-                hint = "Enter instruction (Emulator Mode)..."
-                setText(currentInputText ?: "")
-                setPadding(20, 20, 20, 20)
-                setTextColor(android.graphics.Color.BLACK)
-                setHintTextColor(android.graphics.Color.GRAY)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                
-                // Handle Enter key press
-                setOnEditorActionListener { _, actionId, _ ->
-                    if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_SEND) {
-                        submitInstruction(text.toString().trim())
-                        true
-                    } else {
-                        false
-                    }
-                }
-            }
-            
-            // Create close and submit buttons
-            val closeButton = TextView(this).apply {
-                text = "Close"
-                contentDescription = "Close input overlay"
-                setTextColor(android.graphics.Color.WHITE)
-                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.btn_default)
-                gravity = Gravity.CENTER
-                maxLines = 1
-                setPadding(12, 0, 12, 0)
-                layoutParams = LinearLayout.LayoutParams(
-                    0,
-                    72,
-                    1f
-                ).apply {
-                    rightMargin = 12
-                }
-
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    hideInputOverlay()
-                }
-            }
-
-            val submitButton = TextView(this).apply {
-                text = "Submit"
-                setTextColor(android.graphics.Color.WHITE)
-                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.btn_default)
-                gravity = Gravity.CENTER
-                maxLines = 1
-                setPadding(12, 0, 12, 0)
-                layoutParams = LinearLayout.LayoutParams(
-                    0,
-                    72,
-                    1f
-                )
-                
-                // Make button clickable
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    submitInstruction(inputOverlay.text.toString().trim())
-                }
-            }
-
-            val buttonRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = 20
-                }
-            }
-            buttonRow.addView(closeButton)
-            buttonRow.addView(submitButton)
-            
-            // Add input and button to container
-            containerLayout.addView(inputOverlay)
-            containerLayout.addView(buttonRow)
-            
-            // Store reference to input overlay and its params
-            inputOverlayView = containerLayout
-            inputOverlayParams = WindowManager.LayoutParams(
-                300, // Smaller width for emulator
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                } else {
-                    @Suppress("DEPRECATION")
-                    WindowManager.LayoutParams.TYPE_PHONE
-                },
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT
-            ).apply {
-                gravity = Gravity.CENTER
-            }
-            
-            // Add input overlay to window manager
-            windowManager.addView(containerLayout, inputOverlayParams!!)
-            
-            // Request focus and show keyboard
-            inputOverlay.requestFocus()
-            inputOverlay.postDelayed({
-                try {
-                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                    imm.showSoftInput(inputOverlay, InputMethodManager.SHOW_IMPLICIT)
-                } catch (e: Exception) {
-                    Log.w("ScreenCaptureService", "Could not show keyboard on emulator: ${e.message}")
-                }
-            }, 100)
-            
-            Log.d("ScreenCaptureService", "Emulator input overlay shown")
-            
-        } catch (e: Exception) {
-            Log.e("ScreenCaptureService", "Error creating emulator input overlay: ${e.message}", e)
-        }
+        Log.d("ScreenCaptureService", "Showing emulator input overlay with shared Beta layout")
+        showSimpleInputOverlay()
     }
 
     private fun showInputDialog() {
@@ -1579,9 +1468,9 @@ class ScreenCaptureService : Service() {
                 Handler(Looper.getMainLooper()).postDelayed({
                     if (::overlayView.isInitialized) {
                         if (isEmulator()) {
-                            updateEmulatorOverlayText("Ready - Tap for input")
+                            setOverlayState(OverlayState.READY)
                         } else {
-                            updateOverlayText("Ready - Tap to add instruction")
+                            setOverlayState(OverlayState.READY)
                         }
                     }
                 }, 4000)
@@ -1622,134 +1511,73 @@ class ScreenCaptureService : Service() {
     
     private fun showSimpleInputOverlay() {
         try {
-            Log.d("ScreenCaptureService", "Creating simple input overlay")
-            // Hide existing input overlay if any
+            Log.d("ScreenCaptureService", "Inflating input_overlay.xml")
             hideInputOverlay()
-            
-            // Create a container layout for input and button
-            val containerLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.edit_text)
-                setPadding(20, 20, 20, 20)
-            }
-            
-            // Create the input field
-            val inputOverlay = EditText(this).apply {
-                hint = "Enter instruction for backend..."
-                setText(currentInputText ?: "")
-                setPadding(20, 20, 20, 20)
-                setTextColor(android.graphics.Color.BLACK)
-                setHintTextColor(android.graphics.Color.GRAY)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                
-                // Handle Enter key press
-                setOnEditorActionListener { _, actionId, _ ->
-                    if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_SEND) {
-                        submitInstruction(text.toString().trim())
-                        true
-                    } else {
-                        false
-                    }
-                }
-            }
-            
-            // Create close and submit buttons
-            val closeButton = TextView(this).apply {
-                text = "Close"
-                contentDescription = "Close input overlay"
-                setTextColor(android.graphics.Color.WHITE)
-                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.btn_default)
-                gravity = Gravity.CENTER
-                maxLines = 1
-                setPadding(12, 0, 12, 0)
-                layoutParams = LinearLayout.LayoutParams(
-                    0,
-                    72,
-                    1f
-                ).apply {
-                    rightMargin = 12
-                }
 
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    hideInputOverlay()
-                }
+            val inflated = LayoutInflater.from(this).inflate(R.layout.input_overlay, null)
+            val card = inflated.findViewById<View>(R.id.inputCard)
+            val input = inflated.findViewById<EditText>(R.id.inputField)
+            val cancel = inflated.findViewById<Button>(R.id.inputCancel)
+            val submit = inflated.findViewById<Button>(R.id.inputSubmit)
+            val close = inflated.findViewById<View>(R.id.inputClose)
+            val chipRefill = inflated.findViewById<TextView>(R.id.inputChipRefill)
+            val chipBasics = inflated.findViewById<TextView>(R.id.inputChipBasics)
+            val chipCleaning = inflated.findViewById<TextView>(R.id.inputChipCleaning)
+
+            input.setText(currentInputText ?: "")
+
+            cancel.setOnClickListener { hideInputOverlay() }
+            close.setOnClickListener { hideInputOverlay() }
+            submit.setOnClickListener {
+                submitInstruction(input.text.toString().trim())
             }
 
-            val submitButton = TextView(this).apply {
-                text = "Submit"
-                setTextColor(android.graphics.Color.WHITE)
-                background = ContextCompat.getDrawable(this@ScreenCaptureService, android.R.drawable.btn_default)
-                gravity = Gravity.CENTER
-                maxLines = 1
-                setPadding(12, 0, 12, 0)
-                layoutParams = LinearLayout.LayoutParams(
-                    0,
-                    72,
-                    1f
-                )
-                
-                // Make button clickable
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    submitInstruction(inputOverlay.text.toString().trim())
-                }
-            }
+            chipRefill.setOnClickListener { fillInputFromChip(input, R.string.input_example_refill) }
+            chipBasics.setOnClickListener { fillInputFromChip(input, R.string.input_example_basics) }
+            chipCleaning.setOnClickListener { fillInputFromChip(input, R.string.input_example_cleaning) }
+            inflated.setOnClickListener { hideInputOverlay() }
+            card.setOnClickListener { }
 
-            val buttonRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = 20
-                }
-            }
-            buttonRow.addView(closeButton)
-            buttonRow.addView(submitButton)
-            
-            // Add input and button to container
-            containerLayout.addView(inputOverlay)
-            containerLayout.addView(buttonRow)
-            
-            // Store reference to input overlay and its params
-            inputOverlayView = containerLayout
+            inputOverlayView = inflated
             inputOverlayParams = WindowManager.LayoutParams(
-                400, // Fixed width
-                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 } else {
                     @Suppress("DEPRECATION")
                     WindowManager.LayoutParams.TYPE_PHONE
                 },
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_DIM_BEHIND,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.CENTER
+                dimAmount = 0f
+                softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
             }
-            
-            // Add input overlay to window manager
-            windowManager.addView(containerLayout, inputOverlayParams!!)
-            
-            // Request focus and show keyboard
-            inputOverlay.requestFocus()
-            inputOverlay.postDelayed({
-                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                imm.showSoftInput(inputOverlay, InputMethodManager.SHOW_IMPLICIT)
+
+            windowManager.addView(inflated, inputOverlayParams!!)
+
+            input.requestFocus()
+            input.postDelayed({
+                try {
+                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+                } catch (e: Exception) {
+                    Log.w("ScreenCaptureService", "Could not show keyboard: ${e.message}")
+                }
             }, 100)
-            
-            Log.d("ScreenCaptureService", "Input overlay with submit button shown")
-            
+
+            Log.d("ScreenCaptureService", "Input overlay shown")
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error creating input overlay: ${e.message}", e)
         }
+    }
+
+    private fun fillInputFromChip(input: EditText, stringRes: Int) {
+        input.setText(getString(stringRes))
+        input.setSelection(input.text.length)
     }
     
     fun submitAutomationInstruction(inputText: String) {
@@ -1770,7 +1598,7 @@ class ScreenCaptureService : Service() {
             )
             val isMultiItemInstruction = parsedItems.size > 1
             val firstParsedItem = parsedItems.firstOrNull()
-            val activeInputText = firstParsedItem?.backendInputText() ?: inputText
+            val activeInputText = firstParsedItem?.let { backendInputText(it) } ?: inputText
             currentInputText = activeInputText
             originalInputText = activeInputText
             isActionSequenceActive = true
@@ -1802,9 +1630,9 @@ class ScreenCaptureService : Service() {
                                 "PARSER_LOW_CONFIDENCE items=\"${lowConfidenceItems.joinToString(";") { "${it.query}:${"%.2f".format(java.util.Locale.US, it.parserConfidence)}" }}\""
                             )
                             if (isEmulator()) {
-                                updateEmulatorOverlayText("PARSER_LOW_CONFIDENCE")
+                                setOverlayState(OverlayState.WORKING)
                             } else {
-                                updateOverlayText("PARSER_LOW_CONFIDENCE")
+                                setOverlayState(OverlayState.WORKING)
                             }
                         }
                     }
@@ -1819,7 +1647,7 @@ class ScreenCaptureService : Service() {
                             activeInputText,
                             accessibilityService,
                             firstParsedItem?.parserConfidence ?: 1.0f,
-                            firstParsedItem?.quantity?.requestedCount() ?: 1
+                            firstParsedItem?.quantity?.let { requestedCount(it) } ?: 1
                         )
                     }
                     currentSequenceGeneration = BackendProcessing.getCurrentSequenceGeneration()
@@ -1833,9 +1661,9 @@ class ScreenCaptureService : Service() {
                     
                     // Update main overlay text to show current instruction
                     if (isEmulator()) {
-                        updateEmulatorOverlayText("Reading screen (1/20)")
+                        setOverlayState(OverlayState.CAPTURING)
                     } else {
-                        updateOverlayText("Reading screen (1/20)")
+                        setOverlayState(OverlayState.CAPTURING)
                     }
 
                     Handler(Looper.getMainLooper()).postDelayed({
@@ -1921,9 +1749,9 @@ class ScreenCaptureService : Service() {
         
         // Update overlay to show current action
         if (isEmulator()) {
-            updateEmulatorOverlayText("Reading screen ($actionNumber/20)")
+            setOverlayState(OverlayState.CAPTURING)
         } else {
-            updateOverlayText("Reading screen ($actionNumber/20)")
+            setOverlayState(OverlayState.CAPTURING)
         }
         
         // Trigger the same sequence as submitInstruction but for the next action
@@ -2042,20 +1870,162 @@ class ScreenCaptureService : Service() {
         }
     }
     
+    private enum class OverlayState {
+        READY,
+        LISTENING,
+        WORKING,
+        CAPTURING
+    }
+
+    private data class OverlayStatus(
+        val label: String,
+        val state: OverlayState
+    )
+
+    private fun setOverlayState(state: OverlayState) {
+        val label = when (state) {
+            OverlayState.READY -> getString(R.string.overlay_status_ready)
+            OverlayState.LISTENING -> getString(R.string.overlay_status_listening)
+            OverlayState.WORKING -> getString(R.string.overlay_status_working)
+            OverlayState.CAPTURING -> getString(R.string.overlay_status_capturing)
+        }
+        setOverlayStatus(OverlayStatus(label, state))
+    }
+
+    private fun setOverlayStatus(status: OverlayStatus) {
+        if (!::overlayView.isInitialized) return
+        overlayView.post {
+            try {
+                val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text) ?: return@post
+                val overlayDot = overlayView.findViewById<View>(R.id.overlay_dot) ?: return@post
+                val dot = when (status.state) {
+                    OverlayState.READY -> R.drawable.beta_dot_sage
+                    OverlayState.LISTENING -> R.drawable.beta_dot_terracotta
+                    OverlayState.WORKING,
+                    OverlayState.CAPTURING -> R.drawable.beta_dot_amber
+                }
+                overlayText.text = status.label
+                overlayDot.setBackgroundResource(dot)
+                Log.d("ScreenCaptureService", "Overlay status updated to: ${status.label}")
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error updating overlay state: ${e.message}", e)
+            }
+        }
+    }
+
+    private fun conciseItemLabel(raw: String): String {
+        return raw.trim()
+            .replace(Regex("\\s+"), " ")
+            .removePrefix("order ")
+            .removePrefix("buy ")
+            .removePrefix("add ")
+            .take(32)
+            .trim()
+    }
+
+    private fun overlayStatusForBackendText(text: String): OverlayStatus? {
+        val compact = text.replace("\r", "").trim()
+        val normalized = compact.lowercase(Locale.US)
+
+        Regex("state:\\s*item_result\\s*\\(([^:()]+):\\s*([a-z_]+)\\)", RegexOption.IGNORE_CASE)
+            .find(compact)
+            ?.let { match ->
+                val item = conciseItemLabel(match.groupValues[1])
+                val status = match.groupValues[2].lowercase(Locale.US)
+                return if (status == "success") {
+                    OverlayStatus("Added $item", OverlayState.WORKING)
+                } else {
+                    OverlayStatus("Could not add $item", OverlayState.WORKING)
+                }
+            }
+
+        Regex("item\\s+\\d+/\\d+:\\s*([^\\n]+)", RegexOption.IGNORE_CASE)
+            .find(compact)
+            ?.let { match ->
+                val item = conciseItemLabel(match.groupValues[1])
+                if (item.isNotEmpty()) return OverlayStatus("Adding $item", OverlayState.WORKING)
+            }
+
+        Regex("target:\\s*([^\\n]+)", RegexOption.IGNORE_CASE)
+            .find(compact)
+            ?.let { match ->
+                val item = conciseItemLabel(match.groupValues[1])
+                if (item.isNotEmpty()) return OverlayStatus("Adding $item", OverlayState.WORKING)
+            }
+
+        Regex("preparing next item:\\s*([^\\n]+)", RegexOption.IGNORE_CASE)
+            .find(compact)
+            ?.let { match ->
+                val item = conciseItemLabel(match.groupValues[1])
+                return if (item.isNotEmpty()) {
+                    OverlayStatus("Next: $item", OverlayState.WORKING)
+                } else {
+                    OverlayStatus("Next item", OverlayState.WORKING)
+                }
+            }
+
+        return when {
+            normalized.contains("reading screen") -> OverlayStatus(getString(R.string.overlay_status_capturing), OverlayState.CAPTURING)
+            normalized.contains("analyzing screen") -> OverlayStatus("Checking page", OverlayState.CAPTURING)
+            normalized.startsWith("done: adding") -> OverlayStatus("Added item", OverlayState.WORKING)
+            normalized.startsWith("done: checking cart") -> OverlayStatus("Checking cart", OverlayState.WORKING)
+            normalized == "state: order_done" || normalized.startsWith("state: order_done") -> OverlayStatus("Done", OverlayState.READY)
+            normalized.contains("store_unavailable") -> OverlayStatus("Store unavailable", OverlayState.WORKING)
+            normalized.startsWith("state:") -> OverlayStatus(getString(R.string.overlay_status_working), OverlayState.WORKING)
+            normalized.startsWith("paused") -> OverlayStatus("Check cart", OverlayState.WORKING)
+            normalized.startsWith("stopped") -> OverlayStatus("Stopped", OverlayState.WORKING)
+            else -> null
+        }
+    }
+
+    private fun inferOverlayState(text: String): OverlayState? {
+        val normalized = text.lowercase(Locale.US)
+        return when {
+            normalized.contains("tap") || normalized.contains("ready") -> OverlayState.READY
+            normalized.contains("listen") -> OverlayState.LISTENING
+            normalized.contains("captur") || normalized.contains("reading") -> OverlayState.CAPTURING
+            normalized.contains("process") ||
+                normalized.contains("working") ||
+                normalized.contains("adding") ||
+                normalized.startsWith("state:") ||
+                normalized.contains("instruction_received") ||
+                normalized.contains("item_result") ||
+                normalized.contains("order_result") ||
+                normalized.contains("flow_") ||
+                normalized.contains("parser_low_confidence") -> OverlayState.WORKING
+            else -> null
+        }
+    }
+
+    private fun applyOverlayTextOrState(text: String) {
+        val overlayStatus = overlayStatusForBackendText(text)
+        if (overlayStatus != null) {
+            setOverlayStatus(overlayStatus)
+            return
+        }
+        val state = inferOverlayState(text)
+        if (state != null) {
+            setOverlayState(state)
+            return
+        }
+        if (!::overlayView.isInitialized) return
+        overlayView.post {
+            try {
+                val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
+                val overlayDot = overlayView.findViewById<View>(R.id.overlay_dot)
+                overlayText.text = text
+                overlayDot?.setBackgroundResource(R.drawable.beta_dot_amber)
+                Log.d("ScreenCaptureService", "Overlay text updated to: $text")
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error updating overlay text: ${e.message}", e)
+            }
+        }
+    }
+
     // Emulator-specific overlay text update
     private fun updateEmulatorOverlayText(text: String) {
         try {
-            if (::overlayView.isInitialized) {
-                overlayView.post {
-                    try {
-                        val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
-                        overlayText.text = text
-                        Log.d("ScreenCaptureService", "Emulator overlay text updated to: $text")
-                    } catch (e: Exception) {
-                        Log.e("ScreenCaptureService", "Error updating emulator overlay text: ${e.message}", e)
-                    }
-                }
-            }
+            applyOverlayTextOrState(text)
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error in updateEmulatorOverlayText: ${e.message}", e)
         }
@@ -2063,17 +2033,7 @@ class ScreenCaptureService : Service() {
 
     private fun updateOverlayText(text: String) {
         try {
-            if (::overlayView.isInitialized) {
-                overlayView.post {
-                    try {
-                        val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
-                        overlayText.text = text
-                        Log.d("ScreenCaptureService", "Overlay text updated to: $text")
-                    } catch (e: Exception) {
-                        Log.e("ScreenCaptureService", "Error updating overlay text: ${e.message}", e)
-                    }
-                }
-            }
+            applyOverlayTextOrState(text)
         } catch (e: Exception) {
             Log.e("ScreenCaptureService", "Error in updateOverlayText: ${e.message}", e)
         }
@@ -2095,11 +2055,11 @@ class ScreenCaptureService : Service() {
                         
                         // Update overlay text to show ready status
                         if (inputTextForProcessing != null) {
-                            Log.d("ScreenCaptureService", "Setting emulator overlay text to 'Ready - Tap for input (Emulator)'")
-                            updateEmulatorOverlayText("Ready - Tap for input (Emulator)")
+                            Log.d("ScreenCaptureService", "Setting emulator overlay state to READY")
+                            setOverlayState(OverlayState.READY)
                         } else {
-                            Log.d("ScreenCaptureService", "Setting emulator overlay text to 'Tap for input (Emulator)'")
-                            updateEmulatorOverlayText("Tap for input (Emulator)")
+                            Log.d("ScreenCaptureService", "Setting emulator overlay state to READY")
+                            setOverlayState(OverlayState.READY)
                         }
                         Log.d("ScreenCaptureService", "Emulator overlay restored to visible with ready status")
                     } catch (e: Exception) {
@@ -2135,11 +2095,11 @@ class ScreenCaptureService : Service() {
                     
                     // Update overlay text to show ready status
                     if (inputTextForProcessing != null) {
-                        Log.d("ScreenCaptureService", "Setting overlay text to 'Ready - Tap to add instruction'")
-                        updateOverlayText("Ready - Tap to add instruction")
+                        Log.d("ScreenCaptureService", "Setting overlay state to READY")
+                        setOverlayState(OverlayState.READY)
                     } else {
-                        Log.d("ScreenCaptureService", "Setting overlay text to 'Tap to add instruction'")
-                        updateOverlayText("Tap to add instruction")
+                        Log.d("ScreenCaptureService", "Setting overlay state to READY")
+                        setOverlayState(OverlayState.READY)
                     }
                     Log.d("ScreenCaptureService", "Overlay restored to visible with ready status")
                 } else {
