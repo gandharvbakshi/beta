@@ -58,7 +58,7 @@ android {
             buildConfigField(
                 "String",
                 "BETA_BACKEND_BASE_URL",
-                "\"${configValue("BETA_BACKEND_RELEASE_URL", "https://beta-backend-staging.run.app")}\""
+                "\"${configValue("BETA_BACKEND_RELEASE_URL", "https://beta-backend-staging-kvuem5t7mq-el.a.run.app")}\""
             )
             buildConfigField("String", "BETA_FEEDBACK_API_KEY", "\"${optionalConfigValue("BETA_FEEDBACK_API_KEY")}\"")
             buildConfigField("boolean", "REQUIRE_AUTOMATION_DISCLOSURE", "true")
