@@ -253,10 +253,10 @@ class MainActivity : ComponentActivity() {
             Log.d("MainActivity", "Storage permission granted, checking overlay permission")
             checkOverlayPermissionAndStartCapture()
         }*/
-        if (!isBetaAccessibilityEnabled()) {
-            showAccessibilitySetupHelp()
-        } else if (BuildConfig.REQUIRE_AUTOMATION_DISCLOSURE && !automationDisclosureAccepted()) {
+        if (BuildConfig.REQUIRE_AUTOMATION_DISCLOSURE && !automationDisclosureAccepted()) {
             showAutomationDisclosure()
+        } else if (!isBetaAccessibilityEnabled()) {
+            showAccessibilitySetupHelp()
         } else {
             checkOverlayPermissionAndStartCapture()
         }
@@ -300,7 +300,7 @@ class MainActivity : ComponentActivity() {
             .setMessage(R.string.automation_disclosure_message)
             .setPositiveButton(R.string.automation_disclosure_accept) { _, _ ->
                 markAutomationDisclosureAccepted()
-                checkOverlayPermissionAndStartCapture()
+                checkPermissionsAndStartCapture()
             }
             .setNegativeButton(R.string.automation_disclosure_cancel, null)
             .show()

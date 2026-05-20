@@ -36,7 +36,7 @@
     <string name="setup_screen_capture_body">Beta only looks when you ask it to.</string>
     <string name="setup_microphone_body">Optional — needed only for voice orders.</string>
     <string name="automation_disclosure_title">Before Beta helps in another app</string>
-    <string name="automation_disclosure_message">Beta uses screen capture and AccessibilityService only after you choose to start. It reads supported grocery app screens, helps build the cart you request, and stops before payment. You can continue manually whenever you want. Diagnostic feedback is optional.</string>
+    <string name="automation_disclosure_message">Beta uses screen capture and AccessibilityService only after you choose to start. It reads supported grocery app screens, including visible text, buttons, product names, cart contents, and delivery-area text, and sends this screen context to the Beta backend so it can help build the cart you request. Beta stops before payment. You can continue manually or cancel whenever you want. Diagnostic feedback is optional.</string>
     <string name="automation_disclosure_accept">Continue</string>
     <string name="automation_disclosure_cancel">Not now</string>
     <string name="accessibility_setup_title">Turn on Beta in Accessibility</string>

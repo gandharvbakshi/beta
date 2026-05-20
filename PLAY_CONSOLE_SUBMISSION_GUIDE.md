@@ -10,8 +10,8 @@ uploaded through the Play Developer API on May 20, 2026.
 
 - Package name: `live.betaapp.android`
 - App name: `Beta`
-- Internal testing release: `0.2.0 internal`
-- Uploaded version code: `2`
+- Internal testing release: `0.2.1 internal`
+- Uploaded version code: `3`
 - Release status: `draft`
 - Store listing title already uploaded: `Beta`
 - Short description already uploaded: `Voice-first grocery cart assistant for Blinkit and Instamart`
@@ -78,6 +78,48 @@ If Play asks for the deletion method, copy-paste:
 ```text
 Users can request deletion by emailing gandharv@musicaigeneration.com with the subject line "Delete my Beta data". They should include any tester email address they used and note that the request is for the Beta app. We review and action deletion requests within 14 days. Users can also clear saved preferences in the app.
 ```
+
+### AccessibilityService API
+
+Use these exact answers for the current AccessibilityService warning.
+
+Does your app use the AccessibilityService API?
+
+```text
+Yes
+```
+
+Is your app an accessibility tool?
+
+```text
+No
+```
+
+Do you collect and/or share any personal or sensitive user data using the AccessibilityServices API?
+
+```text
+Yes
+```
+
+Explanation:
+
+```text
+During an active user-started cart-building flow, Beta accesses visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, and visible delivery-area or address header text from supported grocery app screens. Beta sends this screen context to the Beta backend only to build the grocery cart requested by the user. Beta does not start this flow until the user accepts the prominent disclosure and grants Android permissions. Beta stops before checkout/payment and does not place orders or make payments.
+```
+
+If Play separately asks whether this data is shared with third parties:
+
+```text
+No, except service-provider processing by the Beta backend to provide app functionality. Beta does not sell this data or share it for advertising.
+```
+
+Video URL for the prominent disclosure review:
+
+```text
+https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/accessibility_review/beta_accessibility_prominent_disclosure_review.mp4
+```
+
+This link works only after the video file is committed and pushed to GitHub.
 
 ### App Access
 
@@ -468,19 +510,19 @@ Supported grocery apps do not expose a public cart/search API for this prototype
 Prominent disclosure summary:
 
 ```text
-Before Beta helps in another app, it tells the user that it uses screen capture and AccessibilityService only after the user chooses to start, reads supported grocery app screens, helps build the requested cart, and stops before payment. The user can continue manually whenever they want, and diagnostic feedback is optional.
+Before Beta helps in another app, it tells the user that it uses screen capture and AccessibilityService only after the user chooses to start. It reads supported grocery app screens, including visible text, buttons, product names, cart contents, and delivery-area text, and sends this screen context to the Beta backend so it can help build the requested cart. Beta stops before payment. The user can continue manually or cancel whenever they want, and diagnostic feedback is optional.
 ```
 
 Video URL:
 
 ```text
-Add a short unlisted YouTube video URL after recording it.
+https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/accessibility_review/beta_accessibility_prominent_disclosure_review.mp4
 ```
 
-Video script to record:
+Video content:
 
 ```text
-Open Beta. Show the disclosure. Enable Beta in Accessibility settings. Start screen capture. Type or speak "order apple." Show Beta opening a supported grocery app, adding the item to cart, and stopping before checkout/payment. Show that the user manually reviews the cart.
+The video opens Beta, shows the prominent disclosure before Accessibility setup, shows the user tapping Continue, shows the Accessibility setup prompt, and opens Android Accessibility settings where Beta ordering assistant is off until the user turns it on. The voice-over and captions explain why AccessibilityService is required and how Beta uses it.
 ```
 
 ### Sensitive Permissions / Declarations
@@ -719,6 +761,7 @@ Recommended answers:
 
 - Does the app use AccessibilityService API? `Yes`
 - Is the app an accessibility tool? Use `No` unless you intentionally position and support the app as an assistive tool for users with disabilities.
+- Does the app collect and/or share personal or sensitive user data using AccessibilityService API? `Yes`
 - Core purpose:
 
 ```text
@@ -731,6 +774,12 @@ Beta uses AccessibilityService only after the user starts an order. It reads vis
 Visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, and visible delivery-area/header text from supported grocery app screens during an active user-started flow.
 ```
 
+- Collection/sharing explanation:
+
+```text
+During an active user-started cart-building flow, Beta accesses visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, and visible delivery-area or address header text from supported grocery app screens. Beta sends this screen context to the Beta backend only to build the grocery cart requested by the user. Beta does not start this flow until the user accepts the prominent disclosure and grants Android permissions. Beta stops before checkout/payment and does not place orders or make payments.
+```
+
 - Why AccessibilityService is needed:
 
 ```text
@@ -740,12 +789,10 @@ Supported grocery apps do not expose a public cart/search API for this prototype
 - What the demo video should show:
   - Open Beta.
   - Show the disclosure/consent copy.
-  - Enable Accessibility for Beta.
-  - Start screen capture.
-  - Type or speak `order apple`.
-  - Beta opens a supported grocery app, searches, adds an item, and verifies the cart.
-  - Beta stops before checkout/payment.
-  - User manually reviews the cart.
+  - Tap Continue.
+  - Show the Accessibility setup prompt.
+  - Open Android Accessibility settings and show Beta ordering assistant is off until the user turns it on.
+  - Use captions or voice-over to explain why AccessibilityService is required and how Beta uses it.
 
 Accessibility automation is a sensitive Play review area. Keep every description aligned with the actual behavior: user-started, transparent, supported grocery apps only, cart-only, no checkout, no payment.
 
