@@ -19,6 +19,8 @@ android {
         return configValue(name, fallback.toString()).toIntOrNull() ?: fallback
     }
 
+    val hostedBackendDefault = "https://beta-backend-staging-kvuem5t7mq-el.a.run.app"
+
     defaultConfig {
         applicationId = "live.betaapp.android"
         minSdk = 33
@@ -49,7 +51,11 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "BETA_BACKEND_BASE_URL", "\"https://10.0.2.2:8000\"")
+            buildConfigField(
+                "String",
+                "BETA_BACKEND_BASE_URL",
+                "\"${configValue("BETA_BACKEND_DEBUG_URL", configValue("BETA_BACKEND_RELEASE_URL", hostedBackendDefault))}\""
+            )
             buildConfigField("String", "BETA_FEEDBACK_API_KEY", "\"${optionalConfigValue("BETA_FEEDBACK_API_KEY")}\"")
             buildConfigField("boolean", "REQUIRE_AUTOMATION_DISCLOSURE", "false")
         }
@@ -58,7 +64,7 @@ android {
             buildConfigField(
                 "String",
                 "BETA_BACKEND_BASE_URL",
-                "\"${configValue("BETA_BACKEND_RELEASE_URL", "https://beta-backend-staging-kvuem5t7mq-el.a.run.app")}\""
+                "\"${configValue("BETA_BACKEND_RELEASE_URL", hostedBackendDefault)}\""
             )
             buildConfigField("String", "BETA_FEEDBACK_API_KEY", "\"${optionalConfigValue("BETA_FEEDBACK_API_KEY")}\"")
             buildConfigField("boolean", "REQUIRE_AUTOMATION_DISCLOSURE", "true")

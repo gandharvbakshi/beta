@@ -5,8 +5,11 @@ account and existing Google Cloud account.
 
 ## Build Configuration
 
-- Debug backend: `https://10.0.2.2:8000`
-- Release backend: set with `BETA_BACKEND_RELEASE_URL`
+- Debug backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
+- Release backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
+- Optional backend overrides:
+  - `BETA_BACKEND_DEBUG_URL`
+  - `BETA_BACKEND_RELEASE_URL`
 - Version values:
   - `BETA_VERSION_CODE`
   - `BETA_VERSION_NAME`
@@ -19,7 +22,7 @@ account and existing Google Cloud account.
 Example release bundle:
 
 ```powershell
-$env:BETA_BACKEND_RELEASE_URL = "https://<cloud-run-service-url>"
+$env:BETA_BACKEND_RELEASE_URL = "https://beta-backend-staging-kvuem5t7mq-el.a.run.app"
 $env:BETA_FEEDBACK_API_KEY = "<same value as Secret Manager BETA_FEEDBACK_API_KEY>"
 .\gradlew.bat bundleRelease
 ```
@@ -33,6 +36,7 @@ $env:BETA_FEEDBACK_API_KEY = "<same value as Secret Manager BETA_FEEDBACK_API_KE
 - Feedback logs are opt-in.
 - Screenshot/log feedback attachments must remain opt-in.
 - Release backend must be Cloud Run HTTPS, not emulator-local.
+- Debug/emulator builds also default to Cloud Run HTTPS, not local Docker.
 - Feedback endpoint requires `x-beta-feedback-key`; release builds should set
   `BETA_FEEDBACK_API_KEY`.
 
