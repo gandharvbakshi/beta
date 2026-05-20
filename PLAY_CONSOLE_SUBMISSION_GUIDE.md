@@ -119,7 +119,7 @@ Video URL for the prominent disclosure review:
 https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/accessibility_review/beta_accessibility_prominent_disclosure_review.mp4
 ```
 
-This link works only after the video file is committed and pushed to GitHub.
+Verification on May 20, 2026: this raw GitHub MP4 URL returned `200 OK`.
 
 ### App Access
 
