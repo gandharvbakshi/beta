@@ -20,8 +20,8 @@ data class Preference(
 )
 
 object PreferenceStore {
-    const val ACTION_SEED_PREFERENCE = "com.example.beta.SEED_PREFERENCE"
-    const val ACTION_CLEAR_PREFERENCES = "com.example.beta.CLEAR_PREFERENCES"
+    const val ACTION_SEED_PREFERENCE = "live.betaapp.android.SEED_PREFERENCE"
+    const val ACTION_CLEAR_PREFERENCES = "live.betaapp.android.CLEAR_PREFERENCES"
     private const val MIN_CONFIDENCE = 0.6f
     private const val PREFS_NAME = "beta_user_preferences"
     private const val KEY_PREFIX = "pref_"

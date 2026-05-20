@@ -26,3 +26,19 @@ debug_runs/
 Screenshot_*.png
 *.log
 *.tmp
+
+# Local release/signing credentials and Play API keys.
+*.jks
+*.keystore
+key.properties
+keystore.properties
+play-publisher*.json
+service-account*.json
+google-play*.json
+/beta-496723-040570e7b0fa.json
+
+# Local Codex handoff state; do not commit.
+.codex_work_status.md
+
+# Raw generated emulator captures; final Play assets live in play_store_assets/.
+play_store_assets/source_captures/

@@ -8,8 +8,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Package = "com.example.beta"
-$Service = "com.example.beta/com.example.beta.MyAccessibilityService"
+$Package = "live.betaapp.android"
+$MainActivityComponent = "$Package/com.example.beta.MainActivity"
+$Service = "$Package/com.example.beta.MyAccessibilityService"
 $SwiggyPackage = "in.swiggy.android.instamart"
 $ProjectDir = Split-Path -Parent $PSScriptRoot
 $LogsDir = Join-Path $ProjectDir "logs"
@@ -58,7 +59,7 @@ function Wait-BetaAccessibilityConnected([int]$TimeoutSeconds = 15) {
         if ($enabled -match [regex]::Escape($Service) `
                 -and $accessibility.Trim() -eq "1" `
                 -and $runtime -match "Bound services:\{[^}]*My Accessibility Service" `
-                -and $runtime -match [regex]::Escape("Enabled services:{{com.example.beta/com.example.beta.MyAccessibilityService}}")) {
+                -and $runtime -match [regex]::Escape("Enabled services:{{$Service}}")) {
             return $true
         }
         Enable-BetaAccessibility
@@ -125,7 +126,7 @@ function Get-NodeCenterByTextOrDesc([string[]]$Patterns, [string]$Xml = "") {
 
 function Test-BetaScreenCaptureServiceRunning {
     $serviceState = (adb shell dumpsys activity services $Package) -join "`n"
-    return ($serviceState -match "com.example.beta/.ScreenCaptureService|ScreenCaptureService")
+    return ($serviceState -match "$([regex]::Escape($Package))/com\.example\.beta\.ScreenCaptureService|ScreenCaptureService")
 }
 
 function Wait-BetaMediaProjectionPermissionDialog([int]$TimeoutSeconds = 12) {
@@ -199,7 +200,7 @@ function Wait-BetaScreenCaptureReady([int]$TimeoutSeconds = 75) {
 
 function Tap-BetaStartCaptureButton {
     $xml = Get-UiDump
-    $idMatch = [regex]::Match($xml, 'resource-id="com\.example\.beta:id/captureScreenButton"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"')
+    $idMatch = [regex]::Match($xml, 'resource-id="live\.betaapp\.android:id/captureScreenButton"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"')
     if ($idMatch.Success) {
         $x = [int](([int]$idMatch.Groups[1].Value + [int]$idMatch.Groups[3].Value) / 2)
         $y = [int](([int]$idMatch.Groups[2].Value + [int]$idMatch.Groups[4].Value) / 2)
@@ -226,12 +227,12 @@ function Start-BetaScreenCapture {
     Start-Sleep -Seconds 1
     Enable-BetaAccessibility
     Wait-BetaAccessibilityConnected 15 | Out-Null
-    adb shell am start -n "$Package/.MainActivity" | Out-Null
+    adb shell am start -n $MainActivityComponent | Out-Null
     Start-Sleep -Seconds 9
 
     for ($i = 0; $i -lt 3; $i++) {
         if (Dismiss-AnrFromWindowState) {
-            adb shell am start -n "$Package/.MainActivity" | Out-Null
+            adb shell am start -n $MainActivityComponent | Out-Null
             Start-Sleep -Milliseconds 900
             continue
         }
@@ -253,10 +254,10 @@ function Start-BetaScreenCapture {
             return
         }
 
-        if ((adb logcat -d | Select-String "Beta isn.t responding|Beta isn't responding|Application Not Responding: com.example.beta")) {
+        if ((adb logcat -d | Select-String "Beta isn.t responding|Beta isn't responding|Application Not Responding: live.betaapp.android")) {
             adb shell am force-stop $Package | Out-Null
             Start-Sleep -Seconds 2
-            adb shell am start -n "$Package/.MainActivity" | Out-Null
+            adb shell am start -n $MainActivityComponent | Out-Null
             Start-Sleep -Seconds 9
             continue
         }

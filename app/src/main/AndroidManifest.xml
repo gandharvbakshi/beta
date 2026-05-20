@@ -59,9 +59,9 @@
             android:enabled="true"
             android:exported="true">
             <intent-filter>
-                <action android:name="com.example.beta.SUBMIT_AUTOMATION_INSTRUCTION" />
-                <action android:name="com.example.beta.SEED_PREFERENCE" />
-                <action android:name="com.example.beta.CLEAR_PREFERENCES" />
+                <action android:name="live.betaapp.android.SUBMIT_AUTOMATION_INSTRUCTION" />
+                <action android:name="live.betaapp.android.SEED_PREFERENCE" />
+                <action android:name="live.betaapp.android.CLEAR_PREFERENCES" />
             </intent-filter>
         </receiver>
 

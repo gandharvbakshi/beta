@@ -2457,8 +2457,8 @@ class ScreenCaptureService : Service() {
     // Companion object for constants like the action string
     companion object {
         const val ACTION_STOP_CAPTURE = "com.example.beta.STOP_CAPTURE"
-        const val ACTION_SUBMIT_AUTOMATION_INSTRUCTION = "com.example.beta.SUBMIT_AUTOMATION_INSTRUCTION"
-        const val ACTION_HIDE_AUTOMATION_OVERLAY = "com.example.beta.HIDE_AUTOMATION_OVERLAY"
+        const val ACTION_SUBMIT_AUTOMATION_INSTRUCTION = "live.betaapp.android.SUBMIT_AUTOMATION_INSTRUCTION"
+        const val ACTION_HIDE_AUTOMATION_OVERLAY = "live.betaapp.android.HIDE_AUTOMATION_OVERLAY"
         // Consider adding actions for START if needed, though currently handled by intent extras
     }
 

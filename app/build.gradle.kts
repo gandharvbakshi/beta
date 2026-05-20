@@ -20,7 +20,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.beta"
+        applicationId = "live.betaapp.android"
         minSdk = 33
         targetSdk = 35
         versionCode = configIntValue("BETA_VERSION_CODE", 2)

@@ -6,8 +6,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Package = "com.example.beta"
-$Service = "com.example.beta/com.example.beta.MyAccessibilityService"
+$Package = "live.betaapp.android"
+$MainActivityComponent = "$Package/com.example.beta.MainActivity"
+$ReceiverComponent = "$Package/com.example.beta.AutomationInstructionReceiver"
+$Service = "$Package/com.example.beta.MyAccessibilityService"
 $BlinkitPackage = "com.grofers.customerapp"
 $ProjectDir = Split-Path -Parent $PSScriptRoot
 $LogsDir = Join-Path $ProjectDir "logs"
@@ -56,7 +58,7 @@ function Wait-BetaAccessibilityConnected([int]$TimeoutSeconds = 15) {
         if ($enabled -match [regex]::Escape($Service) `
                 -and $accessibility.Trim() -eq "1" `
                 -and $runtime -match "Bound services:\{[^}]*My Accessibility Service" `
-                -and $runtime -match [regex]::Escape("Enabled services:{{com.example.beta/com.example.beta.MyAccessibilityService}}")) {
+                -and $runtime -match [regex]::Escape("Enabled services:{{$Service}}")) {
             return $true
         }
         Enable-BetaAccessibility
@@ -120,7 +122,7 @@ function Dismiss-SystemWaitDialog([string]$Xml = "") {
         $Xml = Get-UiDump
     }
     if ($Xml -match "isn.t responding|isn't responding") {
-        if ($Xml -match "Beta isn.t responding|Beta isn't responding|com.example.beta") {
+        if ($Xml -match "Beta isn.t responding|Beta isn't responding|live.betaapp.android") {
             $closePoint = Get-NodeCenterByText "Close app" $Xml
             if ($closePoint) {
                 adb shell input tap $closePoint.X $closePoint.Y
@@ -446,7 +448,7 @@ function Test-BlinkitFocused {
         return $true
     }
 
-    if ($visibleUi -match 'package="com.google.android.apps.nexuslauncher"|package="com.example.beta"|package="com.google.android.calendar"') {
+    if ($visibleUi -match 'package="com.google.android.apps.nexuslauncher"|package="live.betaapp.android"|package="com.google.android.calendar"') {
         return $false
     }
 
@@ -462,7 +464,7 @@ function Test-BlinkitTopNoDump {
     $windowState = (adb shell dumpsys window) -join "`n"
     $topActivityState = Get-TopActivityState
     $focusStates = Get-CurrentWindowFocusLines
-    $launcherStates = "com\.google\.android\.apps\.nexuslauncher|com\.example\.beta|com\.google\.android\.calendar"
+    $launcherStates = "com\.google\.android\.apps\.nexuslauncher|live\.betaapp\.android|com\.google\.android\.calendar"
     $blinkitStates = "com\.grofers\.customerapp"
     $homeActivityState = 'com\.grofers\.customerapp/(?:\.?DEFAULT|[^ "]*HomeActivity)'
     $focusText = ($focusStates -join "`n")
@@ -937,7 +939,7 @@ function Select-BlinkitHomeByVisibleCoordinatesLegacy {
 
 function Test-BetaScreenCaptureServiceRunning {
     $serviceState = (adb shell dumpsys activity services $Package) -join "`n"
-    return ($serviceState -match "com.example.beta/.ScreenCaptureService|ScreenCaptureService")
+    return ($serviceState -match "$([regex]::Escape($Package))/com\.example\.beta\.ScreenCaptureService|ScreenCaptureService")
 }
 
 function Wait-BetaMediaProjectionPermissionDialog([int]$TimeoutSeconds = 12) {
@@ -1024,30 +1026,30 @@ function Start-BetaScreenCapture {
     Start-Sleep -Seconds 1
     Enable-BetaAccessibility
     Wait-BetaAccessibilityConnected 15 | Out-Null
-    adb shell am start -n "$Package/.MainActivity" | Out-Null
+    adb shell am start -n $MainActivityComponent | Out-Null
     Start-Sleep -Seconds 9
     if (Dismiss-AnrFromWindowState) {
-        adb shell am start -n "$Package/.MainActivity" | Out-Null
+        adb shell am start -n $MainActivityComponent | Out-Null
         Start-Sleep -Milliseconds 900
     }
 
     for ($i = 0; $i -lt 3; $i++) {
         if (Dismiss-AnrFromWindowState) {
-            adb shell am start -n "$Package/.MainActivity" | Out-Null
+            adb shell am start -n $MainActivityComponent | Out-Null
             Start-Sleep -Milliseconds 900
             continue
         }
         Tap-BetaStartCaptureButton
         Start-Sleep -Seconds 2
         if (Dismiss-AnrFromWindowState) {
-            adb shell am start -n "$Package/.MainActivity" | Out-Null
+            adb shell am start -n $MainActivityComponent | Out-Null
             Start-Sleep -Milliseconds 900
             continue
         }
         Tap-MediaProjectionPermissionDialog
         Start-Sleep -Seconds 1
         if (Dismiss-AnrFromWindowState) {
-            adb shell am start -n "$Package/.MainActivity" | Out-Null
+            adb shell am start -n $MainActivityComponent | Out-Null
             Start-Sleep -Milliseconds 900
             continue
         }
@@ -1070,10 +1072,10 @@ function Start-BetaScreenCapture {
             return
         }
 
-        if ((adb logcat -d | Select-String "Beta isn.t responding|Beta isn't responding|Application Not Responding: com.example.beta")) {
+        if ((adb logcat -d | Select-String "Beta isn.t responding|Beta isn't responding|Application Not Responding: live.betaapp.android")) {
             adb shell am force-stop $Package | Out-Null
             Start-Sleep -Seconds 2
-            adb shell am start -n "$Package/.MainActivity" | Out-Null
+            adb shell am start -n $MainActivityComponent | Out-Null
             Start-Sleep -Seconds 9
             continue
         }
@@ -1853,7 +1855,7 @@ try {
     Enable-BetaAccessibility
     Wait-BetaAccessibilityConnected 15 | Out-Null
     $escapedInstruction = ConvertTo-AdbShellArg $Instruction
-    adb shell "am broadcast -n $Package/.AutomationInstructionReceiver -a com.example.beta.SUBMIT_AUTOMATION_INSTRUCTION --es instruction $escapedInstruction" | Out-Null
+    adb shell "am broadcast -n $ReceiverComponent -a $Package.SUBMIT_AUTOMATION_INSTRUCTION --es instruction $escapedInstruction" | Out-Null
     $instructionSubmitted = $true
     Start-Sleep -Seconds 1
 

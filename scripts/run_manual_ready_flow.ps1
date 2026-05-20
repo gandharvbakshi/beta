@@ -1,7 +1,7 @@
 param(
     [string]$Instruction = "order pencil",
     [int]$TimeoutSeconds = 240,
-    [string]$Package = "com.example.beta",
+    [string]$Package = "live.betaapp.android",
     [switch]$AllowFailedItems,
     [switch]$AllowStoreUnavailable,
     [switch]$AllowExternalAppUnresponsive
@@ -10,6 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ProjectDir = Split-Path -Parent $PSScriptRoot
+$ReceiverComponent = "$Package/com.example.beta.AutomationInstructionReceiver"
 $LogsDir = Join-Path $ProjectDir "logs"
 $ScenarioName = ($Instruction -replace '[^A-Za-z0-9_-]+', '_').Trim('_').ToLowerInvariant()
 if (-not $ScenarioName) {
@@ -41,7 +42,7 @@ function ConvertTo-AdbShellArg([string]$Value) {
 }
 
 function Get-FilteredLogText {
-    $pattern = "AUTOMATION_INSTRUCTION_RECEIVED|AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE|INSTRUCTION_RECEIVED|MULTI_ORDER_STARTED|BLINKIT_SEARCH_STARTED|PARSED:|ITEM_RESULT|ORDER_RESULT|FLOW_FAILED|STATE: FAILED|checkout_boundary|store_unavailable|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|ANR in com\.example\.beta|ANR in com\.grofers\.customerapp|ANR in in\.swiggy\.android\.instamart|Application Not Responding: in\.swiggy\.android\.instamart|in\.swiggy\.android\.instamart isn't responding|DeadSystemException"
+    $pattern = "AUTOMATION_INSTRUCTION_RECEIVED|AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE|INSTRUCTION_RECEIVED|MULTI_ORDER_STARTED|BLINKIT_SEARCH_STARTED|PARSED:|ITEM_RESULT|ORDER_RESULT|FLOW_FAILED|STATE: FAILED|checkout_boundary|store_unavailable|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|ANR in live\.betaapp\.android|ANR in com\.grofers\.customerapp|ANR in in\.swiggy\.android\.instamart|Application Not Responding: in\.swiggy\.android\.instamart|in\.swiggy\.android\.instamart isn't responding|DeadSystemException"
     $matches = adb logcat -d -v time | Select-String $pattern
     if (-not $matches) {
         return ""
@@ -117,7 +118,7 @@ function Resolve-ManualReadyOutcome([string]$LogText, [bool]$InstructionReceived
         }
         return "failed"
     }
-    if ($LogText -match "ANR in com\.example\.beta|ANR in com\.grofers\.customerapp|DeadSystemException") {
+    if ($LogText -match "ANR in live\.betaapp\.android|ANR in com\.grofers\.customerapp|DeadSystemException") {
         return "emulator_unresponsive"
     }
     if ($LogText -match "checkout_boundary") {
@@ -183,7 +184,7 @@ Start-Sleep -Milliseconds 300
 
 $escapedInstruction = ConvertTo-AdbShellArg $Instruction
 Write-Phase "submitting instruction: $Instruction"
-$broadcastOutput = adb shell "am broadcast -n $Package/.AutomationInstructionReceiver -a com.example.beta.SUBMIT_AUTOMATION_INSTRUCTION --es instruction $escapedInstruction" 2>&1
+$broadcastOutput = adb shell "am broadcast -n $ReceiverComponent -a $Package.SUBMIT_AUTOMATION_INSTRUCTION --es instruction $escapedInstruction" 2>&1
 $broadcastText = ($broadcastOutput | Out-String).Trim()
 if ($broadcastText) {
     Write-Phase $broadcastText
