@@ -137,7 +137,7 @@ Video URL:
 https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/foreground_service_media_projection/beta_foreground_service_media_projection_review.mp4
 ```
 
-This link works only after the video file is committed and pushed to GitHub.
+Verification on May 20, 2026: this raw GitHub MP4 URL returned `200 OK`.
 
 Description:
 
