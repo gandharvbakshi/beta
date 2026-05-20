@@ -63,6 +63,22 @@ Do not paste this unless GitHub Pages has been enabled and verified:
 https://gandharvbakshi.github.io/beta/play_store_assets/privacy-policy.html
 ```
 
+### Data Deletion URL
+
+SMS Classifier uses its privacy policy page as the public page that explains
+how users request deletion. Use the same pattern for Beta, but use Beta's own
+policy URL:
+
+```text
+https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/privacy-policy.html
+```
+
+If Play asks for the deletion method, copy-paste:
+
+```text
+Users can request deletion by emailing gandharv@musicaigeneration.com with the subject line "Delete my Beta data". They should include any tester email address they used and note that the request is for the Beta app. We review and action deletion requests within 14 days. Users can also clear saved preferences in the app.
+```
+
 ### App Access
 
 Question: Does your app use any access restrictions, login credentials, memberships, location-based restrictions, or other special instructions that reviewers need?
@@ -270,7 +286,7 @@ Yes
 Deletion method:
 
 ```text
-Users can request deletion by emailing gandharv@musicaigeneration.com. Users can also clear saved preferences in the app.
+Users can request deletion by emailing gandharv@musicaigeneration.com with the subject line "Delete my Beta data". Users can also clear saved preferences in the app.
 ```
 
 Does the app share user data with third parties?
