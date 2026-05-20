@@ -25,22 +25,23 @@ The local policy file is:
 play_store_assets/privacy-policy.html
 ```
 
-Use this exact URL in Play Console after committing and pushing this file to the
-public `gandharvbakshi/beta` repo on branch `master`:
+Use this exact verified URL in Play Console:
 
 ```text
 https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/privacy-policy.html
 ```
 
-If GitHub Pages is enabled for the `gandharvbakshi/beta` repo from the `master`
-branch root, this rendered URL should also work:
+Verification on May 20, 2026: this raw GitHub URL returned `200 OK`.
+
+Do not use this GitHub Pages URL right now unless you later enable GitHub Pages
+for the `gandharvbakshi/beta` repo and verify it returns `200 OK`:
 
 ```text
 https://gandharvbakshi.github.io/beta/play_store_assets/privacy-policy.html
 ```
 
-Prefer the rendered GitHub Pages URL if it returns `200 OK`. Use the raw GitHub
-URL as the fallback. Do not use either SMS Classifier URL for Beta.
+Verification on May 20, 2026: this GitHub Pages URL returned `404 Not Found`.
+Do not use either SMS Classifier URL for Beta.
 
 Official Google privacy-policy requirement reference:
 
@@ -56,7 +57,7 @@ Copy-paste:
 https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/privacy-policy.html
 ```
 
-If you enabled GitHub Pages and verified it opens:
+Do not paste this unless GitHub Pages has been enabled and verified:
 
 ```text
 https://gandharvbakshi.github.io/beta/play_store_assets/privacy-policy.html
