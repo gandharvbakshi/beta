@@ -121,6 +121,36 @@ https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/a
 
 Verification on May 20, 2026: this raw GitHub MP4 URL returned `200 OK`.
 
+### Foreground Service -> Media Projection
+
+Use this for the `FOREGROUND_SERVICE_MEDIA_PROJECTION` declaration.
+
+Task option to select:
+
+```text
+Media and content projection, streaming
+```
+
+Video URL:
+
+```text
+https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/foreground_service_media_projection/beta_foreground_service_media_projection_review.mp4
+```
+
+This link works only after the video file is committed and pushed to GitHub.
+
+Description:
+
+```text
+Beta uses FOREGROUND_SERVICE_MEDIA_PROJECTION for a user-started screen-capture session during cart-building assistance in supported grocery apps. After the user taps Get started and grants Android screen-capture consent, Beta runs a visible foreground service to keep the active MediaProjection session alive while it reads visible grocery app screens, identifies products, buttons, cart status, and flow status, and helps build the requested cart. The service stops when the flow ends. Beta does not run background monitoring, does not place orders, and stops before checkout/payment.
+```
+
+Why the task must start immediately and cannot be paused or restarted:
+
+```text
+The task is initiated by the user and must start immediately because Android screen-capture consent is tied to the active user-started MediaProjection session. If the foreground service is deferred, paused, or restarted, the MediaProjection session can be lost and Beta can no longer read the current grocery app screen or maintain the cart-building flow. Restarting would require the user to repeat screen-capture consent and could leave the automation out of sync with the visible cart state, so Beta keeps the foreground service active only for the duration of the user-started flow.
+```
+
 ### App Access
 
 Question: Does your app use any access restrictions, login credentials, memberships, location-based restrictions, or other special instructions that reviewers need?
@@ -537,6 +567,18 @@ Foreground service / media projection:
 
 ```text
 Used only after the user starts a flow and grants screen capture. Beta uses screen capture to understand supported grocery app screens during cart-building and stops before checkout/payment.
+```
+
+Task option:
+
+```text
+Media and content projection, streaming
+```
+
+Video URL:
+
+```text
+https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/foreground_service_media_projection/beta_foreground_service_media_projection_review.mp4
 ```
 
 Overlay / display over other apps:
