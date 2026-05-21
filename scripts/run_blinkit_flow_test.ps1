@@ -1,7 +1,8 @@
 param(
     [string]$Instruction = "order butter",
     [switch]$SkipBuild,
-    [switch]$SkipCartReset
+    [switch]$SkipCartReset,
+    [switch]$UseBetaAutoLaunch
 )
 
 $ErrorActionPreference = "Stop"
@@ -1752,11 +1753,13 @@ function Reset-BlinkitCart {
         $script:BetaCaptureStarted = $false
         Start-Sleep -Seconds 1
         $resetDeadline = (Get-Date).AddSeconds(90)
+        Start-BlinkitAndWait 45 | Out-Null
         adb shell input keyevent 111 | Out-Null
         adb shell input keyevent 4 | Out-Null
         Start-Sleep -Milliseconds 500
         adb shell input keyevent 4 | Out-Null
         Start-Sleep -Milliseconds 500
+        Start-BlinkitAndWait 45 | Out-Null
         $xml = Get-UiDump
         $viewCart = Get-NodeCenterByTextOrDesc @("View cart", "View Cart", "Go to cart", "View items in cart") $xml
         if ($viewCart) {
@@ -1778,6 +1781,12 @@ function Reset-BlinkitCart {
             }
             adb shell input tap $control.X $control.Y
             Start-Sleep -Seconds 1
+        }
+
+        $postResetXml = Get-UiDump
+        $remainingCart = Get-NodeCenterByTextOrDesc @("View cart", "View Cart", "Go to cart", "View items in cart") $postResetXml
+        if ($remainingCart -or ($postResetXml -match "Checkout|Place order|Shipment of|Pay using|Payment")) {
+            Write-Warning "Blinkit cart reset did not prove the cart is empty; backend safety checks will stop rather than order against a dirty cart."
         }
 
         adb shell input keyevent 3 | Out-Null
@@ -1852,14 +1861,23 @@ try {
         Ensure-BlinkitHomeScreen
     }
     Ensure-BlinkitForegroundForInstruction
+    if ($UseBetaAutoLaunch) {
+        Write-Phase "foregrounding Beta; receiver will auto-launch the preferred grocery app"
+        adb shell am start -n $MainActivityComponent | Out-Null
+        Start-Sleep -Seconds 3
+    }
     Enable-BetaAccessibility
     Wait-BetaAccessibilityConnected 15 | Out-Null
     $escapedInstruction = ConvertTo-AdbShellArg $Instruction
-    adb shell "am broadcast -n $ReceiverComponent -a $Package.SUBMIT_AUTOMATION_INSTRUCTION --es instruction $escapedInstruction" | Out-Null
+    if ($UseBetaAutoLaunch) {
+        adb shell "am broadcast -n $ReceiverComponent -a $Package.SUBMIT_AUTOMATION_INSTRUCTION --ez launch_preferred_commerce_app true --es instruction $escapedInstruction" | Out-Null
+    } else {
+        adb shell "am broadcast -n $ReceiverComponent -a $Package.SUBMIT_AUTOMATION_INSTRUCTION --es instruction $escapedInstruction" | Out-Null
+    }
     $instructionSubmitted = $true
     Start-Sleep -Seconds 1
 
-    if (-not (Wait-ForLog "INSTRUCTION_RECEIVED|BLINKIT_SEARCH_STARTED" 20)) {
+    if (-not (Wait-ForLog "INSTRUCTION_RECEIVED|CommerceAppLauncher|BLINKIT_SEARCH_STARTED" 30)) {
         throw "Beta did not receive the emulator instruction."
     }
 

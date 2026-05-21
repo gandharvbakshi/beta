@@ -1588,9 +1588,12 @@ class ScreenCaptureService : Service() {
         // Log.d("ScreenCaptureService", "submitInstruction called with: '$inputText'")
         
         if (inputText.isNotEmpty()) {
-            if (currentSession == null) {
-                startNewSession()
-            }
+            BackendProcessing.stopActionSequence()
+            isActionSequenceActive = false
+            originalInputText = null
+            currentSequenceGeneration = -1L
+            startNewSession()
+
             val parsedItems = InstructionParser.applyPreferences(
                 InstructionParser.parse(inputText),
                 lookup = { PreferenceStore.lookup(this, it) },

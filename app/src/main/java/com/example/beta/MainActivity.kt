@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
@@ -225,15 +227,54 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleVoiceInstruction(instruction: String) {
+        if (isOpenCommerceAppInstruction(instruction)) {
+            val launchResult = CommerceAppLauncher.launchPreferred(this)
+            speak(launchResult.message)
+            Toast.makeText(
+                this,
+                launchResult.message,
+                if (launchResult.launched) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
         val service = (application as MyApplication).getScreenCaptureService()
         if (service == null) {
             speak(getString(R.string.voice_start_capture_first))
             Toast.makeText(this, getString(R.string.voice_start_capture_first), Toast.LENGTH_LONG).show()
             return
         }
-        speak("I heard $instruction")
         Log.i("BetaAgent", "VOICE_INSTRUCTION_RECOGNIZED: $instruction")
-        service.submitAutomationInstruction(instruction)
+        val launchResult = CommerceAppLauncher.launchPreferred(this)
+        if (!launchResult.launched) {
+            speak(launchResult.message)
+            Toast.makeText(this, launchResult.message, Toast.LENGTH_LONG).show()
+            return
+        }
+        speak("Opening ${launchResult.appName}. I heard $instruction")
+        Toast.makeText(this, launchResult.message, Toast.LENGTH_SHORT).show()
+        Handler(Looper.getMainLooper()).postDelayed({
+            service.submitAutomationInstruction(instruction)
+        }, CommerceAppLauncher.LAUNCH_SETTLE_DELAY_MS)
+    }
+
+    private fun isOpenCommerceAppInstruction(instruction: String): Boolean {
+        val normalized = instruction
+            .lowercase(Locale.US)
+            .replace(Regex("[^a-z0-9 ]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (normalized.isBlank()) {
+            return false
+        }
+        return normalized in setOf(
+            "open blinkit",
+            "launch blinkit",
+            "start blinkit",
+            "open blinkit app",
+            "open grocery app",
+            "launch grocery app",
+        )
     }
 
     private fun checkPermissionsAndStartCapture() {
