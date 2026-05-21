@@ -10,9 +10,9 @@ uploaded through the Play Developer API on May 20, 2026.
 
 - Package name: `live.betaapp.android`
 - App name: `Beta`
-- Internal testing release: `0.2.1 internal`
+- Open testing release: `0.2.1 open testing`
 - Uploaded version code: `3`
-- Release status: `draft`
+- Release status: `completed` on open testing
 - Store listing title already uploaded: `Beta`
 - Short description already uploaded: `Voice-first grocery cart assistant for Blinkit and Instamart`
 - Uploaded graphics: app icon `1`, feature graphic `1`, phone screenshots `4`, seven-inch screenshots `4`
@@ -620,7 +620,7 @@ Current app target:
 - App name: `Beta`
 - Package name / application ID: `live.betaapp.android`
 - Android namespace / Kotlin package: `com.example.beta`
-- First track: internal testing
+- First/default testing track: open testing (`beta` in the Android Publisher API)
 - Recommended category: Shopping
 - Release backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
 
@@ -628,7 +628,7 @@ The `com.example.beta` namespace can stay as-is. Play Store package uniqueness i
 
 ## What I Can And Cannot Do
 
-I can build the signed Android App Bundle, verify package IDs, draft Play Console answers, and upload to an internal/testing track through the Play Developer API after you create and grant the service account.
+I can build the signed Android App Bundle, verify package IDs, draft Play Console answers, and upload to open testing through the Play Developer API after you create and grant the service account.
 
 You need to personally review and submit the Play Console policy declarations. Those are developer-owner legal/policy certifications, so I should not click final submission/attestation buttons for you.
 

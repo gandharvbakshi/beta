@@ -1,6 +1,6 @@
 # Play Store Testing Prep
 
-Current target: internal testing first, using the existing Play developer
+Current target: open testing first, using the existing Play developer
 account and existing Google Cloud account.
 
 ## Build Configuration
@@ -43,7 +43,8 @@ $env:BETA_FEEDBACK_API_KEY = "<same value as Secret Manager BETA_FEEDBACK_API_KE
 ## Play Console Checklist
 
 - Create new app under the existing developer account.
-- Upload internal-testing AAB.
+- Upload testing AABs to open testing. In the Android Publisher API this track
+  is named `beta`.
 - Add privacy policy URL.
 - Complete Data Safety using actual data sent:
   - feedback text
@@ -53,9 +54,9 @@ $env:BETA_FEEDBACK_API_KEY = "<same value as Secret Manager BETA_FEEDBACK_API_KE
 - Complete AccessibilityService declaration.
 - Add a short demo video showing consent, command, cart-only stop, and feedback.
 
-## Internal Test Smoke
+## Open Test Smoke
 
-1. Install from internal testing.
+1. Install from open testing.
 2. Start Beta and accept disclosure.
 3. Enable accessibility and screen capture.
 4. Run one Blinkit cart-only order.
