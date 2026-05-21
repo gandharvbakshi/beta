@@ -13,23 +13,37 @@ Set-Location $ProjectDir
 
 $SwiggyPackage = "in.swiggy.android.instamart"
 $SwiggyLaunchComponent = "$SwiggyPackage/in.swiggy.android.HomeIcon"
-$SavedHomePatterns = @(
-    '(?i)^Home$',
+$SavedHomeAddressPatterns = @(
+    '(?i)\b602\b',
+    '(?i)\b2974\b',
+    '(?i)\b3000\b',
+    '(?i)17th\s+Cross',
+    '(?i)Jains',
     '(?i)Jayanagar',
-    '(?i)Bengaluru',
-    '(?i)Bangalore',
-    '(?i)Jains\s+Prakriti',
+    '(?i)Siddanna',
     '(?i)\b560070\b',
-    '(?i)\b602\b'
+    '(?i)Bengaluru',
+    '(?i)Bangalore'
 )
-$SelectedHomePatterns = @(
-    '(?i)Selected address is Home',
+$SavedHomeLabelPatterns = @(
+    '(?i)^Home$',
+    '(?i)^Other$',
+    '(?i)To\s+Other'
+)
+$SearchFieldExcludePatterns = @(
+    '(?i)search_bar',
+    '(?i)Search an area or address',
+    '(?i)android\.widget\.EditText'
+)
+$SelectedHomeAddressPatterns = @(
+    '(?i)\b602\b',
+    '(?i)\b2974\b',
+    '(?i)\b3000\b',
+    '(?i)17th\s+Cross',
+    '(?i)Jains',
     '(?i)Jayanagar',
-    '(?i)Bengaluru',
-    '(?i)Bangalore',
-    '(?i)Jains\s+Prakriti',
-    '(?i)\b560070\b',
-    '(?i)\b602\b'
+    '(?i)Siddanna',
+    '(?i)\b560070\b'
 )
 
 function Write-Phase([string]$Message) {
@@ -56,13 +70,13 @@ function ConvertTo-AdbInputText([string]$Value) {
 
 function Get-UiDump {
     for ($i = 0; $i -lt 3; $i++) {
-        adb shell "rm -f /sdcard/window.xml" | Out-Null
-        $dumpResult = (adb shell timeout 8 uiautomator dump /sdcard/window.xml 2>&1) -join "`n"
+        adb shell "rm -f /data/local/tmp/window.xml" | Out-Null
+        $dumpResult = (adb shell timeout 8 uiautomator dump /data/local/tmp/window.xml 2>&1) -join "`n"
         if ($dumpResult -notmatch "UI hierchary dumped to|UI hierarchy dumped to") {
-            $dumpResult = (adb shell timeout 12 uiautomator dump --compressed /sdcard/window.xml 2>&1) -join "`n"
+            $dumpResult = (adb shell timeout 12 uiautomator dump --compressed /data/local/tmp/window.xml 2>&1) -join "`n"
         }
         if ($dumpResult -match "UI hierchary dumped to|UI hierarchy dumped to") {
-            $xml = (adb shell cat /sdcard/window.xml) -join "`n"
+            $xml = (adb shell cat /data/local/tmp/window.xml) -join "`n"
             if ($xml -match "<hierarchy") {
                 return $xml
             }
@@ -72,7 +86,7 @@ function Get-UiDump {
     return ""
 }
 
-function Get-NodeCenterByPattern([string]$Xml, [string[]]$Patterns) {
+function Get-NodeCenterByPattern([string]$Xml, [string[]]$Patterns, [string[]]$ExcludePatterns = @()) {
     if (-not $Xml) {
         $Xml = Get-UiDump
     }
@@ -82,8 +96,21 @@ function Get-NodeCenterByPattern([string]$Xml, [string[]]$Patterns) {
         $text = ([regex]::Match($node.Value, 'text="([^"]*)"')).Groups[1].Value
         $desc = ([regex]::Match($node.Value, 'content-desc="([^"]*)"')).Groups[1].Value
         $resource = ([regex]::Match($node.Value, 'resource-id="([^"]*)"')).Groups[1].Value
+        $class = ([regex]::Match($node.Value, 'class="([^"]*)"')).Groups[1].Value
         $bounds = [regex]::Match($node.Value, 'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"')
         if (-not $bounds.Success) {
+            continue
+        }
+
+        $haystack = "$text`n$desc`n$resource`n$class"
+        $isExcluded = $false
+        foreach ($excludePattern in $ExcludePatterns) {
+            if ($haystack -match $excludePattern) {
+                $isExcluded = $true
+                break
+            }
+        }
+        if ($isExcluded) {
             continue
         }
 
@@ -120,20 +147,26 @@ function Test-SwiggyForeground([string]$Xml) {
 }
 
 function Test-AddressPicker([string]$Xml) {
-    return (Test-SwiggyForeground $Xml) -and ($Xml -match "Select Your Location|Search an area or address|SAVED ADDRESSES")
+    return (Test-SwiggyForeground $Xml) -and ($Xml -match "Select Your Location|Search an area or address|SAVED ADDRESSES|Select Delivery Address|Enter Location Manually|Unable to get location|VIEW ALL")
 }
 
 function Test-SelectedHome([string]$Xml) {
-    foreach ($pattern in $SelectedHomePatterns) {
+    $hasHomeLabel = $Xml -match '(?i)To Home|Selected address is Home|To Other|Selected address is Other'
+    $strongMatches = 0
+    foreach ($pattern in $SelectedHomeAddressPatterns) {
         if ($Xml -match $pattern) {
-            return $true
+            $strongMatches++
         }
     }
-    return $false
+    return ($hasHomeLabel -and $strongMatches -gt 0) -or ($strongMatches -ge 2)
 }
 
 function Test-StoreUnavailable([string]$Xml) {
     return $Xml -match "We will be right back|unusually high traffic"
+}
+
+function Test-OrderingForSomeoneElsePrompt([string]$Xml) {
+    return (Test-SwiggyForeground $Xml) -and ($Xml -match "ordering for someone else|someone else|No, it.?s for me")
 }
 
 function Test-HomeSearchSurface([string]$Xml) {
@@ -236,13 +269,41 @@ function Enter-AddressSearch([string]$Xml) {
 }
 
 function Get-SavedHomePoint([string]$Xml) {
-    return Get-NodeCenterByPattern $Xml $SavedHomePatterns
+    $addressPoint = Get-NodeCenterByPattern $Xml $SavedHomeAddressPatterns $SearchFieldExcludePatterns
+    if ($addressPoint) {
+        return $addressPoint
+    }
+    return Get-NodeCenterByPattern $Xml $SavedHomeLabelPatterns $SearchFieldExcludePatterns
+}
+
+function Confirm-OrderingForSelfIfPrompt([string]$Xml = "") {
+    if (-not $Xml) {
+        $Xml = Get-UiDump
+    }
+    if (-not (Test-OrderingForSomeoneElsePrompt $Xml)) {
+        return $false
+    }
+
+    $selfPoint = Get-NodeCenterByPattern $Xml @(
+        "(?i)No,?\s*it.?s\s+for\s+me",
+        "(?i)^No\b.*for\s+me",
+        "(?i)for\s+me$"
+    )
+    if (-not $selfPoint) {
+        throw "Swiggy is asking whether the address is for someone else, but the 'No, it's for me' action was not found."
+    }
+
+    Write-Phase "confirming address is for me"
+    adb shell input tap $selfPoint.X $selfPoint.Y | Out-Null
+    Start-Sleep -Seconds 2
+    return $true
 }
 
 function Select-SavedHomeAddress([string]$Xml) {
-    $homePoint = Get-SavedHomePoint $Xml
-    if (-not $homePoint) {
+    try {
         Enter-AddressSearch $Xml
+    } catch {
+        Write-Phase "address search was not available; falling back to visible saved addresses"
     }
 
     for ($scroll = 0; $scroll -le $MaxScrolls; $scroll++) {
@@ -256,6 +317,7 @@ function Select-SavedHomeAddress([string]$Xml) {
             Write-Phase "selecting saved Home address"
             adb shell input tap $homePoint.X $homePoint.Y | Out-Null
             Start-Sleep -Seconds 2
+            Confirm-OrderingForSelfIfPrompt | Out-Null
             return
         }
 
@@ -271,10 +333,20 @@ function Select-SavedHomeAddress([string]$Xml) {
 
 function Wait-SwiggyHomeReady {
     Write-Phase "waiting for Swiggy Home/search surface"
-    $xml = Wait-ForUi { param($candidate) Test-HomeSearchSurface $candidate } $HomeReadyTimeoutSeconds
-    if (Test-HomeSearchSurface $xml) {
-        return $xml
-    }
+    $deadline = (Get-Date).AddSeconds($HomeReadyTimeoutSeconds)
+    do {
+        $xml = Get-UiDump
+        if (Confirm-OrderingForSelfIfPrompt $xml) {
+            continue
+        }
+        if (Test-HomeSearchSurface $xml) {
+            return $xml
+        }
+        if (Test-StoreUnavailable $xml) {
+            throw "Swiggy selected Home, but the app is showing a store-unavailable/high-traffic screen."
+        }
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $deadline)
 
     if (Test-StoreUnavailable $xml) {
         throw "Swiggy selected Home, but the app is showing a store-unavailable/high-traffic screen."

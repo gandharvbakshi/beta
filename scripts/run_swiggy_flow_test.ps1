@@ -295,7 +295,7 @@ adb shell settings put global animator_duration_scale 0 | Out-Null
 $result = 1
 
 try {
-    Ensure-SwiggyHomeReady
+    Ensure-SwiggyHomeReady -NoForceStop
     Start-BetaScreenCapture
     Ensure-SwiggyHomeReady -NoForceStop
 
