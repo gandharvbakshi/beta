@@ -165,6 +165,10 @@ function Test-StoreUnavailable([string]$Xml) {
     return $Xml -match "We will be right back|unusually high traffic"
 }
 
+function Test-CartSurface([string]$Xml) {
+    return (Test-SwiggyForeground $Xml) -and ($Xml -match "(?i)\bCART\b|Add more items|Pay using|Pay\s*₹|Move to wishlist")
+}
+
 function Test-OrderingForSomeoneElsePrompt([string]$Xml) {
     return (Test-SwiggyForeground $Xml) -and ($Xml -match "ordering for someone else|someone else|No, it.?s for me")
 }
@@ -248,6 +252,35 @@ function Select-SwiggyHomeTab([string]$Xml) {
 
     Start-Sleep -Seconds 3
     return Get-UiDump
+}
+
+function Exit-SwiggyCartToHome([string]$Xml) {
+    if (-not (Test-CartSurface $Xml)) {
+        return $Xml
+    }
+
+    Write-Phase "leaving Swiggy cart for Home/search surface"
+    $addMorePoint = Get-NodeCenterByPattern $Xml @("(?i)Add more items")
+    if ($addMorePoint) {
+        adb shell input tap $addMorePoint.X $addMorePoint.Y | Out-Null
+    } else {
+        adb shell input keyevent 4 | Out-Null
+    }
+
+    Start-Sleep -Seconds 2
+    $nextXml = Wait-ForUi { param($candidate) (Test-HomeSearchSurface $candidate) -or -not (Test-CartSurface $candidate) } 12
+    if (Test-HomeSearchSurface $nextXml) {
+        return $nextXml
+    }
+
+    if (Test-CartSurface $nextXml) {
+        Write-Phase "cart remained visible; trying Android back once"
+        adb shell input keyevent 4 | Out-Null
+        Start-Sleep -Seconds 2
+        $nextXml = Wait-ForUi { param($candidate) (Test-HomeSearchSurface $candidate) -or -not (Test-CartSurface $candidate) } 12
+    }
+
+    return $nextXml
 }
 
 function Enter-AddressSearch([string]$Xml) {
@@ -342,6 +375,12 @@ function Wait-SwiggyHomeReady {
         if (Test-HomeSearchSurface $xml) {
             return $xml
         }
+        if (Test-CartSurface $xml) {
+            $xml = Exit-SwiggyCartToHome $xml
+            if (Test-HomeSearchSurface $xml) {
+                return $xml
+            }
+        }
         if (Test-StoreUnavailable $xml) {
             throw "Swiggy selected Home, but the app is showing a store-unavailable/high-traffic screen."
         }
@@ -363,6 +402,14 @@ function Invoke-SwiggyHomePreflight {
     if (Test-HomeSearchSurface $xml) {
         Write-Phase "success: Swiggy Instamart is already on saved Home and the Home/search surface."
         return
+    }
+
+    if (Test-CartSurface $xml) {
+        $xml = Exit-SwiggyCartToHome $xml
+        if (Test-HomeSearchSurface $xml) {
+            Write-Phase "success: Swiggy Instamart left cart and reached the Home/search surface."
+            return
+        }
     }
 
     if (-not (Test-AddressPicker $xml)) {
