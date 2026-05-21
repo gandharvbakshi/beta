@@ -350,6 +350,12 @@ object BackendProcessing {
 
     private fun performMultiItemCleanup() {
         val service = multiItemSequenceAccessibilityService ?: return
+        val activePackage = service.activeAppPackage
+        val lastCapturedPackage = service.getLastAppName()
+        if (activePackage == "in.swiggy.android.instamart" || lastCapturedPackage == "in.swiggy.android.instamart") {
+            Log.i(TAG, "Skipping global back cleanup for Swiggy multi-item continuation")
+            return
+        }
         try {
             service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
         } catch (e: Exception) {
