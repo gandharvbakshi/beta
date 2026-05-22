@@ -31,6 +31,16 @@ Google rejected `Beta (live.betaapp.android)` because:
 
 Treat this as a disclosure/listing/Data Safety issue, not a build/package-name issue.
 
+## 2026-05-22 Remediation Status
+
+- App disclosure copy was updated in `app/src/main/res/values/strings.xml`.
+- Public privacy-policy asset was updated in `play_store_assets/privacy-policy.html`.
+- Play Console copy-paste guidance was updated in `PLAY_CONSOLE_SUBMISSION_GUIDE.md`.
+- The `en-US` Play Store listing draft was updated through the Android Publisher API for `live.betaapp.android` with `changesNotSentForReview=true`.
+- Data Safety was not updated through the API because that requires an up-to-date exported Data Safety CSV payload.
+- AccessibilityService declaration still requires developer-owner review/submission in Play Console.
+- Review video assets in `play_store_assets/accessibility_review/` should be regenerated because the prominent disclosure text changed.
+
 ## Required Disclosure Positioning
 
 Keep all Play-facing copy aligned with actual behavior:
@@ -46,9 +56,12 @@ Keep all Play-facing copy aligned with actual behavior:
 
 The Google Play Developer API can update localized store listings through `edits.listings` and can write Data Safety labels through `applications.dataSafety` if an up-to-date Data Safety CSV and valid service-account credentials are available.
 
-This workspace currently did not contain the expected service-account key:
+Check for these service-account key locations without printing contents:
 
 - `D:\Projects\Android Keys\beta-play-publisher.json`
+- `D:\Projects\beta\beta-496723-040570e7b0fa.json`
+
+The root `beta-496723-040570e7b0fa.json` file is intentionally ignored by git. Do not commit it and do not paste its contents into chat.
 
 Do not claim Play Console changes were submitted unless credentials were verified and the API call succeeded. The AccessibilityService permission declaration is still a developer-owner policy attestation and should be reviewed in Play Console by the account owner.
 
