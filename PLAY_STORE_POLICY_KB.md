@@ -37,9 +37,9 @@ Treat this as a disclosure/listing/Data Safety issue, not a build/package-name i
 - Public privacy-policy asset was updated in `play_store_assets/privacy-policy.html`.
 - Play Console copy-paste guidance was updated in `PLAY_CONSOLE_SUBMISSION_GUIDE.md`.
 - The `en-US` Play Store listing draft was updated through the Android Publisher API for `live.betaapp.android` with `changesNotSentForReview=true`.
-- Data Safety was not updated through the API because that requires an up-to-date exported Data Safety CSV payload.
+- Data Safety was not updated through the API because that requires an up-to-date Data Safety CSV payload.
 - AccessibilityService declaration still requires developer-owner review/submission in Play Console.
-- Review video assets in `play_store_assets/accessibility_review/` should be regenerated because the prominent disclosure text changed.
+- Review video assets in `play_store_assets/accessibility_review/` were regenerated after the prominent disclosure text changed.
 
 ## Required Disclosure Positioning
 
@@ -55,6 +55,8 @@ Keep all Play-facing copy aligned with actual behavior:
 ## Play Console / API Reality
 
 The Google Play Developer API can update localized store listings through `edits.listings` and can write Data Safety labels through `applications.dataSafety` if an up-to-date Data Safety CSV and valid service-account credentials are available.
+
+The Data Safety API is not a form-answer generator and does not export the current Play Console form. It accepts a POST body whose `safetyLabels` value is the exact CSV text for the Data Safety answers. Use a Play Console export or Google's current sample CSV as the template before writing this API field; do not hand-roll a CSV from memory because question IDs and required rows can change.
 
 Check for these service-account key locations without printing contents:
 
@@ -75,6 +77,13 @@ Do not claim Play Console changes were submitted unless credentials were verifie
 6. Regenerate the review video after the disclosure copy changes; the video must show the current disclosure text, consent path, Accessibility settings grant, decline path if requested, and one core cart-building flow.
 7. Upload a new build if the app disclosure changed.
 8. Resubmit from Play Console Publishing overview.
+
+## Review Video Regeneration
+
+- Reusable renderer: `scripts/render_accessibility_review_video.py`.
+- Source frames: `play_store_assets/accessibility_review/01_home.png` through `04_android_accessibility_settings.png`.
+- Output: `play_store_assets/accessibility_review/beta_accessibility_prominent_disclosure_review.mp4`.
+- If the emulator shows Settings ANR dialogs, black boot frames, `init.svc.bootanim=running` after `sys.boot_completed=1`, or `dumpsys window` has no focused windows, stop testing and cold-restart the emulator before further capture attempts. Repeated tap retries after those signs waste time and can pollute review assets.
 
 ## Useful Official References
 
