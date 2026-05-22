@@ -104,7 +104,7 @@ Yes
 Explanation:
 
 ```text
-During an active user-started cart-building flow, Beta accesses visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, and visible delivery-area or address header text from supported grocery app screens. Beta sends this screen context to the Beta backend only to build the grocery cart requested by the user. Beta does not start this flow until the user accepts the prominent disclosure and grants Android permissions. Beta stops before checkout/payment and does not place orders or make payments.
+During an active user-started cart-building flow, Beta accesses visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text if shown by supported grocery app screens. Beta sends this screen context to the Beta backend only to build the grocery cart requested by the user. Beta does not start this flow until the user accepts the prominent disclosure and grants Android permissions. Beta stops before checkout/payment and does not place orders or make payments.
 ```
 
 If Play separately asks whether this data is shared with third parties:
@@ -220,9 +220,9 @@ Voice-first grocery cart assistant for Blinkit and Instamart
 Full description:
 
 ```text
-Beta helps testers build grocery carts in supported grocery apps from a typed or spoken instruction. After the user starts a flow, Beta reads the visible supported grocery app screen, searches for the requested items, adds matching products to the cart, and stops before checkout or payment so the user can review everything manually.
+Beta helps testers build grocery carts in supported grocery apps from a typed or spoken instruction. After the user starts a flow, Beta uses screen capture and AccessibilityService to read the visible supported grocery app screen, search for the requested items, add matching products to the cart, and stop before checkout or payment so the user can review everything manually.
 
-Beta is an early testing app. It requires explicit user consent for screen capture and Accessibility access. It does not place orders, make payments, or complete checkout.
+Beta is an early testing app. It requires explicit user consent for screen capture and AccessibilityService access. While the user-started cart-building flow is running, Beta may read visible grocery app screen data such as product names, prices, cart contents, buttons, and delivery details including name, precise delivery location, delivery address, locality, or delivery-area header text if shown by the grocery app. Beta sends this screen context to the Beta backend only to build the requested cart. It does not place orders, make payments, complete checkout, sell personal data, or use this data for advertising.
 ```
 
 ### Content Rating
@@ -380,6 +380,8 @@ App activity -> App interactions
 App activity -> Other user-generated content
 Photos and videos -> Photos or other visual content
 Location -> Approximate location
+Location -> Precise location
+Personal info -> Name
 Personal info -> Physical address
 App info and performance -> Diagnostics
 ```
@@ -426,7 +428,7 @@ Reason:
 This covers screen capture from supported grocery apps while the user-started cart-building flow is running.
 ```
 
-For `Location -> Approximate location`:
+For `Location -> Approximate location` and `Location -> Precise location`:
 
 ```text
 Collected: Yes
@@ -439,7 +441,23 @@ Purposes: App functionality
 Reason:
 
 ```text
-Supported grocery app screens may show delivery area or locality text that Beta reads during the cart-building flow.
+Supported grocery app screens may show delivery area, locality, map pin, or precise delivery location text that Beta reads during the cart-building flow.
+```
+
+For `Personal info -> Name`:
+
+```text
+Collected: Yes
+Shared: No
+Processed ephemerally: No
+Required or optional: Required
+Purposes: App functionality
+```
+
+Reason:
+
+```text
+Supported grocery app screens may show the user's name in account, delivery, or address UI that Beta reads during the cart-building flow.
 ```
 
 For `Personal info -> Physical address`:
@@ -455,7 +473,7 @@ Purposes: App functionality
 Reason:
 
 ```text
-Supported grocery app screens may show saved delivery address or home header text that Beta reads during the cart-building flow.
+Supported grocery app screens may show saved delivery address, apartment/building details, or home header text that Beta reads during the cart-building flow.
 ```
 
 For `App info and performance -> Diagnostics`:
@@ -628,9 +646,9 @@ The `com.example.beta` namespace can stay as-is. Play Store package uniqueness i
 
 ## What I Can And Cannot Do
 
-I can build the signed Android App Bundle, verify package IDs, draft Play Console answers, and upload to open testing through the Play Developer API after you create and grant the service account.
+I can build the signed Android App Bundle, verify package IDs, draft Play Console answers, update localized store listing text through the Play Developer API, write Data Safety labels through the `applications.dataSafety` API when an up-to-date CSV is available, and upload to open testing after you create and grant the service account.
 
-You need to personally review and submit the Play Console policy declarations. Those are developer-owner legal/policy certifications, so I should not click final submission/attestation buttons for you.
+You need to personally review and submit Play Console policy attestations, including the AccessibilityService declaration. Those are developer-owner legal/policy certifications, so I should not click final submission/attestation buttons for you.
 
 ## Service Account And JSON
 
@@ -708,9 +726,9 @@ Suggested values:
 - Full description:
 
 ```text
-Beta helps testers build grocery carts in supported grocery apps from a typed or spoken instruction. After the user starts a flow, Beta reads the visible supported grocery app screen, searches for the requested items, adds matching products to the cart, and stops before checkout or payment so the user can review everything manually.
+Beta helps testers build grocery carts in supported grocery apps from a typed or spoken instruction. After the user starts a flow, Beta uses screen capture and AccessibilityService to read the visible supported grocery app screen, search for the requested items, add matching products to the cart, and stop before checkout or payment so the user can review everything manually.
 
-Beta is an early testing app. It requires explicit user consent for screen capture and Accessibility access. It does not place orders, make payments, or complete checkout.
+Beta is an early testing app. It requires explicit user consent for screen capture and AccessibilityService access. While the user-started cart-building flow is running, Beta may read visible grocery app screen data such as product names, prices, cart contents, buttons, and delivery details including name, precise delivery location, delivery address, locality, or delivery-area header text if shown by the grocery app. Beta sends this screen context to the Beta backend only to build the requested cart. It does not place orders, make payments, complete checkout, sell personal data, or use this data for advertising.
 ```
 
 - App category: `Shopping`
@@ -788,7 +806,9 @@ Likely data types:
 - App activity -> App interactions: collected for app functionality.
 - App activity -> Other user-generated content: user order instruction text, if Play offers this option.
 - Photos and videos -> Photos or other visual content: screen capture from supported grocery apps while a flow is running.
-- Location or personal info -> Physical address / approximate location: answer `Yes` if visible grocery app screens can expose delivery address, area, or home header text.
+- Location -> Approximate location and Precise location: answer `Yes` if visible grocery app screens can expose delivery area, locality, map pin, or precise delivery location text.
+- Personal info -> Name: answer `Yes` if visible grocery app screens can expose the user's name in account, delivery, or address UI.
+- Personal info -> Physical address: answer `Yes` if visible grocery app screens can expose delivery address, apartment/building details, or home header text.
 - App info and performance -> Diagnostics: optional feedback logs, app version, device model, Android version, order result.
 - Audio: answer `No` if the release only uses Android speech recognition and does not store or upload raw audio. The transcript/order text is still collected as app activity.
 - Financial info: `No`; Beta stops before payment and does not process payment details.
@@ -807,19 +827,19 @@ Recommended answers:
 - Core purpose:
 
 ```text
-Beta uses AccessibilityService only after the user starts an order. It reads visible text, content descriptions, buttons, and window structure from supported grocery apps so it can tap the controls needed to add the user-requested items to the cart. It stops before checkout/payment and never places an order or pays.
+Beta uses AccessibilityService only after the user starts an order. It reads visible text, content descriptions, buttons, window structure, and delivery details such as name, precise delivery location, and address if shown by supported grocery apps so it can tap the controls needed to add the user-requested items to the cart. It stops before checkout/payment and never places an order or pays.
 ```
 
 - Data accessed:
 
 ```text
-Visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, and visible delivery-area/header text from supported grocery app screens during an active user-started flow.
+Visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text from supported grocery app screens during an active user-started flow.
 ```
 
 - Collection/sharing explanation:
 
 ```text
-During an active user-started cart-building flow, Beta accesses visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, and visible delivery-area or address header text from supported grocery app screens. Beta sends this screen context to the Beta backend only to build the grocery cart requested by the user. Beta does not start this flow until the user accepts the prominent disclosure and grants Android permissions. Beta stops before checkout/payment and does not place orders or make payments.
+During an active user-started cart-building flow, Beta accesses visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text if shown by supported grocery app screens. Beta sends this screen context to the Beta backend only to build the grocery cart requested by the user. Beta does not start this flow until the user accepts the prominent disclosure and grants Android permissions. Beta stops before checkout/payment and does not place orders or make payments.
 ```
 
 - Why AccessibilityService is needed:

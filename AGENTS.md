@@ -12,6 +12,12 @@ Do not automate checkout or payment. Never implement code or tests that place a 
 
 Testing should stop at search, product selection, add-to-cart, and confirming cart increment or app success state.
 
+## Play Store Policy Context
+
+For Play Store rejection, listing, Data Safety, privacy-policy, or AccessibilityService declaration work, read `PLAY_STORE_POLICY_KB.md` before changing files. Keep Play-facing copy aligned across `app/src/main/res/values/strings.xml`, `play_store_assets/privacy-policy.html`, `PRIVACY_POLICY_DRAFT.md`, `PLAY_CONSOLE_SUBMISSION_GUIDE.md`, and `PLAY_STORE_TESTING_PREP.md`.
+
+The current Play-facing package is `live.betaapp.android`, while the Android namespace remains `com.example.beta`. Do not claim Play Console forms were submitted unless a valid Google Play Android Publisher credential was verified and the API call succeeded.
+
 ## Preferred Testing Strategy
 
 Use Espresso for this app's own UI, UI Automator for Android system UI and Blinkit UI, ADB scripts for emulator preparation and log collection, and Gradle for build/test execution. Do not use Android Studio clicks as the main automation path.

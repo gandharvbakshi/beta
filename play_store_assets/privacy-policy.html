@@ -16,7 +16,8 @@
       <h2 style="margin:24px 0 10px;font-size:20px;color:#111827;">Information we use</h2>
       <ul style="margin:0 0 16px;padding-left:20px;">
         <li>Your item requests and order instructions.</li>
-        <li>Screen text, screen capture, and accessibility data from supported grocery apps only after you start a flow.</li>
+        <li>Screen text, screen capture, and AccessibilityService data from supported grocery apps only after you start a cart-building flow.</li>
+        <li>Visible grocery app screen details that may include product names, prices, cart contents, buttons, and delivery details such as your name, precise delivery location, delivery address, locality, or delivery-area header text if those details are shown by the grocery app.</li>
         <li>Basic device and app info such as app version, build type, device model, Android version, and order result.</li>
         <li>Optional feedback and optional diagnostic logs if you choose to send them.</li>
       </ul>
@@ -24,16 +25,17 @@
       <h2 style="margin:24px 0 10px;font-size:20px;color:#111827;">How we use it</h2>
       <ul style="margin:0 0 16px;padding-left:20px;">
         <li>To understand what you want added to the cart.</li>
-        <li>To find products, tap supported grocery app controls, and verify the cart.</li>
+        <li>To find products, tap supported grocery app controls, verify the cart, and confirm that the cart-building flow is using the delivery context visible in the grocery app.</li>
         <li>To improve reliability and fix problems reported through feedback or logs.</li>
         <li>To run the Beta service through our backend on Google Cloud.</li>
       </ul>
 
       <h2 style="margin:24px 0 10px;font-size:20px;color:#111827;">What Beta does not do</h2>
       <ul style="margin:0 0 16px;padding-left:20px;">
-        <li>It does not start screen capture or accessibility access until you begin an order flow.</li>
+        <li>It does not start screen capture or AccessibilityService access until you begin an order flow.</li>
         <li>It does not complete checkout or payment.</li>
         <li>It does not place orders on your behalf.</li>
+        <li>It does not sell personal or sensitive user data or use grocery screen data for advertising.</li>
       </ul>
 
       <h2 style="margin:24px 0 10px;font-size:20px;color:#111827;">Your choices</h2>

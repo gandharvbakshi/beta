@@ -6,8 +6,10 @@ It stops before payment and requires the user to review the cart.
 ## Data Used
 
 - User order instructions.
-- Screen capture and accessibility information from supported grocery apps while
-  an order is running.
+- Screen capture and AccessibilityService information from supported grocery
+  apps while an order is running.
+- Visible grocery app screen details that may include product names, prices,
+  cart contents, buttons, and delivery details such as the user's name, precise delivery location, delivery address, locality, or delivery-area header text if those details are shown by the grocery app.
 - App version, build type, device model, Android version, and order result.
 - Optional feedback text.
 - Optional diagnostic logs when the user enables log sharing.
@@ -15,7 +17,8 @@ It stops before payment and requires the user to review the cart.
 ## Why Data Is Used
 
 - To understand the requested grocery items.
-- To find product results, add items to cart, and verify the cart.
+- To find product results, add items to cart, verify the cart, and confirm the
+  delivery context visible in the grocery app during the cart-building flow.
 - To improve reliability from tester feedback.
 - To diagnose failures when the user chooses to send logs.
 
@@ -26,6 +29,8 @@ It stops before payment and requires the user to review the cart.
 - Feedback logs are optional.
 - Screenshots/logs should not be sent with feedback unless the user explicitly
   chooses to include them.
+- Beta does not sell personal or sensitive user data or use grocery screen data
+  for advertising.
 - The user can clear learned preferences from the app.
 
 ## Backend

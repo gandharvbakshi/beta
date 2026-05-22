@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Beta</string>
     <string name="accessibility_service_name">Beta ordering assistant</string>
-    <string name="accessibility_service_description">Beta uses AccessibilityService only with your permission. It reads supported grocery app screens, helps build the cart you ask for, and stops before payment so you can review and continue yourself.</string>
+    <string name="accessibility_service_description">Beta uses AccessibilityService only with your permission after you start a cart-building flow. It may read visible grocery app screen data, including product details, cart contents, buttons, prices, and delivery details such as name, precise delivery location, and address if shown, so it can build the cart you requested and stop before payment.</string>
     <string name="main_title">Hi. Let\'s make grocery ordering easier.</string>
     <string name="main_subtitle">Tell Beta what you need. It can help you build the cart, and you decide when to pay.</string>
     <string name="main_primary_action">Get started</string>
@@ -36,7 +36,7 @@
     <string name="setup_screen_capture_body">Beta only looks when you ask it to.</string>
     <string name="setup_microphone_body">Optional — needed only for voice orders.</string>
     <string name="automation_disclosure_title">Before Beta helps in another app</string>
-    <string name="automation_disclosure_message">Beta uses screen capture and AccessibilityService only after you choose to start. When you ask for a cart, Beta opens Blinkit first, or Swiggy Instamart if Blinkit is not installed. Keep the grocery app open while Beta works. It reads supported grocery app screens, including visible text, buttons, product names, cart contents, and delivery-area text, and sends this screen context to the Beta backend so it can help build the cart you request. Beta stops before payment. You can continue manually or cancel whenever you want. Diagnostic feedback is optional.</string>
+    <string name="automation_disclosure_message">Beta uses screen capture and AccessibilityService only after you choose to start. When you ask for a cart, Beta opens Blinkit first, or Swiggy Instamart if Blinkit is not installed. Keep the grocery app open while Beta works. It reads supported grocery app screens, including visible text, buttons, product names, prices, cart contents, and delivery details such as your name, precise delivery location, delivery address, and locality if they are shown on the screen. Beta sends this screen context to the Beta backend only to build the cart you request. Beta stops before checkout and payment. It does not place orders or pay. You can continue manually or cancel whenever you want. Diagnostic feedback is optional.</string>
     <string name="automation_disclosure_accept">Continue</string>
     <string name="automation_disclosure_cancel">Not now</string>
     <string name="accessibility_setup_title">Turn on Beta in Accessibility</string>

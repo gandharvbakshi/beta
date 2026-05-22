@@ -30,8 +30,10 @@ $env:BETA_FEEDBACK_API_KEY = "<same value as Secret Manager BETA_FEEDBACK_API_KE
 ## Policy Checklist
 
 - AccessibilityService disclosure appears before release automation starts.
-- AccessibilityService description explains cart-building assistance and
-  stop-before-payment behavior.
+- AccessibilityService description explains cart-building assistance,
+  stop-before-payment behavior, backend processing, and visible grocery-screen
+  data that may include name, precise delivery location, and address if shown.
+- Play Store long description explicitly documents `AccessibilityService` use.
 - App does not request broad all-files storage access.
 - Feedback logs are opt-in.
 - Screenshot/log feedback attachments must remain opt-in.
@@ -51,8 +53,11 @@ $env:BETA_FEEDBACK_API_KEY = "<same value as Secret Manager BETA_FEEDBACK_API_KE
   - optional diagnostics logs
   - app/device version metadata
   - screen/accessibility-derived data used for automation
+  - precise location, name, and physical address if visible in grocery app
+    screens during the user-started flow
 - Complete AccessibilityService declaration.
-- Add a short demo video showing consent, command, cart-only stop, and feedback.
+- Add a short demo video showing the current disclosure text, consent,
+  Accessibility settings grant, command, cart-only stop, and feedback.
 
 ## Open Test Smoke
 
