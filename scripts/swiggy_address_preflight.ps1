@@ -159,6 +159,20 @@ function Test-SwiggyForeground([string]$Xml) {
     return $Xml -match 'package="in\.swiggy\.android\.instamart"'
 }
 
+function Test-SwiggySplashSurface([string]$Xml) {
+    if (-not (Test-SwiggyForeground $Xml)) {
+        return $false
+    }
+    $nodeCount = [regex]::Matches($Xml, '<node\b').Count
+    $hasUsableSurface = $Xml -match "(?i)Search for|Select Your Location|Choose a delivery address|Search an area or address|SAVED ADDRESSES|fragment_view_pager|discovery_fragment|food_listing|bottom_bar_parent|address_selector_area|address_selector_view|location_header|im_address_bar|content-desc=`"Home`"|text=`"Home`"|Your cart is getting lonely|Add more items|et_search_query_v2"
+    $hasOnlyLaunchRoot = ($nodeCount -le 3) -and ($Xml -match 'resource-id="in\.swiggy\.android\.instamart:id/content"')
+    return $hasOnlyLaunchRoot -or ((-not $hasUsableSurface) -and $nodeCount -le 6)
+}
+
+function Test-SwiggyLaunchReady([string]$Xml) {
+    return (Test-SwiggyForeground $Xml) -and -not (Test-SwiggySplashSurface $Xml)
+}
+
 function Test-AddressPicker([string]$Xml) {
     return (Test-SwiggyForeground $Xml) -and ($Xml -match "Select Your Location|Choose a delivery address|Search an area or address|SAVED ADDRESSES|Select Delivery Address|Add New Address|Enter Location Manually|Unable to get location|VIEW ALL")
 }
@@ -185,8 +199,13 @@ function Test-CartSurface([string]$Xml) {
 
     $hasNativeHomeSurface = $Xml -match "(?i)fragment_view_pager|discovery_fragment|food_listing|bottom_bar_parent"
     $hasFullCartMarkers = $Xml -match "(?i)cart_review_items|Cart Header|Regular cart|Maxxsaver cart|Add more items|Pay using|Pay\s*₹|Pay₹|Payment Options|Preferred Payment|More Payment Options|Credit &amp; Debit Cards|Move to wishlist|open the home page|might have missed"
+    $hasEmptyCartMarkers = $Xml -match "(?i)Your cart is getting lonely|Fill it up with all things good|Start Shopping"
     $hasCartOnlyMarker = ($Xml -match "(?i)\bCART\b") -and -not $hasNativeHomeSurface -and -not ($Xml -match "(?i)Search for|search_bar|content-desc=`"Home`"|text=`"Home`"")
-    return $hasFullCartMarkers -or $hasCartOnlyMarker
+    return $hasFullCartMarkers -or $hasEmptyCartMarkers -or $hasCartOnlyMarker
+}
+
+function Test-EmptyCartSurface([string]$Xml) {
+    return (Test-SwiggyForeground $Xml) -and ($Xml -match "(?i)Your cart is getting lonely|Fill it up with all things good|Start Shopping")
 }
 
 function Test-CheckoutPaymentSurface([string]$Xml) {
@@ -202,6 +221,19 @@ function Test-ProductSearchSurface([string]$Xml) {
     }
 
     return $Xml -match "(?i)et_search_query_v2|A few ideas to get you started|YOUR PAST SEARCHES|Search for '"
+}
+
+function Test-ProductDetailSurface([string]$Xml) {
+    if (-not (Test-SwiggyForeground $Xml)) {
+        return $false
+    }
+    if (Test-AddressPicker $Xml -or Test-CartSurface $Xml -or Test-HomeShellSurface $Xml -or Test-ProductSearchSurface $Xml) {
+        return $false
+    }
+
+    $hasNativePdpMarker = $Xml -match "(?i)im_pdp_container|pdp_price_header_v2|quantityTextCrouton|wishlist_toolbar_icon|Hide product details"
+    $hasPdpTextMarker = ($Xml -match "(?i)Product Details|Product Information|Similar Products") -and ($Xml -match "(?i)add_to_cart|ADD")
+    return $hasNativePdpMarker -or $hasPdpTextMarker
 }
 
 function Test-OrderingForSomeoneElsePrompt([string]$Xml) {
@@ -233,6 +265,9 @@ function Test-HomeSearchSurface([string]$Xml, [switch]$TrustRecentSavedHomeSelec
     if (-not (Test-HomeShellSurface $Xml)) {
         return $false
     }
+    if (Test-StoreUnavailable $Xml) {
+        return $false
+    }
     if (Test-SelectedHome $Xml) {
         return $true
     }
@@ -241,6 +276,30 @@ function Test-HomeSearchSurface([string]$Xml, [switch]$TrustRecentSavedHomeSelec
 
 function Test-BlockingStoreUnavailable([string]$Xml) {
     return (Test-StoreUnavailable $Xml) -and -not (Test-HomeShellSurface $Xml) -and -not (Test-AddressPicker $Xml)
+}
+
+function Test-CouponlessSuccessModal([string]$Xml) {
+    return (Test-SwiggyForeground $Xml) -and ($Xml -match "(?i)couponless_success_card_yay_button|couponless_success_card_close_button|FREE DELIVERY Unlocked|Offer auto-applied|Woohoo! You got free delivery|YAY!")
+}
+
+function Dismiss-CouponlessSuccessModal([string]$Xml) {
+    if (-not (Test-CouponlessSuccessModal $Xml)) {
+        return $Xml
+    }
+
+    Write-Phase "dismissing Swiggy couponless success modal"
+    $dismissPoint = Get-NodeCenterByPattern $Xml @(
+        "(?i)couponless_success_card_yay_button",
+        "(?i)^YAY!$",
+        "(?i)couponless_success_card_close_button"
+    )
+    if ($dismissPoint) {
+        adb shell input tap $dismissPoint.X $dismissPoint.Y | Out-Null
+    } else {
+        adb shell input keyevent 4 | Out-Null
+    }
+    Start-Sleep -Seconds 2
+    return Get-UiDump
 }
 
 function Exit-StoreUnavailableToHome([string]$Xml) {
@@ -271,8 +330,8 @@ function Start-SwiggyAndWait {
         adb shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $component | Out-Null
         Start-Sleep -Seconds 5
 
-        $xml = Wait-ForUi { param($candidate) Test-SwiggyForeground $candidate } 12
-        if (Test-SwiggyForeground $xml) {
+        $xml = Wait-ForUi { param($candidate) Test-SwiggyLaunchReady $candidate } $LaunchTimeoutSeconds
+        if (Test-SwiggyLaunchReady $xml) {
             return $xml
         }
     }
@@ -281,8 +340,8 @@ function Start-SwiggyAndWait {
     adb shell monkey -p $SwiggyPackage -c android.intent.category.LAUNCHER 1 | Out-Null
     Start-Sleep -Seconds 5
 
-    $xml = Wait-ForUi { param($candidate) Test-SwiggyForeground $candidate } $LaunchTimeoutSeconds
-    if (Test-SwiggyForeground $xml) {
+    $xml = Wait-ForUi { param($candidate) Test-SwiggyLaunchReady $candidate } $LaunchTimeoutSeconds
+    if (Test-SwiggyLaunchReady $xml) {
         return $xml
     }
 
@@ -290,11 +349,30 @@ function Start-SwiggyAndWait {
 }
 
 function Open-AddressPicker([string]$Xml) {
+    if (Test-SwiggySplashSurface $Xml) {
+        Write-Phase "waiting for Swiggy launch splash to finish"
+        $Xml = Wait-ForUi { param($candidate) Test-SwiggyLaunchReady $candidate } $LaunchTimeoutSeconds
+    }
+    if (Test-StoreUnavailable $Xml) {
+        throw "Swiggy selected Home, but the app is showing a store-unavailable/high-traffic screen."
+    }
     if (Test-AddressPicker $Xml) {
         return $Xml
     }
+    if (Test-ProductDetailSurface $Xml) {
+        $Xml = Exit-SwiggyProductDetailToHome $Xml
+        if (Test-AddressPicker $Xml) {
+            return $Xml
+        }
+    }
     if (Test-CartSurface $Xml) {
         $Xml = Exit-SwiggyCartToHome $Xml
+        if (Test-AddressPicker $Xml) {
+            return $Xml
+        }
+    }
+    if (Test-ProductSearchSurface $Xml) {
+        $Xml = Exit-SwiggyProductSearchToHome $Xml
         if (Test-AddressPicker $Xml) {
             return $Xml
         }
@@ -312,6 +390,9 @@ function Open-AddressPicker([string]$Xml) {
     if (Test-AddressPicker $xml) {
         return $xml
     }
+    if (Test-StoreUnavailable $xml) {
+        throw "Swiggy selected Home, but the app is showing a store-unavailable/high-traffic screen."
+    }
 
     throw "Could not open the Swiggy address picker."
 }
@@ -322,6 +403,12 @@ function Select-SwiggyHomeTab([string]$Xml) {
     }
     if (Test-HomeShellSurface $Xml) {
         return $Xml
+    }
+    if (Test-ProductDetailSurface $Xml) {
+        $Xml = Exit-SwiggyProductDetailToHome $Xml
+        if (Test-HomeSearchSurface $Xml -or Test-HomeShellSurface $Xml) {
+            return $Xml
+        }
     }
     if (Test-CartSurface $Xml) {
         return Exit-SwiggyCartToHome $Xml
@@ -361,29 +448,47 @@ function Exit-SwiggyCartToHome([string]$Xml) {
         }
     }
 
-    $addMorePoint = Get-NodeCenterByPattern $Xml @("(?i)Add more items")
-    if ($addMorePoint) {
-        adb shell input tap $addMorePoint.X $addMorePoint.Y | Out-Null
+    $emptyCartPoint = Get-NodeCenterByPattern $Xml @("(?i)^Start Shopping$", "(?i)Your cart is getting lonely")
+    if ($emptyCartPoint) {
+        adb shell input tap $emptyCartPoint.X $emptyCartPoint.Y | Out-Null
     } else {
-        $homeNudgePoint = Get-NodeCenterByPattern $Xml @("(?i)open the home page", "(?i)might have missed")
-        if ($homeNudgePoint) {
-            adb shell input tap $homeNudgePoint.X $homeNudgePoint.Y | Out-Null
+        $addMorePoint = Get-NodeCenterByPattern $Xml @("(?i)Add more items")
+        if ($addMorePoint) {
+            adb shell input tap $addMorePoint.X $addMorePoint.Y | Out-Null
         } else {
-            adb shell input keyevent 4 | Out-Null
+            $homeNudgePoint = Get-NodeCenterByPattern $Xml @("(?i)open the home page", "(?i)might have missed")
+            if ($homeNudgePoint) {
+                adb shell input tap $homeNudgePoint.X $homeNudgePoint.Y | Out-Null
+            } else {
+                adb shell input keyevent 4 | Out-Null
+            }
         }
     }
 
     Start-Sleep -Seconds 2
-    $nextXml = Wait-ForUi { param($candidate) (Test-HomeSearchSurface $candidate) -or -not (Test-CartSurface $candidate) } 12
+    $nextXml = Wait-ForUi { param($candidate) (Test-HomeSearchSurface $candidate) -or (Test-ProductDetailSurface $candidate) -or -not (Test-CartSurface $candidate) } 12
     if (Test-HomeSearchSurface $nextXml) {
         return $nextXml
+    }
+    if (Test-ProductDetailSurface $nextXml) {
+        return Exit-SwiggyProductDetailToHome $nextXml
+    }
+    if (Test-ProductSearchSurface $nextXml) {
+        return Exit-SwiggyProductSearchToHome $nextXml
     }
 
     if (Test-CartSurface $nextXml) {
         Write-Phase "cart remained visible; trying Android back once"
         adb shell input keyevent 4 | Out-Null
         Start-Sleep -Seconds 2
-        $nextXml = Wait-ForUi { param($candidate) (Test-HomeSearchSurface $candidate) -or -not (Test-CartSurface $candidate) } 12
+        $nextXml = Wait-ForUi { param($candidate) (Test-HomeSearchSurface $candidate) -or (Test-ProductDetailSurface $candidate) -or -not (Test-CartSurface $candidate) } 12
+    }
+
+    if (Test-ProductDetailSurface $nextXml) {
+        return Exit-SwiggyProductDetailToHome $nextXml
+    }
+    if (Test-ProductSearchSurface $nextXml) {
+        return Exit-SwiggyProductSearchToHome $nextXml
     }
 
     return $nextXml
@@ -405,6 +510,37 @@ function Exit-SwiggyProductSearchToHome([string]$Xml) {
     }
 
     return Get-UiDump
+}
+
+function Exit-SwiggyProductDetailToHome([string]$Xml) {
+    if (-not (Test-ProductDetailSurface $Xml)) {
+        return $Xml
+    }
+
+    Write-Phase "leaving Swiggy product-detail surface for Home/search surface"
+    $nextXml = $Xml
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        adb shell input keyevent 4 | Out-Null
+        Start-Sleep -Seconds 2
+        $nextXml = Get-UiDump
+        if (Test-CouponlessSuccessModal $nextXml) {
+            $nextXml = Dismiss-CouponlessSuccessModal $nextXml
+        }
+        if (Test-HomeSearchSurface $nextXml) {
+            return $nextXml
+        }
+        if (Test-CartSurface $nextXml) {
+            return Exit-SwiggyCartToHome $nextXml
+        }
+        if (Test-ProductSearchSurface $nextXml) {
+            return Exit-SwiggyProductSearchToHome $nextXml
+        }
+        if (-not (Test-ProductDetailSurface $nextXml)) {
+            return $nextXml
+        }
+    }
+
+    return $nextXml
 }
 
 function Enter-AddressSearch([string]$Xml) {
@@ -494,6 +630,10 @@ function Wait-SwiggyHomeReady {
     $deadline = (Get-Date).AddSeconds($HomeReadyTimeoutSeconds)
     do {
         $xml = Get-UiDump
+        if (Test-CouponlessSuccessModal $xml) {
+            $xml = Dismiss-CouponlessSuccessModal $xml
+            continue
+        }
         if (Confirm-OrderingForSelfIfPrompt $xml) {
             continue
         }
@@ -502,6 +642,12 @@ function Wait-SwiggyHomeReady {
         }
         if (Test-CartSurface $xml) {
             $xml = Exit-SwiggyCartToHome $xml
+            if (Test-HomeSearchSurface $xml -TrustRecentSavedHomeSelection:$script:SavedHomeSelectionAttempted) {
+                return $xml
+            }
+        }
+        if (Test-ProductDetailSurface $xml) {
+            $xml = Exit-SwiggyProductDetailToHome $xml
             if (Test-HomeSearchSurface $xml -TrustRecentSavedHomeSelection:$script:SavedHomeSelectionAttempted) {
                 return $xml
             }
@@ -530,7 +676,11 @@ function Invoke-SwiggyHomePreflight {
     Require-Package $SwiggyPackage
 
     $xml = Start-SwiggyAndWait
+    $xml = Dismiss-CouponlessSuccessModal $xml
     $xml = Exit-StoreUnavailableToHome $xml
+    if (Test-StoreUnavailable $xml) {
+        throw "Swiggy selected Home, but the app is showing a store-unavailable/high-traffic screen."
+    }
     if (Test-HomeSearchSurface $xml) {
         Write-Phase "success: Swiggy Instamart is already on saved Home and the Home/search surface."
         return
@@ -540,6 +690,14 @@ function Invoke-SwiggyHomePreflight {
         $xml = Exit-SwiggyCartToHome $xml
         if (Test-HomeSearchSurface $xml) {
             Write-Phase "success: Swiggy Instamart left cart and reached the Home/search surface."
+            return
+        }
+    }
+
+    if (Test-ProductDetailSurface $xml) {
+        $xml = Exit-SwiggyProductDetailToHome $xml
+        if (Test-HomeSearchSurface $xml) {
+            Write-Phase "success: Swiggy Instamart left product detail and reached the Home/search surface."
             return
         }
     }
@@ -554,6 +712,7 @@ function Invoke-SwiggyHomePreflight {
 
     if (-not (Test-AddressPicker $xml)) {
         $xml = Select-SwiggyHomeTab $xml
+        $xml = Dismiss-CouponlessSuccessModal $xml
         if (Test-HomeSearchSurface $xml) {
             Write-Phase "success: Swiggy Instamart is already on saved Home and the Home/search surface."
             return
@@ -561,6 +720,7 @@ function Invoke-SwiggyHomePreflight {
     }
 
     $xml = Open-AddressPicker $xml
+    $xml = Dismiss-CouponlessSuccessModal $xml
     Select-SavedHomeAddress $xml
     Wait-SwiggyHomeReady | Out-Null
     Write-Phase "success: Swiggy Instamart is on saved Home and the Home/search surface."
