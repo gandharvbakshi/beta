@@ -3,7 +3,8 @@ param(
     [int]$TimeoutSeconds = 300,
     [switch]$SkipBuild,
     [switch]$AllowFailedItems,
-    [switch]$AllowStoreUnavailable
+    [switch]$AllowStoreUnavailable,
+    [switch]$AllowExternalAppUnresponsive
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,14 +53,14 @@ function Enable-BetaAccessibility {
 
 function Wait-BetaAccessibilityConnected([int]$TimeoutSeconds = 15) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $escapedService = [regex]::Escape($Service)
     do {
         $enabled = (adb shell settings get secure enabled_accessibility_services) -join "`n"
         $accessibility = (adb shell settings get secure accessibility_enabled) -join "`n"
         $runtime = (adb shell dumpsys accessibility) -join "`n"
-        if ($enabled -match [regex]::Escape($Service) `
+        if ($enabled -match $escapedService `
                 -and $accessibility.Trim() -eq "1" `
-                -and $runtime -match "Bound services:\{[^}]*My Accessibility Service" `
-                -and $runtime -match [regex]::Escape("Enabled services:{{$Service}}")) {
+                -and $runtime -match $escapedService) {
             return $true
         }
         Enable-BetaAccessibility
@@ -129,6 +130,19 @@ function Test-BetaScreenCaptureServiceRunning {
     return ($serviceState -match "$([regex]::Escape($Package))/com\.example\.beta\.ScreenCaptureService|ScreenCaptureService")
 }
 
+function Test-BetaMediaProjectionActive {
+    $projectionState = (adb shell dumpsys media_projection) -join "`n"
+    $projectionBody = ($projectionState -split "Media Projection:", 2)[1]
+    if (-not $projectionBody) {
+        return $false
+    }
+    return ($projectionBody.Trim() -ne "null")
+}
+
+function Test-BetaScreenCaptureActive {
+    return (Test-BetaScreenCaptureServiceRunning) -and (Test-BetaMediaProjectionActive)
+}
+
 function Wait-BetaMediaProjectionPermissionDialog([int]$TimeoutSeconds = 12) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
@@ -190,7 +204,7 @@ function Wait-BetaScreenCaptureReady([int]$TimeoutSeconds = 75) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
         $logs = adb logcat -d | Select-String "Screen capture started successfully|Screen capture started successfully after retry|VirtualDisplay created successfully|VirtualDisplay created with minimal flags"
-        if ($logs -and (Test-BetaScreenCaptureServiceRunning)) {
+        if ($logs -and (Test-BetaScreenCaptureActive)) {
             return $true
         }
         Start-Sleep -Seconds 2
@@ -222,15 +236,17 @@ function Start-BetaScreenCapture {
     adb shell am force-stop $Package | Out-Null
     Start-Sleep -Seconds 1
     adb logcat -c
-    adb shell settings put secure accessibility_enabled 0 | Out-Null
-    adb shell settings delete secure enabled_accessibility_services | Out-Null
-    Start-Sleep -Seconds 1
     Enable-BetaAccessibility
-    Wait-BetaAccessibilityConnected 15 | Out-Null
     adb shell am start -n $MainActivityComponent | Out-Null
-    Start-Sleep -Seconds 9
+    Start-Sleep -Seconds 4
+    Enable-BetaAccessibility
+    if (-not (Wait-BetaAccessibilityConnected 20)) {
+        throw "Beta accessibility service did not connect before capture startup."
+    }
+    Start-Sleep -Seconds 5
 
     for ($i = 0; $i -lt 3; $i++) {
+        Enable-BetaAccessibility
         if (Dismiss-AnrFromWindowState) {
             adb shell am start -n $MainActivityComponent | Out-Null
             Start-Sleep -Milliseconds 900
@@ -251,7 +267,16 @@ function Start-BetaScreenCapture {
             adb shell am broadcast -a "$Package.HIDE_AUTOMATION_OVERLAY" -p $Package | Out-Null
             adb shell input keyevent 3 | Out-Null
             Start-Sleep -Seconds 1
-            return
+            if (Test-BetaScreenCaptureActive) {
+                return
+            }
+            Write-Phase "screen capture grant was lost immediately after startup; retrying capture"
+            adb shell am force-stop $Package | Out-Null
+            Start-Sleep -Seconds 2
+            Enable-BetaAccessibility
+            adb shell am start -n $MainActivityComponent | Out-Null
+            Start-Sleep -Seconds 9
+            continue
         }
 
         if ((adb logcat -d | Select-String "Beta isn.t responding|Beta isn't responding|Application Not Responding: live.betaapp.android")) {
@@ -299,14 +324,14 @@ try {
     Start-BetaScreenCapture
     Ensure-SwiggyHomeReady -NoForceStop
 
-    if (-not (Test-BetaScreenCaptureServiceRunning)) {
-        Write-Phase "screen capture service was not retained after Swiggy preflight; retrying capture"
+    if (-not (Test-BetaScreenCaptureActive)) {
+        Write-Phase "screen capture grant was not retained after Swiggy preflight; retrying capture"
         Start-BetaScreenCapture
         Ensure-SwiggyHomeReady -NoForceStop
     }
 
-    if (-not (Test-BetaScreenCaptureServiceRunning)) {
-        throw "Beta screen capture service is not running before instruction submission."
+    if (-not (Test-BetaScreenCaptureActive)) {
+        throw "Beta screen capture grant is not active before instruction submission."
     }
 
     Write-Phase "submitting Swiggy instruction through manual-ready runner"

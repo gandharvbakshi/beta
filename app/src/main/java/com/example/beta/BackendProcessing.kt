@@ -65,6 +65,7 @@ object BackendProcessing {
     private var maxActions: Int = 20 // Safety limit for search + scroll + product + cart verification
     private var isActionSequenceActive: Boolean = false
     private var requestInFlight: Boolean = false
+    private var requestInFlightGeneration: Long? = null
     private var originalInputText: String? = null
     private var sequenceContext: Context? = null
     private var emptyBlinkitTreeRetries: Int = 0
@@ -109,6 +110,31 @@ object BackendProcessing {
         sequenceGeneration: Long
     ): Boolean {
         return !requestWasSequenced || isCurrentSequenceTrigger(inputText, sequenceGeneration)
+    }
+
+    private fun markRequestInFlight(sequenceGeneration: Long) {
+        requestInFlight = true
+        requestInFlightGeneration = sequenceGeneration
+    }
+
+    private fun clearRequestInFlight(sequenceGeneration: Long? = null) {
+        if (sequenceGeneration == null || requestInFlightGeneration == null || requestInFlightGeneration == sequenceGeneration) {
+            requestInFlight = false
+            requestInFlightGeneration = null
+        }
+    }
+
+    private fun invalidateCurrentItemSequence(reason: String) {
+        if (!isActionSequenceActive && originalInputText == null && requestInFlightGeneration == null) return
+        val previousInput = originalInputText
+        val newGeneration = advanceActionSequenceGeneration()
+        isActionSequenceActive = false
+        clearRequestInFlight()
+        currentActionNumber = 0
+        originalInputText = null
+        sequenceContext = null
+        emptyBlinkitTreeRetries = 0
+        Log.d(TAG, "Invalidated item sequence after $reason for '$previousInput'; generation=$newGeneration")
     }
 
     private fun ensureActionExecutor(context: Context, accessibilityService: MyAccessibilityService? = null): Boolean {
@@ -160,7 +186,7 @@ object BackendProcessing {
                 actionType.equals("swipe", ignoreCase = true) -> "Scrolling results"
             target.contains("open product") ||
                 target.contains("product page") -> "Opening product"
-            target.contains("add") -> "Adding item"
+            CommerceActionClassifier.isProductAddButtonAction(actionTarget) -> "Adding item"
             target.contains("cart") -> "Checking cart"
             actionType.equals("error", ignoreCase = true) -> "Needs attention"
             else -> "Working"
@@ -272,6 +298,7 @@ object BackendProcessing {
         ))
         Log.i(TAG, formatItemResultLine(itemOutcome))
         updateFlowStatus(context, stateLineOverride ?: formatItemResultStateLine(itemOutcome.item, status))
+        invalidateCurrentItemSequence("terminal outcome")
 
         if (handleMultiItemOutcome(context, itemOutcome)) {
             return
@@ -515,10 +542,11 @@ object BackendProcessing {
                     return true // Disable hostname verification for development
                 }
             })
-            .connectTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(120, TimeUnit.SECONDS)
-            .readTimeout(300, TimeUnit.SECONDS)
-            .callTimeout(300, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(45, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(75, TimeUnit.SECONDS)
+            .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
             .retryOnConnectionFailure(true)
             .build()
     }
@@ -547,7 +575,7 @@ object BackendProcessing {
         val sequenceGeneration = advanceActionSequenceGeneration()
         currentActionNumber = 0
         isActionSequenceActive = true
-        requestInFlight = false
+        clearRequestInFlight()
         originalInputText = inputText
         sequenceContext = context
         emptyBlinkitTreeRetries = 0
@@ -570,7 +598,7 @@ object BackendProcessing {
         val preserveMultiSequence = multiItemSequenceActive && multiItemSequenceAwaitingNext
         advanceActionSequenceGeneration()
         isActionSequenceActive = false
-        requestInFlight = false
+        clearRequestInFlight()
         currentActionNumber = 0
         originalInputText = null
         sequenceContext = null
@@ -698,7 +726,7 @@ object BackendProcessing {
             updateFlowStatus(context, "Working")
             return
         }
-        requestInFlight = true
+        markRequestInFlight(requestGeneration)
         
         // Initialize action executor if accessibility service is available
         ensureActionExecutor(context, accessibilityService)
@@ -723,7 +751,7 @@ object BackendProcessing {
             emptyBlinkitTreeRetries++
             Log.w("BackendProcessing", "Blinkit tree was empty; retrying capture before asking backend ($emptyBlinkitTreeRetries/3)")
             updateFlowStatus(context, "Reading screen")
-            requestInFlight = false
+            clearRequestInFlight(requestGeneration)
             triggerNextAction()
             return
         }
@@ -830,11 +858,12 @@ object BackendProcessing {
                             "UploadFailure",
                             "Ignoring stale upload failure for '$requestInputText' generation=$requestGeneration"
                         )
+                        clearRequestInFlight(requestGeneration)
                         return
                     }
                     e.printStackTrace()
                     Log.e("UploadFailure", "Failed to upload image: ${e.message}")
-                    requestInFlight = false
+                    clearRequestInFlight(requestGeneration)
                     updateFlowStatus(context, "Stopped - backend offline")
                     // buttonHighlightService?.clearHighlight() - service removed
                 }
@@ -842,15 +871,16 @@ object BackendProcessing {
                 override fun onResponse(call: Call, response: Response) {
                     if (!isRequestStillCurrent(requestWasSequenced, requestInputText, requestGeneration)) {
                         Log.w(
-                            "UploadResponse",
+                            "BackendProcessing",
                             "Ignoring stale backend response for '$requestInputText' generation=$requestGeneration current=${getCurrentSequenceGeneration()}"
                         )
+                        clearRequestInFlight(requestGeneration)
                         response.close()
                         return
                     }
                     if (!response.isSuccessful) {
                         Log.e("UploadResponse", "Unexpected response: $response")
-                        requestInFlight = false
+                        clearRequestInFlight(requestGeneration)
                         updateFlowStatus(context, "Stopped - backend error")
                         // buttonHighlightService?.clearHighlight() - service removed
                         return
@@ -1125,6 +1155,11 @@ object BackendProcessing {
                                     val className = elementSelector?.optString("class_name", "") ?: ""
                                     val contentDescription = elementSelector?.optString("content_description", "") ?: ""
                                     val hierarchyPath = elementSelector?.optString("hierarchy_path", "") ?: ""
+                                    val isProductAddAction = CommerceActionClassifier.isProductAddButtonAction(
+                                        actionTarget,
+                                        text,
+                                        contentDescription
+                                    )
                                     
                                     // Get fallback coordinates
                                     val fallbackCoordinates = recommendedAction.optJSONObject("fallback_coordinates")
@@ -1244,6 +1279,7 @@ object BackendProcessing {
                                         val wasSequenceAction = requestWasSequenced && requestActionNumber > 0
                                         if (wasSequenceAction && !isRequestStillCurrent(requestWasSequenced, requestInputText, requestGeneration)) {
                                             Log.w("BackendProcessing", "⚠️ Backend response is stale before action execution - ignoring action")
+                                            clearRequestInFlight(requestGeneration)
                                             return@onResponse
                                         }
                                         
@@ -1288,9 +1324,6 @@ object BackendProcessing {
                                             val isTypeAction = actionType.equals("type", ignoreCase = true)
                                             val isScrollAction = actionType.equals("scroll", ignoreCase = true) ||
                                                 actionType.equals("swipe", ignoreCase = true)
-                                            val isAddAction = actionTarget.contains("add", ignoreCase = true) ||
-                                                text.equals("ADD", ignoreCase = true) ||
-                                                contentDescription.contains("add", ignoreCase = true)
                                             val isViewCartAction = actionTarget.contains("view cart", ignoreCase = true) ||
                                                 actionTarget.contains("cart", ignoreCase = true) ||
                                                 text.contains("view cart", ignoreCase = true) ||
@@ -1319,7 +1352,7 @@ object BackendProcessing {
                                             
                                             val notes = when {
                                                 actionSuccess && isTypeAction -> "search_query_typed"
-                                                actionSuccess && isAddAction -> "add_clicked"
+                                                actionSuccess && isProductAddAction -> "add_clicked"
                                                 actionSuccess && isViewCartAction -> "view_cart_clicked"
                                                 actionSuccess && isProductOpenAction -> "product_open_clicked"
                                                 actionSuccess && isSearchFocusClickAction -> "trusted_search_focus"
@@ -1343,7 +1376,7 @@ object BackendProcessing {
                                                 Log.i(TAG, "BLINKIT_SEARCH_TEXT_ENTERED: $text")
                                             actionSuccess && actionTarget.contains("search", ignoreCase = true) ->
                                                 Log.i(TAG, "BLINKIT_SEARCH_BOX_FOUND")
-                                            actionSuccess && actionTarget.contains("add", ignoreCase = true) ->
+                                            actionSuccess && isProductAddAction ->
                                                 Log.i(TAG, "BLINKIT_ADD_TO_CART_CLICKED")
                                         }
                                         
@@ -1461,7 +1494,7 @@ object BackendProcessing {
                             
                         } catch (e: Exception) {
                             Log.e("JSONParsing", "Error parsing JSON response: ${e.message}")
-                            requestInFlight = false
+                            clearRequestInFlight(requestGeneration)
                             handleBackendError(context, "JSON parsing error", e.message ?: "Unknown error", sessionContext)
                             // buttonHighlightService?.clearHighlight() - service removed
                         }
@@ -1478,7 +1511,7 @@ object BackendProcessing {
             } catch (e: SocketTimeoutException) {
                 if (attempt == maxAttempts) {
                     Log.e("UploadFailure", "Failed after multiple attempts: ${e.message}")
-                    requestInFlight = false
+                    clearRequestInFlight(requestGeneration)
                     emitPhase0Outcome(
                         context = context,
                         item = requestInputText,

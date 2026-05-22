@@ -20,6 +20,11 @@ It assumes the current architecture:
   harness conventions). **Robustness backlog** — `DEBUG_NOTES_FOR_CODEX.md`
   (R1–R15 are absorbed into Phase 1 below).
 
+Architecture note: keep commerce app adapters behind a shared capability
+interface so accessibility/OCR/screenshot automation can be one provider today
+and official API/MCP connectors can be added later without changing the
+ordering safety model.
+
 Universal **safety boundary** (do not violate in any phase):
 
 - Never tap "Place order", "Pay", "Proceed to checkout", "Pay now",
@@ -28,6 +33,8 @@ Universal **safety boundary** (do not violate in any phase):
   quantities, ready for human review".
 - After every test, call `Reset-BlinkitCart` (already in
   `scripts/run_blinkit_flow_test.ps1`) so the emulator is left clean.
+- Keep every provider cart-only: no payment handling, no final checkout
+  confirmation, and no irreversible order submission.
 
 Conventions used throughout this doc:
 
@@ -746,6 +753,16 @@ and app-specific behaviour.
      markers, pack/variant modal shape.
    - Cart operations: open cart, verify cart line, stop before payment boundary.
 
+1. **Add a discovery/learning pass before enabling a new app**
+   - Run the target app without ordering and record stable screen surfaces:
+     home header, delivery address selector, product search bar, search results,
+     product cards, variant sheet, cart banner, cart page, and payment boundary.
+   - Store learned safe tap zones and unsafe zones in the app profile. Example:
+     Swiggy product search is below the address header; tapping the header opens
+     address search and must be treated as unsafe for product queries.
+   - Promote a new app only after the discovery pass has fixtures/tests for the
+     first search tap, first result add, cart verification, and stop-before-pay.
+
 2. **Move Blinkit-specific logic behind `BlinkitAdapter`**
    - Keep Blinkit-specific ideas here:
      - "Bought Earlier"
@@ -1119,6 +1136,18 @@ scope here) flags regressions phase-over-phase.
 
 - Backend test suite: **88 tests OK**.
 - Android unit tests: **OK**.
+- Swiggy Instamart Phase 1 live probe: `order apple` reached Swiggy search;
+  after typing Apple, Swiggy showed “We will be right back / unusually high
+  traffic”; Beta stopped with `ITEM_RESULT status=store_unavailable` and
+  `ORDER_RESULT failed apple:store_unavailable`; no checkout/payment.
+- Swiggy Phase 0 must include address preflight: proceed only when the
+  selected address is Home, and do not advance to Phase 1 until the Home/search
+  surface is confirmed.
+- Current live observation: the visible Swiggy header still showed Mountain
+  View, CA 94043 and the high-traffic page, so Phase 1 should stay blocked.
+- Verification: Android `assembleDebug` passed; `OrderOutcomeTest` passed;
+  backend Docker health returned 200; focused backend local unittest is still
+  blocked locally by missing `dotenv`, but backend Docker is healthy.
 - Matrix runs: **single**, **multi-clean**, **multi-noisy**, and
   **quantity** passed.
 - Fixture simulations: **preflight**, **substitution**, and **evidence**

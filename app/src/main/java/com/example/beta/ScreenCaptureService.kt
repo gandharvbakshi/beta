@@ -1291,7 +1291,7 @@ class ScreenCaptureService : Service() {
                 type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.END
@@ -1303,8 +1303,8 @@ class ScreenCaptureService : Service() {
             overlayView.isFocusable = false
             overlayView.isFocusableInTouchMode = false
             
-            // Make the overlay clickable to open input dialog
-            overlayView.isClickable = true
+            // Keep the overlay pass-through until READY explicitly enables taps.
+            overlayView.isClickable = false
             overlayView.setOnClickListener {
                 Log.d("ScreenCaptureService", "Overlay clicked - calling showInputDialog()")
                 showInputDialog()
@@ -1361,7 +1361,7 @@ class ScreenCaptureService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.END
@@ -1373,8 +1373,8 @@ class ScreenCaptureService : Service() {
             overlayView.isFocusable = false
             overlayView.isFocusableInTouchMode = false
             
-            // Make the overlay clickable to open input dialog
-            overlayView.isClickable = true
+            // Keep the overlay pass-through until READY explicitly enables taps.
+            overlayView.isClickable = false
             overlayView.setOnClickListener {
                 Log.d("ScreenCaptureService", "Overlay clicked - calling showInputDialog()")
                 showInputDialog()
@@ -1899,6 +1899,12 @@ class ScreenCaptureService : Service() {
         if (!::overlayView.isInitialized) return
         overlayView.post {
             try {
+                val touchable = status.state == OverlayState.READY &&
+                    !BackendProcessing.isSequenceActive() &&
+                    !isActionSequenceActive
+                updateOverlayTouchability(
+                    touchable = touchable
+                )
                 val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text) ?: return@post
                 val overlayDot = overlayView.findViewById<View>(R.id.overlay_dot) ?: return@post
                 val dot = when (status.state) {
@@ -1909,9 +1915,33 @@ class ScreenCaptureService : Service() {
                 }
                 overlayText.text = status.label
                 overlayDot.setBackgroundResource(dot)
+                overlayView.visibility = if (touchable) View.VISIBLE else View.GONE
                 Log.d("ScreenCaptureService", "Overlay status updated to: ${status.label}")
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error updating overlay state: ${e.message}", e)
+            }
+        }
+    }
+
+    private fun updateOverlayTouchability(touchable: Boolean) {
+        if (!::overlayView.isInitialized) return
+
+        overlayView.isClickable = touchable
+        overlayView.isFocusable = false
+        overlayView.isFocusableInTouchMode = false
+
+        if (::windowManager.isInitialized && ::layoutParams.isInitialized) {
+            val oldFlags = layoutParams.flags
+            layoutParams.flags = if (touchable) {
+                layoutParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            } else {
+                layoutParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            }
+            if (layoutParams.flags != oldFlags) {
+                windowManager.updateViewLayout(overlayView, layoutParams)
+                Log.d("ScreenCaptureService", "Overlay touchability updated: touchable=$touchable")
+            } else {
+                Log.d("ScreenCaptureService", "Overlay touchability unchanged: touchable=$touchable")
             }
         }
     }
@@ -2014,10 +2044,12 @@ class ScreenCaptureService : Service() {
         if (!::overlayView.isInitialized) return
         overlayView.post {
             try {
+                updateOverlayTouchability(touchable = false)
                 val overlayText = overlayView.findViewById<TextView>(R.id.overlay_text)
                 val overlayDot = overlayView.findViewById<View>(R.id.overlay_dot)
                 overlayText.text = text
                 overlayDot?.setBackgroundResource(R.drawable.beta_dot_amber)
+                overlayView.visibility = View.GONE
                 Log.d("ScreenCaptureService", "Overlay text updated to: $text")
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error updating overlay text: ${e.message}", e)
@@ -2048,8 +2080,15 @@ class ScreenCaptureService : Service() {
             if (::overlayView.isInitialized) {
                 overlayView.post {
                     try {
-                        overlayView.visibility = View.VISIBLE
-                        Log.d("ScreenCaptureService", "Emulator overlay visibility set to VISIBLE")
+                        updateOverlayTouchability(
+                            touchable = !BackendProcessing.isSequenceActive() && !isActionSequenceActive
+                        )
+                        overlayView.visibility = if (BackendProcessing.isSequenceActive() || isActionSequenceActive) {
+                            View.GONE
+                        } else {
+                            View.VISIBLE
+                        }
+                        Log.d("ScreenCaptureService", "Emulator overlay visibility restored to ${overlayView.visibility}")
 
                         if (BackendProcessing.isSequenceActive()) {
                             Log.d("ScreenCaptureService", "Sequence active; preserving current emulator overlay status")
@@ -2088,8 +2127,15 @@ class ScreenCaptureService : Service() {
         overlayView.post {
             try {
                 if (::overlayView.isInitialized) {
-                    overlayView.visibility = View.VISIBLE
-                    Log.d("ScreenCaptureService", "Overlay visibility set to VISIBLE")
+                    updateOverlayTouchability(
+                        touchable = !BackendProcessing.isSequenceActive() && !isActionSequenceActive
+                    )
+                    overlayView.visibility = if (BackendProcessing.isSequenceActive() || isActionSequenceActive) {
+                        View.GONE
+                    } else {
+                        View.VISIBLE
+                    }
+                    Log.d("ScreenCaptureService", "Overlay visibility restored to ${overlayView.visibility}")
 
                     if (BackendProcessing.isSequenceActive()) {
                         Log.d("ScreenCaptureService", "Sequence active; preserving current overlay status")

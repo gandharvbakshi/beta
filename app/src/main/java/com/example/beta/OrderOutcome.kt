@@ -3,6 +3,7 @@ package com.example.beta
 enum class ItemOutcomeStatus(val code: String) {
     SUCCESS("success"),
     OOS("oos"),
+    STORE_UNAVAILABLE("store_unavailable"),
     NOT_FOUND("not_found"),
     MISCLICK("misclick"),
     SKIPPED("skipped"),
@@ -30,10 +31,69 @@ fun isStoreUnavailableFailureReason(reason: String?): Boolean {
     return listOf(
         "store unavailable",
         "unserviceable",
-        "currently unavailable",
+        "store or delivery is not available",
+        "delivery is not available",
+        "store is currently unserviceable",
+        "currently unserviceable",
+        "not serviceable",
+        "store is currently unavailable",
+        "store currently unavailable",
+        "currently unavailable in blinkit",
+        "currently unavailable in instamart",
         "delivery location",
         "service not available"
     ).any { normalized.contains(it) }
+}
+
+fun isStoreAppUnavailableFailureReason(reason: String?): Boolean {
+    val normalized = reason?.trim()?.lowercase().orEmpty()
+    if (normalized.isBlank()) return false
+
+    return listOf(
+        "temporarily unavailable",
+        "high traffic",
+        "outage",
+        "store not available",
+        "app unavailable"
+    ).any { normalized.contains(it) }
+}
+
+fun terminalFailureStatusForReason(reason: String?): ItemOutcomeStatus {
+    val normalized = reason?.trim()?.lowercase().orEmpty()
+    if (normalized.isBlank()) return ItemOutcomeStatus.NOT_FOUND
+
+    return when {
+        isStoreAppUnavailableFailureReason(normalized) ||
+            isStoreUnavailableFailureReason(normalized) -> ItemOutcomeStatus.STORE_UNAVAILABLE
+        normalized.contains("out of stock") ||
+            normalized.contains("sold out") ||
+            normalized.contains("notify me") ||
+            normalized.contains("currently unavailable") ||
+            normalized.contains("unavailable") ||
+            (normalized.contains("quantity") && normalized.contains("did not reach")) ||
+            (normalized.contains("requested quantity") && normalized.contains("not visible")) -> ItemOutcomeStatus.OOS
+        normalized.contains("low") && normalized.contains("confidence") -> ItemOutcomeStatus.LOW_CONFIDENCE
+        normalized.contains("timeout") ||
+            normalized.contains("timed out") ||
+            normalized.contains("max steps") ||
+            normalized.contains("maximum actions") -> ItemOutcomeStatus.TIMEOUT
+        normalized.contains("misclick") ||
+            normalized.contains("wrong") ||
+            normalized.contains("wishlist") ||
+            normalized.contains("summary_and_edit") -> ItemOutcomeStatus.MISCLICK
+        else -> ItemOutcomeStatus.NOT_FOUND
+    }
+}
+
+fun terminalFailureNoteForStatus(status: ItemOutcomeStatus, fallback: String): String {
+    return when (status) {
+        ItemOutcomeStatus.OOS -> "out_of_stock"
+        ItemOutcomeStatus.STORE_UNAVAILABLE -> "store_unavailable"
+        ItemOutcomeStatus.LOW_CONFIDENCE -> "low_confidence"
+        ItemOutcomeStatus.TIMEOUT -> "timeout"
+        ItemOutcomeStatus.MISCLICK -> "misclick"
+        else -> fallback
+    }
 }
 
 fun storeUnavailableGuidanceMessage(): String = STORE_UNAVAILABLE_GUIDANCE

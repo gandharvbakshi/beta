@@ -76,6 +76,51 @@ class OrderOutcomeTest {
         assertTrue(isStoreUnavailableFailureReason("Service not available right now"))
         assertTrue(isStoreUnavailableFailureReason("Currently unavailable in Blinkit"))
         assertTrue(isStoreUnavailableFailureReason("Unserviceable area"))
+        assertTrue(isStoreUnavailableFailureReason("Blinkit store or delivery is not available right now"))
+        assertTrue(isStoreUnavailableFailureReason("This Instamart store is currently unserviceable"))
+    }
+
+    @Test
+    fun storeAppUnavailableFailureReason_matchesHighTrafficAndOutageVariants() {
+        assertTrue(isStoreAppUnavailableFailureReason("Temporarily unavailable due to high traffic"))
+        assertTrue(isStoreAppUnavailableFailureReason("Service outage in your area"))
+        assertTrue(isStoreAppUnavailableFailureReason("Store not available right now"))
+    }
+
+    @Test
+    fun terminalFailureStatusForReason_separatesStoreUnavailableFromOutOfStock() {
+        assertEquals(
+            ItemOutcomeStatus.STORE_UNAVAILABLE,
+            terminalFailureStatusForReason("Temporarily unavailable due to high traffic")
+        )
+        assertEquals(
+            ItemOutcomeStatus.STORE_UNAVAILABLE,
+            terminalFailureStatusForReason("Blinkit store or delivery is not available right now")
+        )
+        assertEquals(
+            ItemOutcomeStatus.OOS,
+            terminalFailureStatusForReason("Out of stock right now")
+        )
+        assertEquals(
+            ItemOutcomeStatus.OOS,
+            terminalFailureStatusForReason("Item currently unavailable")
+        )
+        assertEquals(
+            ItemOutcomeStatus.OOS,
+            terminalFailureStatusForReason("Item was added, but quantity controls did not reach requested quantity 6.")
+        )
+    }
+
+    @Test
+    fun terminalFailureNoteForStatus_isSeparateForStoreUnavailable() {
+        assertEquals(
+            "store_unavailable",
+            terminalFailureNoteForStatus(ItemOutcomeStatus.STORE_UNAVAILABLE, "workflow_failed")
+        )
+        assertEquals(
+            "out_of_stock",
+            terminalFailureNoteForStatus(ItemOutcomeStatus.OOS, "workflow_failed")
+        )
     }
 
     @Test

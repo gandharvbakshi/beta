@@ -89,12 +89,17 @@ class MyAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (packageName != BLINKIT_PACKAGE) {
-            logNonBlinkitStatus(packageName, eventType)
+        if (packageName == PERMISSION_CONTROLLER_PACKAGE) {
+            handleRuntimePermissionDialogByDenying()
             return
         }
 
-        Log.d("MyAccessibilityService", "Blinkit event detected: $eventType")
+        if (!isSupportedCommercePackage(packageName)) {
+            logNonCommerceStatus(packageName, eventType)
+            return
+        }
+
+        Log.d("MyAccessibilityService", "Commerce app event detected: package=$packageName, eventType=$eventType")
 
         // Log ScreenCaptureService status for debugging
         if (screenCaptureService == null) {
@@ -113,7 +118,7 @@ class MyAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun logNonBlinkitStatus(packageName: String?, eventType: Int) {
+    private fun logNonCommerceStatus(packageName: String?, eventType: Int) {
         val now = System.currentTimeMillis()
         if (now - lastNonBlinkitStatusLogMs < NON_BLINKIT_LOG_INTERVAL_MS) {
             return
@@ -121,7 +126,7 @@ class MyAccessibilityService : AccessibilityService() {
         lastNonBlinkitStatusLogMs = now
         Log.d(
             "MyAccessibilityService",
-            "Ignoring non-Blinkit event: package=$packageName, eventType=$eventType, captureConnected=${screenCaptureService != null}"
+            "Ignoring non-commerce event: package=$packageName, eventType=$eventType, captureConnected=${screenCaptureService != null}"
         )
     }
 
@@ -209,19 +214,20 @@ class MyAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Public method to manually trigger Blinkit tree view (for testing)
+     * Public method to manually trigger commerce-app tree capture (for testing).
+     * Kept with the old name because callers still use it.
      */
     fun showBlinkitTree() {
         logBlinkitTree()
     }
 
     /**
-     * Helper method to find the Blinkit app root by scanning all windows
+     * Helper method to find the target commerce app root by scanning all windows
      * This is more reliable than rootInActiveWindow when our overlay is active
      */
-    private fun findBlinkitAppRoot(): AccessibilityNodeInfo? {
+    private fun findCommerceAppRoot(): AccessibilityNodeInfo? {
         try {
-            Log.d("MyAccessibilityService", "Scanning all windows for Blinkit app...")
+            Log.d("MyAccessibilityService", "Scanning all windows for supported commerce app...")
             
             // Get all windows
             val allWindows = windows ?: return null
@@ -234,14 +240,14 @@ class MyAccessibilityService : AccessibilityService() {
                     val packageName = root.packageName?.toString() ?: continue
                     Log.d("MyAccessibilityService", "Window type: ${window.type}, Package: $packageName")
                     
-                    if (packageName == "com.grofers.customerapp") {
-                        Log.d("MyAccessibilityService", "Found Blinkit app in application window")
+                    if (isSupportedCommercePackage(packageName)) {
+                        Log.d("MyAccessibilityService", "Found commerce app in application window: $packageName")
                         return root
                     }
                 }
             }
             
-            Log.d("MyAccessibilityService", "Blinkit app not found in any application window")
+            Log.d("MyAccessibilityService", "Supported commerce app not found in any application window")
             return null
             
         } catch (e: Exception) {
@@ -251,10 +257,10 @@ class MyAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Creates a rich tree visualization of the Blinkit app's accessibility tree
+     * Creates a rich tree visualization of the active commerce app's accessibility tree
      */
     private fun logBlinkitTree() {
-        Log.d("MyAccessibilityService", "=== ENTERING logBlinkitTree METHOD ===")
+        Log.d("MyAccessibilityService", "=== ENTERING commerce tree capture METHOD ===")
         
         // Debug accessibility service state
         Log.d("MyAccessibilityService", "Accessibility Service State:")
@@ -264,21 +270,26 @@ class MyAccessibilityService : AccessibilityService() {
         Log.d("MyAccessibilityService", "  • Feedback Type: ${serviceInfo?.feedbackType}")
         
         try {
-            Log.d("MyAccessibilityService", "Trying to find Blinkit app root...")
+            Log.d("MyAccessibilityService", "Trying to find supported commerce app root...")
             
             // First try rootInActiveWindow
             var rootNode = rootInActiveWindow
             Log.d("MyAccessibilityService", "rootInActiveWindow result: ${rootNode != null}")
+            val activePackage = rootNode?.packageName?.toString().orEmpty()
+            if (rootNode != null && !isSupportedCommercePackage(activePackage)) {
+                Log.d("MyAccessibilityService", "Active root is not a supported commerce app: $activePackage")
+                rootNode = null
+            }
             
-            // If rootInActiveWindow is null, try scanning all windows
+            // If rootInActiveWindow is null or belongs to our overlay, try scanning all windows
             if (rootNode == null) {
                 Log.d("MyAccessibilityService", "rootInActiveWindow is null - trying window scanning...")
-                rootNode = findBlinkitAppRoot()
+                rootNode = findCommerceAppRoot()
                 
                 if (rootNode != null) {
-                    Log.d("MyAccessibilityService", "Found Blinkit app via window scanning")
+                    Log.d("MyAccessibilityService", "Found commerce app via window scanning")
                 } else {
-                    Log.w("MyAccessibilityService", "Blinkit app not found in any window - waiting and retrying...")
+                    Log.w("MyAccessibilityService", "Supported commerce app not found in any window - waiting and retrying...")
                     
                     // Wait 500ms and try both methods again
                     Handler(Looper.getMainLooper()).postDelayed({
@@ -286,27 +297,31 @@ class MyAccessibilityService : AccessibilityService() {
                         
                         // Try rootInActiveWindow first
                         var retryNode = rootInActiveWindow
+                        val retryPackage = retryNode?.packageName?.toString().orEmpty()
+                        if (retryNode != null && !isSupportedCommercePackage(retryPackage)) {
+                            retryNode = null
+                        }
                         if (retryNode == null) {
                             // Try window scanning
-                            retryNode = findBlinkitAppRoot()
+                            retryNode = findCommerceAppRoot()
                         }
                         
                         if (retryNode != null) {
-                            Log.d("MyAccessibilityService", "Retry successful - found Blinkit app")
-                            processBlinkitTree(retryNode)
+                            Log.d("MyAccessibilityService", "Retry successful - found commerce app")
+                            processCommerceTree(retryNode)
                         } else {
-                            Log.w("MyAccessibilityService", "Retry failed - still no Blinkit app found")
+                            Log.w("MyAccessibilityService", "Retry failed - still no supported commerce app found")
                         }
                     }, 500)
                     
-                    Log.d("MyAccessibilityService", "=== EXITING logBlinkitTree METHOD (will retry) ===")
+                    Log.d("MyAccessibilityService", "=== EXITING commerce tree capture METHOD (will retry) ===")
                     return
                 }
             }
             
             // Process the tree if we have a root node
             if (rootNode != null) {
-                processBlinkitTree(rootNode)
+                processCommerceTree(rootNode)
             }
             
         } catch (e: Exception) {
@@ -314,30 +329,31 @@ class MyAccessibilityService : AccessibilityService() {
             e.printStackTrace()
         }
         
-        Log.d("MyAccessibilityService", "=== EXITING logBlinkitTree METHOD ===")
+        Log.d("MyAccessibilityService", "=== EXITING commerce tree capture METHOD ===")
     }
     
     /**
-     * Helper method to process the Blinkit tree once we have a valid root node
+     * Helper method to process the commerce app tree once we have a valid root node
      */
-                private fun processBlinkitTree(rootNode: AccessibilityNodeInfo) {
+                private fun processCommerceTree(rootNode: AccessibilityNodeInfo) {
                 try {
                     val packageName = rootNode.packageName?.toString()
 
-                    if (packageName != "com.grofers.customerapp") {
-                        Log.d("MyAccessibilityService", "Not Blinkit app - current package: $packageName")
+                    if (!isSupportedCommercePackage(packageName)) {
+                        Log.d("MyAccessibilityService", "Not supported commerce app - current package: $packageName")
                         return
                     }
 
-                    Log.d("MyAccessibilityService", "Processing Blinkit tree view")
+                    Log.d("MyAccessibilityService", "Processing commerce tree view for $packageName")
             
             // Store app name
-            lastAppName = "Blinkit"
+            lastAppName = packageName.orEmpty()
             
             // Create a StringBuilder to capture tree data
             val treeBuilder = StringBuilder()
             
-            treeBuilder.append("🌳 BLINKIT ACCESSIBILITY TREE\n")
+            treeBuilder.append("🌳 COMMERCE APP ACCESSIBILITY TREE\n")
+            treeBuilder.append("Package: $packageName\n")
             treeBuilder.append("=" * 50).append("\n")
             
             // Keep the backend tree data, but avoid logging every node on the
@@ -384,7 +400,7 @@ class MyAccessibilityService : AccessibilityService() {
             Log.d("MyAccessibilityService", "Tree data captured - length: ${lastTreeData.length}")
             
         } catch (e: Exception) {
-            Log.e("MyAccessibilityService", "Error processing Blinkit tree: ${e.message}", e)
+            Log.e("MyAccessibilityService", "Error processing commerce app tree: ${e.message}", e)
             e.printStackTrace()
         }
     }
@@ -589,9 +605,133 @@ class MyAccessibilityService : AccessibilityService() {
             treeBuilder.append("$indent$prefix Error getting node info: ${e.message}\n")
         }
     }
+
+    private fun handleRuntimePermissionDialogByDenying(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        if (root.packageName?.toString() != PERMISSION_CONTROLLER_PACKAGE) {
+            return false
+        }
+        if (!containsRuntimePermissionDialogText(root, NodeScanBudget(maxNodes = 180))) {
+            return false
+        }
+        val denyNode = findNodeByResourceId(
+            root,
+            "com.android.permissioncontroller:id/permission_deny_button",
+            NodeScanBudget(maxNodes = 140)
+        ) ?: findPermissionDenyNode(root, NodeScanBudget(maxNodes = 140))
+            ?: return false
+
+        val clicked = (findClickableSelfOrAncestor(denyNode) ?: denyNode)
+            .performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        if (clicked) {
+            Log.d("MyAccessibilityService", "Dismissed Android runtime permission dialog with deny action")
+        } else {
+            Log.w("MyAccessibilityService", "Failed to dismiss Android runtime permission dialog")
+        }
+        return clicked
+    }
+
+    private class NodeScanBudget(private val maxNodes: Int) {
+        var visited: Int = 0
+        fun shouldStop(): Boolean = visited >= maxNodes
+        fun markVisited(): Boolean {
+            if (shouldStop()) return false
+            visited += 1
+            return true
+        }
+    }
+
+    private fun containsRuntimePermissionDialogText(node: AccessibilityNodeInfo?, budget: NodeScanBudget): Boolean {
+        if (node == null || !budget.markVisited()) return false
+
+        val text = node.text?.toString().orEmpty().lowercase()
+        val description = node.contentDescription?.toString().orEmpty().lowercase()
+        val viewId = node.viewIdResourceName.orEmpty()
+        val combined = "$text $description"
+        if (
+            viewId == "com.android.permissioncontroller:id/permission_message" ||
+            (combined.contains("allow") && combined.contains("to ") && combined.contains("?")) ||
+            combined.contains("permission")
+        ) {
+            return true
+        }
+
+        for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
+            val child = node.getChild(i) ?: continue
+            if (containsRuntimePermissionDialogText(child, budget)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun findPermissionDenyNode(node: AccessibilityNodeInfo, budget: NodeScanBudget): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
+        val text = node.text?.toString().orEmpty().lowercase()
+        val description = node.contentDescription?.toString().orEmpty().lowercase()
+        val combined = "$text $description"
+        if (
+            combined.contains("deny") ||
+            combined.contains("don't allow") ||
+            combined.contains("dont allow") ||
+            (combined.contains("don") && combined.contains("allow"))
+        ) {
+            return node
+        }
+
+        for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
+            val child = node.getChild(i) ?: continue
+            val result = findPermissionDenyNode(child, budget)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun findNodeByResourceId(
+        node: AccessibilityNodeInfo,
+        resourceId: String,
+        budget: NodeScanBudget
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+        if (node.viewIdResourceName == resourceId) {
+            return node
+        }
+        for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
+            val child = node.getChild(i) ?: continue
+            val result = findNodeByResourceId(child, resourceId, budget)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun findClickableSelfOrAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        var current: AccessibilityNodeInfo? = node
+        while (current != null) {
+            if (current.isVisibleToUser && current.isEnabled && current.isClickable) {
+                return current
+            }
+            current = current.parent
+        }
+        return null
+    }
+
     companion object {
         private const val OWN_PACKAGE = "com.example.beta"
+        private const val PERMISSION_CONTROLLER_PACKAGE = "com.google.android.permissioncontroller"
         private const val BLINKIT_PACKAGE = "com.grofers.customerapp"
+        private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
         private const val NON_BLINKIT_LOG_INTERVAL_MS = 5000L
+        private val SUPPORTED_COMMERCE_PACKAGES = setOf(
+            BLINKIT_PACKAGE,
+            SWIGGY_INSTAMART_PACKAGE,
+        )
+
+        private fun isSupportedCommercePackage(packageName: String?): Boolean {
+            return packageName in SUPPORTED_COMMERCE_PACKAGES
+        }
     }
 }
