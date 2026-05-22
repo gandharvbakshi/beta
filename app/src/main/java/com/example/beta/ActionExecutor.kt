@@ -1,9 +1,13 @@
 package com.example.beta
 
 import android.accessibilityservice.AccessibilityService
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Rect
 import android.os.Build
 import android.util.Log
+import android.view.accessibility.AccessibilityWindowInfo
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONObject
 import java.util.concurrent.CountDownLatch
@@ -14,6 +18,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     companion object {
         private const val TAG = "ActionExecutor"
         private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
+        private const val SWIGGY_SEARCH_FOCUS_MARK_MAX_AGE_MS = 120000L
         private val SUPPORTED_COMMERCE_PACKAGES = setOf(
             "com.grofers.customerapp",
             SWIGGY_INSTAMART_PACKAGE,
@@ -28,6 +33,29 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         val y: Int,
         val overlayDeflection: Int
     )
+
+    private var lastSwiggyTopSearchFocusTapAtMs: Long = 0L
+
+    private class NodeScanBudget(
+        private val maxNodes: Int = 180,
+        maxDurationMs: Long = 500
+    ) {
+        private val deadlineMs = System.currentTimeMillis() + maxDurationMs
+        var visited: Int = 0
+
+        fun shouldStop(): Boolean {
+            return visited >= maxNodes || System.currentTimeMillis() >= deadlineMs
+        }
+
+        fun markVisited(): Boolean {
+            if (shouldStop()) return false
+            visited += 1
+            return true
+        }
+    }
+
+    private fun newQuickNodeScanBudget() = NodeScanBudget(maxNodes = 90, maxDurationMs = 250)
+    private fun newDefaultNodeScanBudget() = NodeScanBudget(maxNodes = 450, maxDurationMs = 800)
     
     private fun hasRequiredPermissions(): Boolean {
         val serviceInfo = accessibilityService.serviceInfo
@@ -43,8 +71,11 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return hasGestureCapability && hasRetrieveCapability
     }
 
-    private fun containsAnrText(node: AccessibilityNodeInfo?): Boolean {
-        if (node == null) return false
+    private fun containsAnrText(
+        node: AccessibilityNodeInfo?,
+        budget: NodeScanBudget = NodeScanBudget(maxNodes = 160, maxDurationMs = 250)
+    ): Boolean {
+        if (node == null || !budget.markVisited()) return false
 
         val text = node.text?.toString().orEmpty().lowercase()
         val description = node.contentDescription?.toString().orEmpty().lowercase()
@@ -58,8 +89,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
 
         for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
             val child = node.getChild(i) ?: continue
-            if (containsAnrText(child)) {
+            if (containsAnrText(child, budget)) {
                 return true
             }
         }
@@ -67,11 +99,14 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     }
 
     private fun handleAnrByClickingWait(): Boolean {
-        val rootNode = accessibilityService.rootInActiveWindow ?: return false
-        if (!containsAnrText(rootNode)) {
-            return false
-        }
-        val waitNode = findNodeByExactText(rootNode, "Wait")
+        val rootNode = allAvailableWindowRoots().firstOrNull { root ->
+            containsAnrText(root, NodeScanBudget(maxNodes = 160, maxDurationMs = 250))
+        } ?: return false
+        val waitNode = findNodeByExactText(
+            rootNode,
+            "Wait",
+            NodeScanBudget(maxNodes = 80, maxDurationMs = 250)
+        )
             ?: return false
         val clickableWaitNode = findClickableSelfOrAncestor(waitNode) ?: waitNode
         val clicked = clickableWaitNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -170,11 +205,18 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         
         // For search bars, try coordinate-based clicking FIRST (more reliable)
         if (isSearchBar) {
+            if (!ensureCommerceForegroundForSearchAction()) {
+                Log.w(TAG, "Search action refused because no supported commerce app is foreground")
+                return false
+            }
             val coordinates = recommendedAction.optJSONObject("coordinates")
             if (coordinates != null) {
                 Log.d(TAG, "Search bar detected - using coordinate-based click as primary method")
                 val success = performClickByCoordinates(recommendedAction)
                 if (success) {
+                    if (!confirmCommerceForegroundAfterSearchClick()) {
+                        return false
+                    }
                     Log.d(TAG, "Coordinate click successful for search bar")
                     return typeAfterSearchClickIfRequested(recommendedAction, true)
                 } else {
@@ -313,8 +355,20 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
         val actionTarget = recommendedAction.optString("action_target", "")
         val textToType = recommendedAction.optString("text_to_type", "")
-        if (textToType.isBlank()) return true
         if (!actionTarget.contains("search", ignoreCase = true)) return true
+
+        if (isSwiggyForeground()) {
+            val trustedFocus = waitForSearchFieldFocus(400) || waitForSwiggyKeyboardAfterTopSearchTap(1200)
+            if (trustedFocus) {
+                markRecentSwiggySearchFocus("search click action produced search focus or keyboard")
+            } else {
+                lastSwiggyTopSearchFocusTapAtMs = 0L
+                Log.d(TAG, "Swiggy search click did not produce trusted search focus; not marking safe keyboard entry")
+            }
+        } else {
+            markRecentSwiggySearchFocus("search click action succeeded")
+        }
+        if (textToType.isBlank()) return true
 
         if (!waitForSearchFieldFocus(500)) {
             Log.d(TAG, "Search field not focused after click; attempting accessibility fallback")
@@ -328,7 +382,8 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             textToType,
             waitForFocusMs = 1500,
             submitIme = false,
-            dismissKeyboard = false
+            dismissKeyboard = false,
+            requireSearchField = true
         )
         Log.d(TAG, "Search click follow-up type '$textToType' result: $typed")
         return typed
@@ -606,13 +661,12 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             return false
         }
 
-        val keepSearchOpen = shouldKeepSearchInputOpen(recommendedAction)
-        if (isSwiggyForeground() && keepSearchOpen && isKeyboardLikelyActive()) {
-            val typed = typeTextByKeyboardGesture(textToType, submitIme = false)
-            Log.d(TAG, "Swiggy visible keyboard text entry result: $typed")
-            return typed
+        if (isUnsafeCouponOrPromoInputSurfaceActive()) {
+            Log.w(TAG, "Refusing to type order text into coupon/promo input surface")
+            return false
         }
 
+        val keepSearchOpen = shouldKeepSearchInputOpen(recommendedAction)
         val searchNodeTyped = typeTextIntoSearchFieldNode(
             textToType,
             submitIme = !keepSearchOpen,
@@ -623,11 +677,27 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             return true
         }
 
+        if (isSwiggyForeground() && keepSearchOpen) {
+            if (isKeyboardLikelyActive()) {
+                val typed = typeTextByKeyboardGesture(
+                    textToType,
+                    submitIme = false,
+                    requireSearchField = true,
+                    allowSearchSurfaceInference = true
+                )
+                Log.d(TAG, "Swiggy visible keyboard text entry result: $typed")
+                if (typed) return true
+            }
+            Log.w(TAG, "Swiggy search typing failed via dedicated search-field path; skipping repeated focus retries")
+            return false
+        }
+
         val focusedTyped = typeTextIntoFocusedField(
             textToType,
             waitForFocusMs = 700,
             submitIme = !keepSearchOpen,
-            dismissKeyboard = !keepSearchOpen
+            dismissKeyboard = !keepSearchOpen,
+            requireSearchField = keepSearchOpen
         )
         if (focusedTyped) {
             Log.d(TAG, "Type action used already focused editable field")
@@ -639,10 +709,26 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 textToType,
                 waitForFocusMs = 2500,
                 submitIme = !keepSearchOpen,
-                dismissKeyboard = !keepSearchOpen
+                dismissKeyboard = !keepSearchOpen,
+                requireSearchField = keepSearchOpen
             )
             Log.d(TAG, "Type action text entry after search field focus result: $typed")
             if (typed) return true
+            if (isSwiggyForeground() && keepSearchOpen && isKeyboardLikelyActive()) {
+                val keyboardTyped = typeTextByKeyboardGesture(
+                    textToType,
+                    submitIme = false,
+                    requireSearchField = true,
+                    allowSearchSurfaceInference = true
+                )
+                Log.d(TAG, "Type action keyboard text entry after Swiggy search focus result: $keyboardTyped")
+                if (keyboardTyped) return true
+            }
+        }
+
+        if (isSwiggyForeground() && keepSearchOpen) {
+            Log.w(TAG, "Swiggy search typing failed via safe search-field paths; skipping generic editable fallbacks")
+            return false
         }
 
         val rootNode = bestCommerceRootNode()
@@ -653,7 +739,8 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 textToType,
                 waitForFocusMs = 1200,
                 submitIme = !keepSearchOpen,
-                dismissKeyboard = !keepSearchOpen
+                dismissKeyboard = !keepSearchOpen,
+                requireSearchField = keepSearchOpen
             )
             Log.d(TAG, "Type action text entry via editable node result: $typed")
             if (typed) return true
@@ -667,17 +754,23 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 textToType,
                 waitForFocusMs = 1800,
                 submitIme = !keepSearchOpen,
-                dismissKeyboard = !keepSearchOpen
+                dismissKeyboard = !keepSearchOpen,
+                requireSearchField = keepSearchOpen
             )
             Log.d(TAG, "Type action text entry after target focus result: $typed")
             return typed
         }
 
-        if ((keepSearchOpen || isKeyboardLikelyActive()) &&
-            typeTextByKeyboardGesture(textToType, submitIme = !keepSearchOpen)
-        ) {
-            Log.d(TAG, "Type action used keyboard gesture fallback")
-            return true
+        if (keepSearchOpen || isKeyboardLikelyActive()) {
+            val typed = typeTextByKeyboardGesture(
+                textToType,
+                submitIme = !keepSearchOpen,
+                requireSearchField = keepSearchOpen
+            )
+            if (typed) {
+                Log.d(TAG, "Type action used keyboard gesture fallback")
+                return true
+            }
         }
 
         Log.w(TAG, "Target element not found for type and no editable field available")
@@ -695,6 +788,15 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 if (clicked) {
                     return waitForSearchFieldFocus(700)
                 }
+            }
+
+            if (tapSwiggyTopSearchFieldForFocus()) {
+                return true
+            }
+
+            if (isSwiggyForeground()) {
+                Log.w(TAG, "Swiggy search focus failed via known search paths; skipping broad tree target scan")
+                return false
             }
 
             val targetNode = findTargetElement(recommendedAction)
@@ -775,6 +877,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     }
 
     private fun isKeyboardLikelyActive(): Boolean {
+        if (hasVisibleInputMethodWindow()) {
+            return true
+        }
         return visibleWindowPackages().any { packageName ->
             packageName.contains("inputmethod", ignoreCase = true) ||
                 packageName.contains("keyboard", ignoreCase = true) ||
@@ -782,8 +887,63 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
     }
 
+    private fun hasVisibleInputMethodWindow(): Boolean {
+        return try {
+            accessibilityService.windows?.any { window ->
+                window?.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD
+            } == true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to inspect input method windows: ${e.message}")
+            false
+        }
+    }
+
     private fun isSwiggyForeground(): Boolean {
         return visibleWindowPackages().any { it == SWIGGY_INSTAMART_PACKAGE }
+    }
+
+    private fun activeRootPackage(): String? {
+        return try {
+            accessibilityService.rootInActiveWindow?.packageName?.toString()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read active root package: ${e.message}")
+            null
+        }
+    }
+
+    private fun isCommerceForeground(): Boolean {
+        return isSupportedCommercePackage(activeRootPackage())
+    }
+
+    private fun ensureCommerceForegroundForSearchAction(): Boolean {
+        if (isCommerceForeground()) {
+            return true
+        }
+
+        val activePackage = activeRootPackage().orEmpty()
+        Log.w(TAG, "Search action requested while foreground package is '$activePackage'")
+        try {
+            accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            Thread.sleep(700)
+        } catch (e: Exception) {
+            Log.w(TAG, "Back navigation before search action failed: ${e.message}")
+        }
+        return isCommerceForeground()
+    }
+
+    private fun confirmCommerceForegroundAfterSearchClick(): Boolean {
+        Thread.sleep(450)
+        if (isCommerceForeground()) {
+            return true
+        }
+        Log.w(TAG, "Search click moved focus outside supported commerce app; backing out")
+        try {
+            accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            Thread.sleep(500)
+        } catch (e: Exception) {
+            Log.w(TAG, "Back navigation after unsafe search click failed: ${e.message}")
+        }
+        return false
     }
 
     private fun visibleWindowPackages(): List<String> {
@@ -809,7 +969,66 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return packages
     }
 
-    private fun typeTextByKeyboardGesture(text: String, submitIme: Boolean): Boolean {
+    private fun typeTextByKeyboardGesture(
+        text: String,
+        submitIme: Boolean,
+        requireSearchField: Boolean = false,
+        allowSearchSurfaceInference: Boolean = false
+    ): Boolean {
+        if (!isSafeKeyboardTextEntryActive(requireSearchField, allowSearchSurfaceInference)) {
+            return false
+        }
+        if (isSwiggyForeground() && requireSearchField && allowSearchSurfaceInference) {
+            clearSwiggyTopSearchTextForKeyboardEntry()
+        }
+        return tapKeyboardText(text, submitIme)
+    }
+
+    private fun typeTextByTrustedSwiggyKeyboardGesture(
+        text: String,
+        submitIme: Boolean
+    ): Boolean {
+        if (!isRecentSwiggyTopSearchFocusTap(maxAgeMs = SWIGGY_SEARCH_FOCUS_MARK_MAX_AGE_MS)) {
+            Log.w(TAG, "Refusing trusted Swiggy keyboard text entry because top-search tap is stale")
+            return false
+        }
+        if (!isSwiggyForeground()) {
+            Log.w(TAG, "Refusing trusted Swiggy keyboard text entry because Swiggy is not foreground")
+            return false
+        }
+        if (!waitForKeyboardLikelyActive(4500)) {
+            Log.w(TAG, "Refusing trusted Swiggy keyboard text entry because keyboard did not become visible")
+            return false
+        }
+        clearSwiggyTopSearchTextForKeyboardEntry()
+        return tapKeyboardText(text, submitIme)
+    }
+
+    private fun clearSwiggyTopSearchTextForKeyboardEntry() {
+        if (!isSwiggyForeground() || !isKeyboardLikelyActive()) {
+            return
+        }
+        if (isUnsafeCouponOrPromoInputSurfaceActive() || isSwiggyLocationPickerSurfaceActive()) {
+            return
+        }
+        val (screenWidth, screenHeight) = ScreenMetrics.getScreenDimensions(accessibilityService)
+        if (screenWidth <= 0 || screenHeight <= 0) {
+            return
+        }
+        val clearX = (screenWidth * 0.80f).toInt()
+        val clearY = (screenHeight * 0.081f).toInt()
+        val clicked = performRawClick(clearX, clearY, waitForCompletion = true)
+        Log.d(TAG, "Swiggy top search clear-before-keyboard-entry click result: $clicked")
+        Thread.sleep(180)
+    }
+
+    private fun markRecentSwiggySearchFocus(reason: String) {
+        if (!isSwiggyForeground()) return
+        lastSwiggyTopSearchFocusTapAtMs = System.currentTimeMillis()
+        Log.d(TAG, "Marked recent Swiggy search focus: $reason")
+    }
+
+    private fun tapKeyboardText(text: String, submitIme: Boolean): Boolean {
         val (screenWidth, screenHeight) = ScreenMetrics.getScreenDimensions(accessibilityService)
         val keyCenters = keyboardKeyCenters(screenWidth, screenHeight)
         var typedAny = false
@@ -828,6 +1047,57 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             Thread.sleep(250)
         }
         return typedAny
+    }
+
+    private fun waitForKeyboardLikelyActive(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        do {
+            if (isKeyboardLikelyActive()) {
+                return true
+            }
+            Thread.sleep(120)
+        } while (System.currentTimeMillis() < deadline)
+        return false
+    }
+
+    private fun isSafeKeyboardTextEntryActive(
+        requireSearchField: Boolean,
+        allowSearchSurfaceInference: Boolean = false
+    ): Boolean {
+        if (!isKeyboardLikelyActive()) {
+            Log.w(TAG, "Refusing keyboard gesture text entry because the keyboard is not visible")
+            return false
+        }
+
+        val focusedNode = waitForFocusedEditable(0)
+        if (focusedNode == null) {
+            if (allowSearchSurfaceInference && requireSearchField && isSwiggyKeyboardEntrySafeAfterTopSearchTap()) {
+                Log.d(TAG, "Allowing Swiggy keyboard text entry based on recent safe top-search tap")
+                return true
+            }
+            if (allowSearchSurfaceInference && requireSearchField && isSwiggyProductSearchKeyboardSurfaceActive()) {
+                Log.d(TAG, "Allowing Swiggy keyboard text entry based on visible product search surface")
+                return true
+            }
+            Log.w(TAG, "Refusing keyboard gesture text entry because no editable field is focused")
+            return false
+        }
+
+        if (isUnsafeCouponOrPromoInputSurfaceActive()) {
+            Log.w(TAG, "Refusing keyboard gesture text entry inside coupon/promo surface")
+            return false
+        }
+
+        if (requireSearchField && !isUsableSearchEditableNode(focusedNode)) {
+            if (allowSearchSurfaceInference && isSwiggyProductSearchKeyboardSurfaceActive()) {
+                Log.d(TAG, "Allowing Swiggy keyboard text entry based on visible product search surface despite generic focused editable")
+                return true
+            }
+            Log.w(TAG, "Refusing keyboard gesture text entry because focused editable is not a search field")
+            return false
+        }
+
+        return true
     }
 
     private fun performRawClick(x: Int, y: Int, waitForCompletion: Boolean = false): Boolean {
@@ -895,36 +1165,107 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         submitIme: Boolean,
         dismissKeyboard: Boolean
     ): Boolean {
-        val roots = allAvailableWindowRoots()
-        for (root in roots) {
-            val commerceFallback = if (isSupportedCommercePackage(root.packageName?.toString())) {
-                findSearchEditableNode(root)
-            } else {
-                null
-            }
-            val searchNode = findSearchEditableNodeByKnownId(root)
-                ?: findFocusedSearchEditableNode(root)
-                ?: commerceFallback
-                ?: continue
-            searchNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            searchNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-            val args = android.os.Bundle()
-            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
-            val success = searchNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-            Log.d(TAG, "Direct search field text entry result: $success")
-            if (success) {
-                if (submitIme) {
-                    submitImeEnter(searchNode)
-                }
-                if (dismissKeyboard) {
-                    dismissKeyboardIfStillFocused(text)
-                } else {
-                    Thread.sleep(500)
-                }
+        val swiggyForeground = isSwiggyForeground()
+        if (swiggyForeground && isSwiggyLocationPickerSurfaceActive()) {
+            recoverFromSwiggyLocationPicker("location picker was active before typing into product search")
+            return false
+        }
+
+        findSearchEditableNodeInFreshRoots(allowSwiggyTopScan = !swiggyForeground)?.let { searchNode ->
+            if (typeIntoSearchNode(searchNode, text, submitIme, dismissKeyboard)) {
                 return true
             }
         }
+
+        if (swiggyForeground && !submitIme && !dismissKeyboard && isKeyboardLikelyActive()) {
+            val typed = typeTextByKeyboardGesture(
+                text,
+                submitIme = false,
+                requireSearchField = true,
+                allowSearchSurfaceInference = true
+            )
+            Log.d(TAG, "Swiggy visible keyboard text entry before coordinate focus result: $typed")
+            if (typed) return true
+        }
+
+        if (swiggyForeground && tapSwiggyTopSearchFieldForFocus()) {
+            if (!submitIme && !dismissKeyboard) {
+                val typed = typeTextByTrustedSwiggyKeyboardGesture(
+                    text,
+                    submitIme = false
+                )
+                Log.d(TAG, "Swiggy trusted keyboard text entry after top-search tap result: $typed")
+                return typed
+            }
+        }
         return false
+    }
+
+    private fun typeIntoSearchNode(
+        searchNode: AccessibilityNodeInfo,
+        text: String,
+        submitIme: Boolean,
+        dismissKeyboard: Boolean
+    ): Boolean {
+        refreshNode(searchNode)
+        searchNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        searchNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val args = android.os.Bundle()
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        val success = searchNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        Log.d(TAG, "Direct search field text entry result: $success")
+        val textEntrySuccess = success || pasteTextIntoNode(searchNode, text)
+        if (!textEntrySuccess) {
+            return false
+        }
+        if (submitIme) {
+            submitImeEnter(searchNode)
+        }
+        if (dismissKeyboard) {
+            dismissKeyboardIfStillFocused(text)
+        } else {
+            Thread.sleep(500)
+        }
+        return true
+    }
+
+    private fun findSearchEditableNodeInFreshRoots(allowSwiggyTopScan: Boolean): AccessibilityNodeInfo? {
+        val roots = commerceWindowRoots()
+        for (root in roots) {
+            refreshNode(root)
+            val rootPackage = root.packageName?.toString()
+            findSearchEditableNodeByKnownId(root)?.let { return it }
+            findFocusedSearchEditableNode(root)?.let { return it }
+            if (rootPackage != SWIGGY_INSTAMART_PACKAGE || allowSwiggyTopScan) {
+                findSearchEditableNode(root, newQuickNodeScanBudget())?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun refreshNode(node: AccessibilityNodeInfo): Boolean {
+        return try {
+            node.refresh()
+        } catch (e: Exception) {
+            Log.w(TAG, "Accessibility node refresh failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun pasteTextIntoNode(node: AccessibilityNodeInfo, text: String): Boolean {
+        return try {
+            val clipboard = accessibilityService.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                ?: return false
+            clipboard.setPrimaryClip(ClipData.newPlainText("beta_search_query", text))
+            node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            val pasted = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            Log.d(TAG, "Search field paste fallback result: $pasted")
+            pasted
+        } catch (e: Exception) {
+            Log.w(TAG, "Search field paste fallback failed: ${e.message}")
+            false
+        }
     }
 
     private fun allAvailableWindowRoots(): List<AccessibilityNodeInfo> {
@@ -958,6 +1299,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 emptyList()
             }
 
+            Log.d(TAG, "Search field lookup for $viewId returned ${nodes.size} nodes")
             val match = nodes.firstOrNull { isUsableSearchEditableNode(it) }
             if (match != null) {
                 Log.d(TAG, "Found commerce search field by view id: $viewId")
@@ -976,7 +1318,12 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return focusedNode?.takeIf { isUsableSearchEditableNode(it) }
     }
 
-    private fun findSearchEditableNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+    private fun findSearchEditableNode(
+        node: AccessibilityNodeInfo,
+        budget: NodeScanBudget = newQuickNodeScanBudget()
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
         val bounds = Rect()
         node.getBoundsInScreen(bounds)
 
@@ -989,8 +1336,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
 
         for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
             val child = node.getChild(i) ?: continue
-            val result = findSearchEditableNode(child)
+            val result = findSearchEditableNode(child, budget)
             if (result != null) return result
         }
         return null
@@ -1023,11 +1371,22 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         text: String,
         waitForFocusMs: Long = 0,
         submitIme: Boolean = true,
-        dismissKeyboard: Boolean = true
+        dismissKeyboard: Boolean = true,
+        requireSearchField: Boolean = false
     ): Boolean {
         return try {
             val focusedNode = waitForFocusedEditable(waitForFocusMs) ?: run {
                 Log.w(TAG, "No focused editable field found within ${waitForFocusMs}ms")
+                return false
+            }
+
+            if (isUnsafeCouponOrPromoInputSurfaceActive()) {
+                Log.w(TAG, "Focused editable is inside coupon/promo surface; aborting text entry")
+                return false
+            }
+
+            if (requireSearchField && !isUsableSearchEditableNode(focusedNode)) {
+                Log.w(TAG, "Focused editable is not a product search field; aborting search text entry")
                 return false
             }
 
@@ -1056,14 +1415,16 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     private fun waitForFocusedEditable(timeoutMs: Long): AccessibilityNodeInfo? {
         val deadline = System.currentTimeMillis() + timeoutMs
         do {
-            val focusedNode = allAvailableWindowRoots().firstNotNullOfOrNull { root ->
+            val roots = commerceWindowRoots()
+            val focusedNode = roots.firstNotNullOfOrNull { root ->
+                refreshNode(root)
                 val directFocus = try {
                     root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                 } catch (e: Exception) {
                     null
                 }
                 if (isUsableEditableNode(directFocus)) directFocus else null
-            } ?: commerceWindowRoots().firstNotNullOfOrNull { root -> findFocusedEditable(root) }
+            } ?: roots.firstNotNullOfOrNull { root -> findFocusedEditable(root, newQuickNodeScanBudget()) }
             if (focusedNode != null) return focusedNode
             if (timeoutMs <= 0) break
             Thread.sleep(100)
@@ -1101,7 +1462,12 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
     }
 
-    private fun findFocusedEditable(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+    private fun findFocusedEditable(
+        node: AccessibilityNodeInfo,
+        budget: NodeScanBudget = newQuickNodeScanBudget()
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
         if (node.isFocused || node.isAccessibilityFocused) {
             if (node.className?.toString()?.contains("EditText", ignoreCase = true) == true ||
                 node.isEditable
@@ -1111,14 +1477,20 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
 
         for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
             val child = node.getChild(i) ?: continue
-            val result = findFocusedEditable(child)
+            val result = findFocusedEditable(child, budget)
             if (result != null) return result
         }
         return null
     }
 
-    private fun findFirstEditable(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+    private fun findFirstEditable(
+        node: AccessibilityNodeInfo,
+        budget: NodeScanBudget = newQuickNodeScanBudget()
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
         if (node.className?.toString()?.contains("EditText", ignoreCase = true) == true || node.isEditable) {
             if (node.isVisibleToUser && node.isEnabled) {
                 return node
@@ -1126,8 +1498,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
 
         for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
             val child = node.getChild(i) ?: continue
-            val result = findFirstEditable(child)
+            val result = findFirstEditable(child, budget)
             if (result != null) return result
         }
         return null
@@ -1136,6 +1509,19 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     private fun findCommerceSearchField(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         findSearchEditableNodeByKnownId(node)?.let { return it }
         findFocusedSearchEditableNode(node)?.let { return it }
+
+        if (node.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE) {
+            return null
+        }
+
+        return findCommerceSearchFieldCandidate(node, newQuickNodeScanBudget())
+    }
+
+    private fun findCommerceSearchFieldCandidate(
+        node: AccessibilityNodeInfo,
+        budget: NodeScanBudget
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
 
         val resourceId = node.viewIdResourceName.orEmpty()
         val text = node.text?.toString().orEmpty()
@@ -1149,8 +1535,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         if (isSearchField) return node
 
         for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
             val child = node.getChild(i) ?: continue
-            val result = findCommerceSearchField(child)
+            val result = findCommerceSearchFieldCandidate(child, budget)
             if (result != null) return result
         }
         return null
@@ -1182,20 +1569,306 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     }
 
     private fun hasFocusedSearchField(node: AccessibilityNodeInfo): Boolean {
-        if (findFocusedEditable(node) != null) {
+        if (findFocusedSearchEditableNode(node) != null) {
             return true
         }
-        return findFocusedSearchNode(node) != null
+
+        val focusedEditable = findFocusedEditable(node, newQuickNodeScanBudget())
+        if (focusedEditable != null && isUsableSearchEditableNode(focusedEditable)) {
+            return true
+        }
+        return findFocusedSearchNode(node, newQuickNodeScanBudget()) != null
     }
 
-    private fun findFocusedSearchNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+    private fun isUnsafeCouponOrPromoInputSurfaceActive(): Boolean {
+        return try {
+            val keyboardActive = isKeyboardLikelyActive()
+            commerceWindowRoots().any { root ->
+                val surfaceText = collectNodeText(root).lowercase()
+                val hasCouponHeading = listOf(
+                    "apply coupon",
+                    "apply promo",
+                    "promo code",
+                    "coupon code",
+                    "offer code"
+                ).any { surfaceText.contains(it) } ||
+                    (surfaceText.contains("apply") && listOf("coupon", "promo", "voucher").any { surfaceText.contains(it) })
+                val hasCouponResult = listOf(
+                    "no coupons found",
+                    "no coupon found",
+                    "invalid coupon",
+                    "invalid promo"
+                ).any { surfaceText.contains(it) }
+                val hasEditable = findFocusedEditable(root) != null || findFirstEditable(root) != null
+                hasCouponHeading && (hasCouponResult || hasEditable || keyboardActive)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Coupon/promo surface check failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun isSwiggyLocationPickerSurfaceActive(): Boolean {
+        if (!isSwiggyForeground()) {
+            return false
+        }
+
+        return try {
+            commerceWindowRoots().any { root ->
+                root.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE &&
+                    isSwiggyLocationPickerText(collectNodeText(root).lowercase())
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Swiggy location-picker surface check failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun isSwiggyLocationPickerText(surfaceText: String): Boolean {
+        if (surfaceText.isBlank()) {
+            return false
+        }
+        return listOf(
+            "select your location",
+            "search an area or address",
+            "saved addresses",
+            "add new address",
+            "use current location"
+        ).any { surfaceText.contains(it) }
+    }
+
+    private fun waitForSwiggyLocationPickerSurface(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        do {
+            if (isSwiggyLocationPickerSurfaceActive()) {
+                return true
+            }
+            Thread.sleep(120)
+        } while (System.currentTimeMillis() < deadline)
+        return false
+    }
+
+    private fun recoverFromSwiggyLocationPicker(reason: String) {
+        Log.w(TAG, "Recovering from Swiggy location picker during product search focus: $reason")
+        lastSwiggyTopSearchFocusTapAtMs = 0L
+        try {
+            accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            Thread.sleep(900)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to back out of Swiggy location picker: ${e.message}")
+        }
+    }
+
+    private fun isSwiggyProductSearchKeyboardSurfaceActive(): Boolean {
+        if (!isSwiggyForeground() || !isKeyboardLikelyActive()) {
+            return false
+        }
+        if (isUnsafeCouponOrPromoInputSurfaceActive()) {
+            return false
+        }
+
+        return commerceWindowRoots().any { root ->
+            root.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE && hasVisibleProductSearchSurface(root)
+        }
+    }
+
+    private fun isSwiggyProductSearchEntrySurfaceActive(): Boolean {
+        if (!isSwiggyForeground()) {
+            return false
+        }
+        if (isUnsafeCouponOrPromoInputSurfaceActive() || isSwiggyLocationPickerSurfaceActive()) {
+            return false
+        }
+
+        return commerceWindowRoots().any { root ->
+            root.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE && hasVisibleProductSearchSurface(root)
+        }
+    }
+
+    private fun hasVisibleProductSearchSurface(root: AccessibilityNodeInfo): Boolean {
+        refreshNode(root)
+        if (findSearchEditableNodeByKnownId(root) != null) return true
+        if (findFocusedSearchEditableNode(root) != null) return true
+        if (findSearchEditableNode(root, NodeScanBudget(maxNodes = 160, maxDurationMs = 350)) != null) return true
+
+        val topText = collectTopNodeText(root).lowercase()
+        return listOf(
+            "search for products",
+            "search for",
+            "your past searches",
+            "search instamart"
+        ).any { topText.contains(it) }
+    }
+
+    private fun isRecentSwiggyTopSearchFocusTap(maxAgeMs: Long = SWIGGY_SEARCH_FOCUS_MARK_MAX_AGE_MS): Boolean {
+        return lastSwiggyTopSearchFocusTapAtMs > 0L &&
+            System.currentTimeMillis() - lastSwiggyTopSearchFocusTapAtMs <= maxAgeMs
+    }
+
+    private fun isSwiggyKeyboardEntrySafeAfterTopSearchTap(): Boolean {
+        if (!isRecentSwiggyTopSearchFocusTap()) {
+            return false
+        }
+        if (!isSwiggyForeground()) {
+            Log.d(TAG, "Recent Swiggy top-search tap ignored because Swiggy is not foreground")
+            return false
+        }
+        if (!isKeyboardLikelyActive()) {
+            Log.d(TAG, "Recent Swiggy top-search tap ignored because keyboard is not visible")
+            return false
+        }
+        if (isUnsafeCouponOrPromoInputSurfaceActive()) {
+            Log.w(TAG, "Recent Swiggy top-search tap ignored inside coupon/promo surface")
+            return false
+        }
+        if (isSwiggyLocationPickerSurfaceActive()) {
+            Log.w(TAG, "Recent Swiggy top-search tap ignored inside location picker")
+            return false
+        }
+        return true
+    }
+
+    private fun waitForSwiggyKeyboardEntrySafeAfterTopSearchTap(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        do {
+            if (isSwiggyKeyboardEntrySafeAfterTopSearchTap()) {
+                return true
+            }
+            Thread.sleep(120)
+        } while (System.currentTimeMillis() < deadline)
+        return false
+    }
+
+    private fun waitForSwiggyKeyboardAfterTopSearchTap(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        do {
+            if (isSwiggyForeground() && isKeyboardLikelyActive()) {
+                return true
+            }
+            Thread.sleep(120)
+        } while (System.currentTimeMillis() < deadline)
+        return false
+    }
+
+    private fun tapSwiggyTopSearchFieldForFocus(): Boolean {
+        if (!isSwiggyForeground()) return false
+
+        return try {
+            val (screenWidth, screenHeight) = ScreenMetrics.getScreenDimensions(accessibilityService)
+            if (screenWidth <= 0 || screenHeight <= 0) {
+                return false
+            }
+
+            if (isSwiggyLocationPickerSurfaceActive()) {
+                recoverFromSwiggyLocationPicker("location picker was already active before search focus")
+            }
+
+            if (!isSwiggyProductSearchEntrySurfaceActive()) {
+                Log.w(TAG, "Swiggy product search entry surface is not visible; refusing coordinate search focus taps")
+                return false
+            }
+
+            val tapCandidates = listOf(
+                Pair(0.20f, 0.075f),
+                Pair(0.50f, 0.075f),
+                Pair(0.24f, 0.145f),
+                Pair(0.50f, 0.145f),
+                Pair(0.50f, 0.175f)
+            )
+
+            for ((xRatio, yRatio) in tapCandidates) {
+                val x = (screenWidth * xRatio).toInt()
+                val y = (screenHeight * yRatio).toInt()
+                val clicked = performRawClick(x, y, waitForCompletion = true)
+                Log.d(TAG, "Swiggy product search coordinate focus result at ($x,$y): $clicked")
+                if (!clicked) {
+                    continue
+                }
+                if (waitForSwiggyLocationPickerSurface(900)) {
+                    recoverFromSwiggyLocationPicker("tap at ($x,$y) opened address search")
+                    continue
+                }
+                if (waitForSwiggyKeyboardAfterTopSearchTap(2400)) {
+                    markRecentSwiggySearchFocus("coordinate product-search focus at ($x,$y)")
+                    return true
+                }
+                if (isSwiggyLocationPickerSurfaceActive()) {
+                    recoverFromSwiggyLocationPicker("location picker appeared after search focus wait")
+                    continue
+                }
+                Log.d(TAG, "Swiggy product search tap at ($x,$y) did not show keyboard; trying next candidate")
+            }
+            lastSwiggyTopSearchFocusTapAtMs = 0L
+            false
+        } catch (e: Exception) {
+            Log.w(TAG, "Swiggy top search field focus tap failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun collectNodeText(root: AccessibilityNodeInfo): String {
+        val builder = StringBuilder()
+        appendNodeText(root, builder, NodeScanBudget(maxNodes = 260, maxDurationMs = 400))
+        return builder.toString()
+    }
+
+    private fun collectTopNodeText(root: AccessibilityNodeInfo): String {
+        val builder = StringBuilder()
+        appendNodeText(
+            root,
+            builder,
+            NodeScanBudget(maxNodes = 180, maxDurationMs = 350),
+            maxTop = 900
+        )
+        return builder.toString()
+    }
+
+    private fun appendNodeText(
+        node: AccessibilityNodeInfo,
+        builder: StringBuilder,
+        budget: NodeScanBudget,
+        maxTop: Int? = null
+    ) {
+        if (!budget.markVisited()) return
+        if (builder.length > 12000) return
+        if (maxTop != null) {
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+            if (bounds.top > maxTop && bounds.height() > 0) {
+                return
+            }
+        }
+        listOf(
+            node.text?.toString().orEmpty(),
+            node.contentDescription?.toString().orEmpty(),
+            node.hintText?.toString().orEmpty(),
+            node.viewIdResourceName.orEmpty()
+        ).forEach { value ->
+            if (value.isNotBlank()) {
+                builder.append(' ').append(value)
+            }
+        }
+        for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
+            val child = node.getChild(i) ?: continue
+            appendNodeText(child, builder, budget, maxTop)
+        }
+    }
+
+    private fun findFocusedSearchNode(
+        node: AccessibilityNodeInfo,
+        budget: NodeScanBudget = newQuickNodeScanBudget()
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
         if ((node.isFocused || node.isAccessibilityFocused) && isSearchFieldCandidate(node)) {
             return node
         }
 
         for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
             val child = node.getChild(i) ?: continue
-            val result = findFocusedSearchNode(child)
+            val result = findFocusedSearchNode(child, budget)
             if (result != null) return result
         }
         return null
@@ -1227,9 +1900,6 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             Log.w(TAG, "Failed to enumerate accessibility windows: ${e.message}")
         }
 
-        if (roots.isEmpty() && activeRoot != null) {
-            roots.add(activeRoot)
-        }
         return roots
     }
 
@@ -1285,14 +1955,20 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     private fun findTargetElement(recommendedAction: JSONObject): AccessibilityNodeInfo? {
         Log.d(TAG, "Searching for target element")
         
-        val rootNode = accessibilityService.rootInActiveWindow
+        val actionTarget = recommendedAction.optString("action_target", "")
+        val requiresCommerceRoot = actionTarget.contains("search", ignoreCase = true) ||
+            actionTarget.contains("action_bar_root")
+        val rootNode = if (requiresCommerceRoot) {
+            bestCommerceRootNode()
+        } else {
+            accessibilityService.rootInActiveWindow
+        }
         if (rootNode == null) {
-            Log.w(TAG, "Root node is null")
+            Log.w(TAG, "Root node is null for target lookup")
             return null
         }
         
         // First try to parse action_target text for element information
-        val actionTarget = recommendedAction.optString("action_target", "")
         if (actionTarget.isNotEmpty()) {
             Log.d(TAG, "Parsing action target: '$actionTarget'")
             
@@ -1303,6 +1979,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 if (searchElement != null) {
                     Log.d(TAG, "Found clickable search element")
                     return searchElement
+                }
+                if (rootNode.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE) {
+                    Log.w(TAG, "Swiggy search target not found via known fields; skipping broad target lookup")
+                    return null
                 }
             }
             
@@ -1460,15 +2140,22 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return false
     }
     
-    private fun findNodeByText(rootNode: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
+    private fun findNodeByText(
+        rootNode: AccessibilityNodeInfo,
+        text: String,
+        budget: NodeScanBudget = newDefaultNodeScanBudget()
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
         if (rootNode.text?.toString()?.contains(text, ignoreCase = true) == true) {
             return rootNode
         }
         
         for (i in 0 until rootNode.childCount) {
+            if (budget.shouldStop()) break
             val child = rootNode.getChild(i)
             if (child != null) {
-                val result = findNodeByText(child, text)
+                val result = findNodeByText(child, text, budget)
                 if (result != null) {
                     return result
                 }
@@ -1477,29 +2164,43 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return null
     }
 
-    private fun findNodeByExactText(rootNode: AccessibilityNodeInfo, exact: String): AccessibilityNodeInfo? {
+    private fun findNodeByExactText(
+        rootNode: AccessibilityNodeInfo,
+        exact: String,
+        budget: NodeScanBudget = newDefaultNodeScanBudget()
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
         if (rootNode.text?.toString()?.equals(exact, ignoreCase = true) == true) {
             return rootNode
         }
         for (i in 0 until rootNode.childCount) {
+            if (budget.shouldStop()) break
             val child = rootNode.getChild(i)
             if (child != null) {
-                val result = findNodeByExactText(child, exact)
+                val result = findNodeByExactText(child, exact, budget)
                 if (result != null) return result
             }
         }
         return null
     }
     
-    private fun findNodeByContentDescription(rootNode: AccessibilityNodeInfo, contentDescription: String): AccessibilityNodeInfo? {
+    private fun findNodeByContentDescription(
+        rootNode: AccessibilityNodeInfo,
+        contentDescription: String,
+        budget: NodeScanBudget = newDefaultNodeScanBudget()
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
         if (rootNode.contentDescription?.toString()?.contains(contentDescription, ignoreCase = true) == true) {
             return rootNode
         }
         
         for (i in 0 until rootNode.childCount) {
+            if (budget.shouldStop()) break
             val child = rootNode.getChild(i)
             if (child != null) {
-                val result = findNodeByContentDescription(child, contentDescription)
+                val result = findNodeByContentDescription(child, contentDescription, budget)
                 if (result != null) {
                     return result
                 }
@@ -1508,15 +2209,22 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return null
     }
     
-    private fun findNodeByResourceId(rootNode: AccessibilityNodeInfo, resourceId: String): AccessibilityNodeInfo? {
+    private fun findNodeByResourceId(
+        rootNode: AccessibilityNodeInfo,
+        resourceId: String,
+        budget: NodeScanBudget = newDefaultNodeScanBudget()
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
         if (rootNode.viewIdResourceName == resourceId) {
             return rootNode
         }
         
         for (i in 0 until rootNode.childCount) {
+            if (budget.shouldStop()) break
             val child = rootNode.getChild(i)
             if (child != null) {
-                val result = findNodeByResourceId(child, resourceId)
+                val result = findNodeByResourceId(child, resourceId, budget)
                 if (result != null) {
                     return result
                 }
@@ -1525,15 +2233,22 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return null
     }
     
-    private fun findNodeByClassName(rootNode: AccessibilityNodeInfo, className: String): AccessibilityNodeInfo? {
+    private fun findNodeByClassName(
+        rootNode: AccessibilityNodeInfo,
+        className: String,
+        budget: NodeScanBudget = newDefaultNodeScanBudget()
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
         if (rootNode.className?.toString() == className) {
             return rootNode
         }
         
         for (i in 0 until rootNode.childCount) {
+            if (budget.shouldStop()) break
             val child = rootNode.getChild(i)
             if (child != null) {
-                val result = findNodeByClassName(child, className)
+                val result = findNodeByClassName(child, className, budget)
                 if (result != null) {
                     return result
                 }
@@ -1554,14 +2269,20 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return null
     }
     
-    private fun findClickableChild(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+    private fun findClickableChild(
+        node: AccessibilityNodeInfo,
+        budget: NodeScanBudget = newDefaultNodeScanBudget()
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
         for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
             val child = node.getChild(i) ?: continue
             if (child.isClickable) {
                 return child
             }
             // Recursively search in children
-            val clickableDescendant = findClickableChild(child)
+            val clickableDescendant = findClickableChild(child, budget)
             if (clickableDescendant != null) {
                 return clickableDescendant
             }
@@ -1570,6 +2291,14 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     }
     
     private fun findClickableSearchElement(rootNode: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        findSearchEditableNodeByKnownId(rootNode)?.let { return it }
+        findFocusedSearchEditableNode(rootNode)?.let { return it }
+
+        if (rootNode.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE) {
+            Log.d(TAG, "No known Swiggy search field found; skipping broad clickable search scan")
+            return null
+        }
+
         // Look for common search bar patterns
         val searchPatterns = listOf(
             "search", "Search", "SEARCH",
@@ -1577,7 +2306,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             "What are you looking for?", "What do you want to buy?",
             "Enter search term", "Type to search"
         )
-        
+
         // First, try to find by content description
         for (pattern in searchPatterns) {
             val nodeByDesc = findNodeByContentDescription(rootNode, pattern)
@@ -2089,14 +2818,26 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return true
     }
     
-    private fun findAllNodesByClassName(rootNode: AccessibilityNodeInfo, className: String): List<AccessibilityNodeInfo> {
+    private fun findAllNodesByClassName(
+        rootNode: AccessibilityNodeInfo,
+        className: String,
+        budget: NodeScanBudget = newDefaultNodeScanBudget(),
+        limit: Int = 80
+    ): List<AccessibilityNodeInfo> {
         val result = mutableListOf<AccessibilityNodeInfo>()
         
         fun search(node: AccessibilityNodeInfo) {
+            if (!budget.markVisited() || result.size >= limit) {
+                return
+            }
             if (node.className?.toString() == className) {
                 result.add(node)
+                if (result.size >= limit) {
+                    return
+                }
             }
             for (i in 0 until node.childCount) {
+                if (budget.shouldStop() || result.size >= limit) break
                 val child = node.getChild(i) ?: continue
                 search(child)
             }

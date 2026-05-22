@@ -12,7 +12,12 @@ $ProjectDir = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectDir
 
 $SwiggyPackage = "in.swiggy.android.instamart"
-$SwiggyLaunchComponent = "$SwiggyPackage/in.swiggy.android.HomeIcon"
+$SwiggyLaunchComponents = @(
+    "$SwiggyPackage/in.swiggy.android.activities.HomeActivity",
+    "$SwiggyPackage/in.swiggy.android.HomeIcon",
+    "$SwiggyPackage/in.swiggy.android.FestiveIcon",
+    "$SwiggyPackage/in.swiggy.android.HomeIconClone"
+)
 $SavedHomeAddressPatterns = @(
     '(?i)\b602\b',
     '(?i)\b2974\b',
@@ -45,6 +50,7 @@ $SelectedHomeAddressPatterns = @(
     '(?i)Siddanna',
     '(?i)\b560070\b'
 )
+$script:SavedHomeSelectionAttempted = $false
 
 function Write-Phase([string]$Message) {
     Write-Host "[swiggy-address] $Message"
@@ -71,9 +77,9 @@ function ConvertTo-AdbInputText([string]$Value) {
 function Get-UiDump {
     for ($i = 0; $i -lt 3; $i++) {
         adb shell "rm -f /data/local/tmp/window.xml" | Out-Null
-        $dumpResult = (adb shell timeout 8 uiautomator dump /data/local/tmp/window.xml 2>&1) -join "`n"
+        $dumpResult = (adb shell timeout 20 uiautomator dump --compressed /data/local/tmp/window.xml 2>&1) -join "`n"
         if ($dumpResult -notmatch "UI hierchary dumped to|UI hierarchy dumped to") {
-            $dumpResult = (adb shell timeout 12 uiautomator dump --compressed /data/local/tmp/window.xml 2>&1) -join "`n"
+            $dumpResult = (adb shell timeout 20 uiautomator dump /data/local/tmp/window.xml 2>&1) -join "`n"
         }
         if ($dumpResult -match "UI hierchary dumped to|UI hierarchy dumped to") {
             $xml = (adb shell cat /data/local/tmp/window.xml) -join "`n"
@@ -101,6 +107,13 @@ function Get-NodeCenterByPattern([string]$Xml, [string[]]$Patterns, [string[]]$E
         if (-not $bounds.Success) {
             continue
         }
+        $left = [int]$bounds.Groups[1].Value
+        $top = [int]$bounds.Groups[2].Value
+        $right = [int]$bounds.Groups[3].Value
+        $bottom = [int]$bounds.Groups[4].Value
+        if ($right -le $left -or $bottom -le $top) {
+            continue
+        }
 
         $haystack = "$text`n$desc`n$resource`n$class"
         $isExcluded = $false
@@ -117,8 +130,8 @@ function Get-NodeCenterByPattern([string]$Xml, [string[]]$Patterns, [string[]]$E
         foreach ($pattern in $Patterns) {
             if (($text -match $pattern) -or ($desc -match $pattern) -or ($resource -match $pattern)) {
                 return @{
-                    X = [int](([int]$bounds.Groups[1].Value + [int]$bounds.Groups[3].Value) / 2)
-                    Y = [int](([int]$bounds.Groups[2].Value + [int]$bounds.Groups[4].Value) / 2)
+                    X = [int](($left + $right) / 2)
+                    Y = [int](($top + $bottom) / 2)
                     Text = $text
                     Description = $desc
                     Resource = $resource
@@ -147,7 +160,7 @@ function Test-SwiggyForeground([string]$Xml) {
 }
 
 function Test-AddressPicker([string]$Xml) {
-    return (Test-SwiggyForeground $Xml) -and ($Xml -match "Select Your Location|Search an area or address|SAVED ADDRESSES|Select Delivery Address|Enter Location Manually|Unable to get location|VIEW ALL")
+    return (Test-SwiggyForeground $Xml) -and ($Xml -match "Select Your Location|Choose a delivery address|Search an area or address|SAVED ADDRESSES|Select Delivery Address|Add New Address|Enter Location Manually|Unable to get location|VIEW ALL")
 }
 
 function Test-SelectedHome([string]$Xml) {
@@ -162,30 +175,88 @@ function Test-SelectedHome([string]$Xml) {
 }
 
 function Test-StoreUnavailable([string]$Xml) {
-    return $Xml -match "We will be right back|unusually high traffic"
+    return $Xml -match "We will be right back|unusually high traffic|currently unserviceable|store is currently unserviceable|store or delivery is not available|come back later to place the order"
 }
 
 function Test-CartSurface([string]$Xml) {
-    return (Test-SwiggyForeground $Xml) -and ($Xml -match "(?i)\bCART\b|Add more items|Pay using|Pay\s*₹|Move to wishlist")
+    if (-not (Test-SwiggyForeground $Xml)) {
+        return $false
+    }
+
+    $hasNativeHomeSurface = $Xml -match "(?i)fragment_view_pager|discovery_fragment|food_listing|bottom_bar_parent"
+    $hasFullCartMarkers = $Xml -match "(?i)cart_review_items|Cart Header|Regular cart|Maxxsaver cart|Add more items|Pay using|Pay\s*₹|Pay₹|Payment Options|Preferred Payment|More Payment Options|Credit &amp; Debit Cards|Move to wishlist|open the home page|might have missed"
+    $hasCartOnlyMarker = ($Xml -match "(?i)\bCART\b") -and -not $hasNativeHomeSurface -and -not ($Xml -match "(?i)Search for|search_bar|content-desc=`"Home`"|text=`"Home`"")
+    return $hasFullCartMarkers -or $hasCartOnlyMarker
+}
+
+function Test-CheckoutPaymentSurface([string]$Xml) {
+    return (Test-SwiggyForeground $Xml) -and ($Xml -match "(?i)Payment Options|Preferred Payment|More Payment Options|Credit &amp; Debit Cards|Pay₹")
+}
+
+function Test-ProductSearchSurface([string]$Xml) {
+    if (-not (Test-SwiggyForeground $Xml)) {
+        return $false
+    }
+    if (Test-HomeShellSurface $Xml -or Test-AddressPicker $Xml -or Test-CartSurface $Xml) {
+        return $false
+    }
+
+    return $Xml -match "(?i)et_search_query_v2|A few ideas to get you started|YOUR PAST SEARCHES|Search for '"
 }
 
 function Test-OrderingForSomeoneElsePrompt([string]$Xml) {
-    return (Test-SwiggyForeground $Xml) -and ($Xml -match "ordering for someone else|someone else|No, it.?s for me")
+    if (-not (Test-SwiggyForeground $Xml)) {
+        return $false
+    }
+    return [bool](Get-NodeCenterByPattern $Xml @("(?i)ordering\s+for\s+someone\s+else", "(?i)No,?\s*it.?s\s+for\s+me"))
 }
 
-function Test-HomeSearchSurface([string]$Xml) {
+function Test-HomeShellSurface([string]$Xml) {
     if (-not (Test-SwiggyForeground $Xml)) {
         return $false
     }
     if (Test-AddressPicker $Xml) {
         return $false
     }
-    if (Test-StoreUnavailable $Xml) {
+    if (Test-CartSurface $Xml) {
         return $false
     }
+
     $hasSearch = $Xml -match "Search for products|search_bar|Search for"
+    $hasNativeHomeSurface = $Xml -match "(?i)fragment_view_pager|discovery_fragment|food_listing|bottom_bar_parent"
+    $hasAddressSelector = $Xml -match "(?i)address_selector_area|address_selector_view|location_header|im_address_bar"
     $hasHomeTab = $Xml -match 'content-desc="Home"|text="Home"'
-    return $hasSearch -and $hasHomeTab -and (Test-SelectedHome $Xml)
+    return ($hasSearch -or $hasNativeHomeSurface -or $hasAddressSelector) -and ($hasHomeTab -or $hasNativeHomeSurface -or $hasAddressSelector)
+}
+
+function Test-HomeSearchSurface([string]$Xml, [switch]$TrustRecentSavedHomeSelection) {
+    if (-not (Test-HomeShellSurface $Xml)) {
+        return $false
+    }
+    if (Test-SelectedHome $Xml) {
+        return $true
+    }
+    return [bool]($TrustRecentSavedHomeSelection -and -not (Test-AddressPicker $Xml) -and -not (Test-StoreUnavailable $Xml))
+}
+
+function Test-BlockingStoreUnavailable([string]$Xml) {
+    return (Test-StoreUnavailable $Xml) -and -not (Test-HomeShellSurface $Xml) -and -not (Test-AddressPicker $Xml)
+}
+
+function Exit-StoreUnavailableToHome([string]$Xml) {
+    if (-not (Test-BlockingStoreUnavailable $Xml)) {
+        return $Xml
+    }
+
+    Write-Phase "leaving Swiggy store-unavailable screen"
+    adb shell input keyevent 4 | Out-Null
+    Start-Sleep -Seconds 2
+
+    return Wait-ForUi {
+        param($candidate)
+        (Test-HomeShellSurface $candidate) -or
+            (Test-AddressPicker $candidate)
+    } 12
 }
 
 function Start-SwiggyAndWait {
@@ -195,20 +266,22 @@ function Start-SwiggyAndWait {
         Start-Sleep -Milliseconds 700
     }
 
-    Write-Phase "launching Swiggy Instamart"
-    adb shell am start -n $SwiggyLaunchComponent | Out-Null
-    Start-Sleep -Seconds 5
+    foreach ($component in $SwiggyLaunchComponents) {
+        Write-Phase "launching Swiggy Instamart via $component"
+        adb shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $component | Out-Null
+        Start-Sleep -Seconds 5
 
-    $xml = Wait-ForUi { param($candidate) Test-SwiggyForeground $candidate } $LaunchTimeoutSeconds
-    if (Test-SwiggyForeground $xml) {
-        return $xml
+        $xml = Wait-ForUi { param($candidate) Test-SwiggyForeground $candidate } 12
+        if (Test-SwiggyForeground $xml) {
+            return $xml
+        }
     }
 
-    Write-Phase "direct launch did not foreground Swiggy; trying launcher intent"
+    Write-Phase "component launch did not foreground Swiggy; trying launcher intent"
     adb shell monkey -p $SwiggyPackage -c android.intent.category.LAUNCHER 1 | Out-Null
     Start-Sleep -Seconds 5
 
-    $xml = Wait-ForUi { param($candidate) Test-SwiggyForeground $candidate } 20
+    $xml = Wait-ForUi { param($candidate) Test-SwiggyForeground $candidate } $LaunchTimeoutSeconds
     if (Test-SwiggyForeground $xml) {
         return $xml
     }
@@ -219,6 +292,12 @@ function Start-SwiggyAndWait {
 function Open-AddressPicker([string]$Xml) {
     if (Test-AddressPicker $Xml) {
         return $Xml
+    }
+    if (Test-CartSurface $Xml) {
+        $Xml = Exit-SwiggyCartToHome $Xml
+        if (Test-AddressPicker $Xml) {
+            return $Xml
+        }
     }
 
     Write-Phase "opening Swiggy address picker"
@@ -241,6 +320,12 @@ function Select-SwiggyHomeTab([string]$Xml) {
     if (Test-HomeSearchSurface $Xml) {
         return $Xml
     }
+    if (Test-HomeShellSurface $Xml) {
+        return $Xml
+    }
+    if (Test-CartSurface $Xml) {
+        return Exit-SwiggyCartToHome $Xml
+    }
 
     Write-Phase "switching Swiggy to the Home tab"
     $homeTabPoint = Get-NodeCenterByPattern $Xml @('^Home$')
@@ -260,11 +345,32 @@ function Exit-SwiggyCartToHome([string]$Xml) {
     }
 
     Write-Phase "leaving Swiggy cart for Home/search surface"
+    if (Test-CheckoutPaymentSurface $Xml) {
+        Write-Phase "leaving Swiggy payment/checkout screen"
+        adb shell input keyevent 4 | Out-Null
+        Start-Sleep -Seconds 2
+        $Xml = Wait-ForUi {
+            param($candidate)
+            (Test-HomeSearchSurface $candidate) -or
+                (Test-ProductSearchSurface $candidate) -or
+                ((Test-CartSurface $candidate) -and -not (Test-CheckoutPaymentSurface $candidate)) -or
+                -not (Test-CheckoutPaymentSurface $candidate)
+        } 12
+        if (Test-HomeSearchSurface $Xml) {
+            return $Xml
+        }
+    }
+
     $addMorePoint = Get-NodeCenterByPattern $Xml @("(?i)Add more items")
     if ($addMorePoint) {
         adb shell input tap $addMorePoint.X $addMorePoint.Y | Out-Null
     } else {
-        adb shell input keyevent 4 | Out-Null
+        $homeNudgePoint = Get-NodeCenterByPattern $Xml @("(?i)open the home page", "(?i)might have missed")
+        if ($homeNudgePoint) {
+            adb shell input tap $homeNudgePoint.X $homeNudgePoint.Y | Out-Null
+        } else {
+            adb shell input keyevent 4 | Out-Null
+        }
     }
 
     Start-Sleep -Seconds 2
@@ -281,6 +387,24 @@ function Exit-SwiggyCartToHome([string]$Xml) {
     }
 
     return $nextXml
+}
+
+function Exit-SwiggyProductSearchToHome([string]$Xml) {
+    if (-not (Test-ProductSearchSurface $Xml)) {
+        return $Xml
+    }
+
+    Write-Phase "leaving Swiggy product-search surface for Home/search surface"
+    for ($attempt = 0; $attempt -lt 2; $attempt++) {
+        adb shell input keyevent 4 | Out-Null
+        Start-Sleep -Seconds 2
+        $nextXml = Get-UiDump
+        if (-not (Test-ProductSearchSurface $nextXml)) {
+            return $nextXml
+        }
+    }
+
+    return Get-UiDump
 }
 
 function Enter-AddressSearch([string]$Xml) {
@@ -349,6 +473,7 @@ function Select-SavedHomeAddress([string]$Xml) {
         if ($homePoint) {
             Write-Phase "selecting saved Home address"
             adb shell input tap $homePoint.X $homePoint.Y | Out-Null
+            $script:SavedHomeSelectionAttempted = $true
             Start-Sleep -Seconds 2
             Confirm-OrderingForSelfIfPrompt | Out-Null
             return
@@ -372,22 +497,28 @@ function Wait-SwiggyHomeReady {
         if (Confirm-OrderingForSelfIfPrompt $xml) {
             continue
         }
-        if (Test-HomeSearchSurface $xml) {
+        if (Test-HomeSearchSurface $xml -TrustRecentSavedHomeSelection:$script:SavedHomeSelectionAttempted) {
             return $xml
         }
         if (Test-CartSurface $xml) {
             $xml = Exit-SwiggyCartToHome $xml
-            if (Test-HomeSearchSurface $xml) {
+            if (Test-HomeSearchSurface $xml -TrustRecentSavedHomeSelection:$script:SavedHomeSelectionAttempted) {
                 return $xml
             }
         }
-        if (Test-StoreUnavailable $xml) {
+        if (Test-ProductSearchSurface $xml) {
+            $xml = Exit-SwiggyProductSearchToHome $xml
+            if (Test-HomeSearchSurface $xml -TrustRecentSavedHomeSelection:$script:SavedHomeSelectionAttempted) {
+                return $xml
+            }
+        }
+        if (Test-BlockingStoreUnavailable $xml) {
             throw "Swiggy selected Home, but the app is showing a store-unavailable/high-traffic screen."
         }
         Start-Sleep -Seconds 1
     } while ((Get-Date) -lt $deadline)
 
-    if (Test-StoreUnavailable $xml) {
+    if (Test-BlockingStoreUnavailable $xml) {
         throw "Swiggy selected Home, but the app is showing a store-unavailable/high-traffic screen."
     }
 
@@ -399,6 +530,7 @@ function Invoke-SwiggyHomePreflight {
     Require-Package $SwiggyPackage
 
     $xml = Start-SwiggyAndWait
+    $xml = Exit-StoreUnavailableToHome $xml
     if (Test-HomeSearchSurface $xml) {
         Write-Phase "success: Swiggy Instamart is already on saved Home and the Home/search surface."
         return
@@ -408,6 +540,14 @@ function Invoke-SwiggyHomePreflight {
         $xml = Exit-SwiggyCartToHome $xml
         if (Test-HomeSearchSurface $xml) {
             Write-Phase "success: Swiggy Instamart left cart and reached the Home/search surface."
+            return
+        }
+    }
+
+    if (Test-ProductSearchSurface $xml) {
+        $xml = Exit-SwiggyProductSearchToHome $xml
+        if (Test-HomeSearchSurface $xml) {
+            Write-Phase "success: Swiggy Instamart left product search and reached the Home/search surface."
             return
         }
     }

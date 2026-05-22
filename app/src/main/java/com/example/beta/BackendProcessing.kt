@@ -306,6 +306,13 @@ object BackendProcessing {
             return true
         }
 
+        if (itemOutcome.status == ItemOutcomeStatus.STORE_UNAVAILABLE) {
+            Log.w(TAG, "Stopping multi-item sequence because the store is unavailable")
+            emitRemainingStoreUnavailableOutcomes(context, nextIndex)
+            finishMultiItemSequence(context, timedOut = false)
+            return true
+        }
+
         if (nextIndex >= totalItems) {
             finishMultiItemSequence(context, timedOut = false)
             return true
@@ -348,16 +355,36 @@ object BackendProcessing {
         return true
     }
 
+    private fun emitRemainingStoreUnavailableOutcomes(context: Context, startIndex: Int) {
+        if (startIndex >= multiItemSequenceItems.size) return
+        multiItemSequenceItems.drop(startIndex).forEach { pendingItem ->
+            val outcome = ItemOutcome(
+                item = normalizeOrderOutcomeItem(pendingItem.rawText),
+                status = ItemOutcomeStatus.STORE_UNAVAILABLE,
+                qtyRequested = pendingItem.quantity.requestedCount(),
+                qtyAdded = 0,
+                notes = "store_unavailable"
+            )
+            multiItemSequenceOutcomes.add(outcome)
+            Log.i(TAG, formatItemResultLine(outcome))
+            updateFlowStatus(context, formatItemResultStateLine(outcome.item, outcome.status))
+        }
+    }
+
     private fun performMultiItemCleanup() {
         val service = multiItemSequenceAccessibilityService ?: return
         val activePackage = service.activeAppPackage
         val lastCapturedPackage = service.getLastAppName()
-        if (activePackage == "in.swiggy.android.instamart" || lastCapturedPackage == "in.swiggy.android.instamart") {
+        if (activePackage == "in.swiggy.android.instamart") {
             Log.i(TAG, "Skipping global back cleanup for Swiggy multi-item continuation")
             return
         }
+        if (lastCapturedPackage == "in.swiggy.android.instamart") {
+            Log.i(TAG, "Swiggy continuation is no longer foreground (active=$activePackage); backing out of external surface")
+        }
         try {
             service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            Thread.sleep(700)
         } catch (e: Exception) {
             Log.w(TAG, "Multi-item cleanup back navigation failed: ${e.message}")
         }
@@ -718,8 +745,7 @@ object BackendProcessing {
 
             val fileBody = tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
             
-            // Get client version from MyApplication
-            val clientVersion = (context.applicationContext as? MyApplication)?.getClientVersion() ?: "1.0"
+            val clientMetadata = BackendClientMetadata.snapshot(context)
             val apiVersion = (context.applicationContext as? MyApplication)?.getApiVersion() ?: "1.0"
             
             val requestBodyBuilder = MultipartBody.Builder()
@@ -727,8 +753,12 @@ object BackendProcessing {
                 .addFormDataPart("file", filename, fileBody)
                 .addFormDataPart("input_text", requestInputText)
                 .addFormDataPart("api_version", apiVersion)
-                .addFormDataPart("client_version", clientVersion)
+                .addFormDataPart("client_version", clientMetadata.versionName)
                 .addFormDataPart("parser_version", InstructionParser.PARSER_VERSION)
+
+            BackendClientMetadata.formFields(clientMetadata).forEach { (key, value) ->
+                requestBodyBuilder.addFormDataPart(key, value)
+            }
             
             // Add session_id if available
             if (sessionContext != null) {
@@ -909,8 +939,7 @@ object BackendProcessing {
                                 val storeAppUnavailable = isStoreAppUnavailableFailureReason(userMessage)
                                 val storeUnavailable = isStoreUnavailableFailureReason(userMessage)
                                 val terminalStatus = when {
-                                    storeAppUnavailable -> ItemOutcomeStatus.STORE_UNAVAILABLE
-                                    storeUnavailable -> ItemOutcomeStatus.OOS
+                                    storeAppUnavailable || storeUnavailable -> ItemOutcomeStatus.STORE_UNAVAILABLE
                                     else -> statusForTerminalReason(userMessage)
                                 }
                                 val terminalNotes = noteForTerminalReason(terminalStatus, "workflow_failed")
@@ -995,8 +1024,7 @@ object BackendProcessing {
                                 val storeAppUnavailable = isStoreAppUnavailableFailureReason(errorMessage)
                                 val storeUnavailable = isStoreUnavailableFailureReason(errorMessage)
                                 val terminalStatus = when {
-                                    storeAppUnavailable -> ItemOutcomeStatus.STORE_UNAVAILABLE
-                                    storeUnavailable -> ItemOutcomeStatus.OOS
+                                    storeAppUnavailable || storeUnavailable -> ItemOutcomeStatus.STORE_UNAVAILABLE
                                     else -> statusForTerminalReason(errorMessage)
                                 }
                                 val terminalNotes = noteForTerminalReason(terminalStatus, "session_error")
@@ -1255,6 +1283,8 @@ object BackendProcessing {
                                             // Determine if this was a search-related action
                                             val isSearchAction = actionTarget.contains("search", ignoreCase = true) || 
                                                                actionTarget.contains("action_bar_root", ignoreCase = true)
+                                            val isSearchFocusClickAction = actionType.equals("click", ignoreCase = true) &&
+                                                actionTarget.equals("Focus search field", ignoreCase = true)
                                             val isTypeAction = actionType.equals("type", ignoreCase = true)
                                             val isScrollAction = actionType.equals("scroll", ignoreCase = true) ||
                                                 actionType.equals("swipe", ignoreCase = true)
@@ -1292,6 +1322,7 @@ object BackendProcessing {
                                                 actionSuccess && isAddAction -> "add_clicked"
                                                 actionSuccess && isViewCartAction -> "view_cart_clicked"
                                                 actionSuccess && isProductOpenAction -> "product_open_clicked"
+                                                actionSuccess && isSearchFocusClickAction -> "trusted_search_focus"
                                                 actionSuccess && isSearchAction -> "search_field_clicked"
                                                 actionSuccess && isScrollAction -> "results_scrolled"
                                                 actionSuccess -> actionType
@@ -1490,10 +1521,8 @@ object BackendProcessing {
         val storeAppUnavailable = isStoreAppUnavailableFailureReason("$reason $details")
         val terminalStatus = if (isTransientError) {
             ItemOutcomeStatus.TIMEOUT
-        } else if (storeAppUnavailable) {
+        } else if (storeAppUnavailable || storeUnavailable) {
             ItemOutcomeStatus.STORE_UNAVAILABLE
-        } else if (storeUnavailable) {
-            ItemOutcomeStatus.OOS
         } else {
             statusForTerminalReason("$reason $details")
         }
@@ -1577,7 +1606,7 @@ object BackendProcessing {
             val terminalStatus = if (storeAppUnavailable) {
                 ItemOutcomeStatus.STORE_UNAVAILABLE
             } else if (storeUnavailable) {
-                ItemOutcomeStatus.OOS
+                ItemOutcomeStatus.STORE_UNAVAILABLE
             } else {
                 statusForTerminalReason(verificationFailureReason)
             }
