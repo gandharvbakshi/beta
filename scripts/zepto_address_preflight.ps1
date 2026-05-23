@@ -62,7 +62,12 @@ function Test-ServiceableHome([string]$Xml) {
     if (-not $Xml) { return $false }
     $text = $Xml.ToLowerInvariant()
     return $text.Contains("com.zeptoconsumerapp:id/homepage-search-box") -and
-        ($text.Contains("current address name is") -or $text.Contains("estimated delivery time is") -or $text.Contains("eta-address-details"))
+        ($text.Contains("current address name is") -or $text.Contains("estimated delivery time is") -or $text.Contains("eta-address-details")) -or
+        (
+            $text.Contains("top picks for summer") -and
+            $text.Contains("shop by category") -and
+            ($text.Contains("unlock free delivery") -or $text.Contains("offers"))
+        )
 }
 
 function Test-AddressGate([string]$Xml) {

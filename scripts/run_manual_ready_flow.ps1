@@ -42,7 +42,7 @@ function ConvertTo-AdbShellArg([string]$Value) {
 }
 
 function Get-FilteredLogText {
-    $pattern = "AUTOMATION_INSTRUCTION_RECEIVED|AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE|INSTRUCTION_RECEIVED|MULTI_ORDER_STARTED|BLINKIT_SEARCH_STARTED|PARSED:|ITEM_RESULT|ORDER_RESULT|FLOW_FAILED|STATE: FAILED|checkout_boundary|store_unavailable|Stopped - backend error|Unexpected response|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|ANR in live\.betaapp\.android|ANR in com\.grofers\.customerapp|ANR in in\.swiggy\.android\.instamart|ANR in com\.zeptoconsumerapp|Application Not Responding: in\.swiggy\.android\.instamart|Application Not Responding: com\.zeptoconsumerapp|in\.swiggy\.android\.instamart isn't responding|com\.zeptoconsumerapp isn't responding|DeadSystemException"
+    $pattern = "AUTOMATION_INSTRUCTION_RECEIVED|AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE|INSTRUCTION_RECEIVED|MULTI_ORDER_STARTED|BLINKIT_SEARCH_STARTED|PARSED:|ITEM_RESULT|ORDER_RESULT|FLOW_FAILED|STATE: FAILED|checkout_boundary|store_unavailable|Stopped - backend error|Unexpected response|CAPTURE_LOST|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|SecurityException creating VirtualDisplay|MediaProjection stopped externally|ANR in live\.betaapp\.android|ANR in com\.grofers\.customerapp|ANR in in\.swiggy\.android\.instamart|ANR in com\.zeptoconsumerapp|Application Not Responding: in\.swiggy\.android\.instamart|Application Not Responding: com\.zeptoconsumerapp|in\.swiggy\.android\.instamart isn't responding|com\.zeptoconsumerapp isn't responding|DeadSystemException"
     $matches = adb logcat -d -v time | Select-String $pattern
     if (-not $matches) {
         return ""
@@ -109,7 +109,7 @@ function Resolve-ManualReadyOutcome([string]$LogText, [bool]$InstructionReceived
     if ($LogText -match "AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE") {
         return "no_screen_service"
     }
-    if ($LogText -match "MediaProjection state: null|Cannot trigger screenshot: Service not capturing") {
+    if ($LogText -match "CAPTURE_LOST|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|SecurityException creating VirtualDisplay|MediaProjection stopped externally") {
         return "capture_lost"
     }
     if ($LogText -match "Stopped - backend error|Unexpected response: Response\{[^}]*code=\d+") {

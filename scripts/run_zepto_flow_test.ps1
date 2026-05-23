@@ -177,6 +177,30 @@ function Start-BetaScreenCapture {
     throw "Beta screen capture did not become active."
 }
 
+function Restart-BetaScreenCapture {
+    Write-Phase "force-stopping Beta before capture restart"
+    adb shell am force-stop $Package | Out-Null
+    Start-Sleep -Seconds 2
+    Enable-BetaAccessibility
+    Start-BetaScreenCapture
+}
+
+function Invoke-ZeptoAddressPreflight {
+    $preflightArgs = @{}
+    if ($NoForceStopZepto) {
+        $preflightArgs.NoForceStop = $true
+    }
+    & (Join-Path $PSScriptRoot "zepto_address_preflight.ps1") @preflightArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "Zepto address preflight failed."
+    }
+}
+
+function Invoke-ZeptoManualReadyFlow {
+    param([hashtable]$ManualArgs)
+    & (Join-Path $PSScriptRoot "run_manual_ready_flow.ps1") @ManualArgs
+}
+
 Require-Device
 Require-Package $Package
 Require-Package $ZeptoPackage
@@ -184,6 +208,9 @@ Require-Package $ZeptoPackage
 if (-not $SkipBuild) {
     Write-Phase "building debug apk"
     $env:GRADLE_USER_HOME = "C:\Users\gandh\.gradle"
+    if (-not $env:BETA_BACKEND_DEBUG_URL) {
+        $env:BETA_BACKEND_DEBUG_URL = "https://10.0.2.2:8000"
+    }
     .\gradlew.bat assembleDebug
     adb install -r app\build\outputs\apk\debug\app-debug.apk
 }
@@ -192,11 +219,7 @@ Enable-BetaAccessibility
 Start-BetaScreenCapture
 
 Write-Phase "running Zepto address preflight"
-$preflightArgs = @{}
-if ($NoForceStopZepto) {
-    $preflightArgs.NoForceStop = $true
-}
-& (Join-Path $PSScriptRoot "zepto_address_preflight.ps1") @preflightArgs
+Invoke-ZeptoAddressPreflight
 
 Write-Phase "submitting instruction through manual-ready runner"
 $manualArgs = @{
@@ -208,4 +231,16 @@ if ($AllowFailedItems) { $manualArgs.AllowFailedItems = $true }
 if ($AllowStoreUnavailable) { $manualArgs.AllowStoreUnavailable = $true }
 if ($AllowExternalAppUnresponsive) { $manualArgs.AllowExternalAppUnresponsive = $true }
 
-& (Join-Path $PSScriptRoot "run_manual_ready_flow.ps1") @manualArgs
+try {
+    Invoke-ZeptoManualReadyFlow -ManualArgs $manualArgs
+} catch {
+    if ($_.Exception.Message -notmatch "capture_lost") {
+        throw
+    }
+    Write-Phase "screen capture was lost; restarting capture once and retrying"
+    Restart-BetaScreenCapture
+    Write-Phase "rerunning Zepto address preflight after capture restart"
+    Invoke-ZeptoAddressPreflight
+    Write-Phase "retrying instruction through manual-ready runner"
+    Invoke-ZeptoManualReadyFlow -ManualArgs $manualArgs
+}

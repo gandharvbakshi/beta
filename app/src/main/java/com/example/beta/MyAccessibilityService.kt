@@ -261,6 +261,8 @@ class MyAccessibilityService : AccessibilityService() {
      */
     private fun logBlinkitTree() {
         Log.d("MyAccessibilityService", "=== ENTERING commerce tree capture METHOD ===")
+        lastTreeData = ""
+        lastAppName = ""
         
         // Debug accessibility service state
         Log.d("MyAccessibilityService", "Accessibility Service State:")

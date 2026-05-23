@@ -72,6 +72,7 @@ class ScreenCaptureService : Service() {
     private var currentTreeData: String? = null
     private var currentAppName: String? = null
     private var lastImageDrainWarningAt = 0L
+    private var screenshotRecoveryAttempts = 0
     
     // Sequential action support
     private var isActionSequenceActive: Boolean = false
@@ -123,6 +124,47 @@ class ScreenCaptureService : Service() {
         }
         val margin = (12 * resources.displayMetrics.density).toInt()
         return statusBarHeight + margin
+    }
+
+    private fun markCaptureLost(reason: String, stopProjection: Boolean = false) {
+        Log.e("BetaAgent", "CAPTURE_LOST: $reason")
+        isCapturing = false
+        pendingScreenshot = false
+        screenshotRecoveryAttempts = 0
+
+        if (!stopProjection) {
+            return
+        }
+
+        try {
+            virtualDisplay?.release()
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error releasing VirtualDisplay after capture loss: ", e)
+        } finally {
+            virtualDisplay = null
+        }
+
+        try {
+            imageReader?.close()
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error closing ImageReader after capture loss: ", e)
+        } finally {
+            imageReader = null
+        }
+
+        try {
+            mediaProjection?.unregisterCallback(mediaProjectionCallback)
+        } catch (_: Exception) {
+            // Callback may already be unregistered after platform stop.
+        }
+
+        try {
+            mediaProjection?.stop()
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error stopping MediaProjection after capture loss: ", e)
+        } finally {
+            mediaProjection = null
+        }
     }
     
     // Check if screen capture is supported
@@ -731,7 +773,7 @@ class ScreenCaptureService : Service() {
         override fun onStop() {
             Log.w("ScreenCaptureService", "MediaProjection stopped externally.")
             Log.w("ScreenCaptureService", "This usually means the user revoked screen capture permission or the system ended the session.")
-            isCapturing = false
+            markCaptureLost("MediaProjection stopped externally")
             // Clean up resources associated with the stopped projection
             handler?.post {
                 virtualDisplay?.release()
@@ -854,6 +896,12 @@ class ScreenCaptureService : Service() {
         }
     }
 
+    private fun recreateCaptureSurfaceForScreenshot(reason: String): Boolean {
+        Log.e("ScreenCaptureService", "Screenshot pipeline stalled; capture permission must be restarted: $reason")
+        markCaptureLost("screenshot pipeline stalled: $reason", stopProjection = true)
+        return false
+    }
+
     // ImageAvailableListener moved outside createImageReader
     private val imageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
         if (pendingScreenshot) {
@@ -862,6 +910,7 @@ class ScreenCaptureService : Service() {
             try {
                 image = reader.acquireLatestImage()
                 if (image != null) {
+                    screenshotRecoveryAttempts = 0
                     processImage(image)
                 } else {
                     Log.e("ScreenCaptureService", "Failed to acquire image for pending screenshot - image is null")
@@ -2547,26 +2596,19 @@ class ScreenCaptureService : Service() {
             Log.e("ScreenCaptureService", "MediaProjection state: ${if (mediaProjection != null) "exists" else "null"}")
             Log.e("ScreenCaptureService", "VirtualDisplay state: ${if (virtualDisplay != null) "exists" else "null"}")
             Log.e("ScreenCaptureService", "ImageReader state: ${if (imageReader != null) "exists" else "null"}")
-            Log.w("ScreenCaptureService", "Attempting to restart capture before screenshot")
-            startCapture()
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (canCapture()) {
-                    Log.d("ScreenCaptureService", "Capture restarted successfully; retrying screenshot")
-                    triggerScreenshot()
-                } else {
-                    Log.e("ScreenCaptureService", "Capture restart failed before screenshot: ${getCaptureStatus()}")
-                }
-            }, 1500)
+            markCaptureLost("screenshot requested while capture inactive: ${getCaptureStatus()}")
             return
         }
         
         if (imageReader == null) {
             Log.e("ScreenCaptureService", "Cannot trigger screenshot: ImageReader is null")
+            markCaptureLost("screenshot requested without ImageReader", stopProjection = true)
             return
         }
 
         if (virtualDisplay == null) {
             Log.e("ScreenCaptureService", "Cannot trigger screenshot: VirtualDisplay is null")
+            markCaptureLost("screenshot requested without VirtualDisplay", stopProjection = true)
             return
         }
 
@@ -2622,14 +2664,27 @@ class ScreenCaptureService : Service() {
                                 val image = imageReader?.acquireLatestImage()
                                 if (image != null) {
                                     Log.d("ScreenCaptureService", "Manual image acquisition successful after timeout")
+                                    screenshotRecoveryAttempts = 0
                                     processImage(image)
                                     image.close()
                                 } else {
-                                    Log.w("ScreenCaptureService", "Manual image acquisition failed - restoring overlay")
-                                    if (isEmulator()) {
-                                        restoreEmulatorOverlayVisibility(currentInputText)
+                                    Log.w("ScreenCaptureService", "Manual image acquisition failed - attempting capture pipeline recovery")
+                                    if (
+                                        screenshotRecoveryAttempts < 2 &&
+                                        recreateCaptureSurfaceForScreenshot("timeout image null")
+                                    ) {
+                                        screenshotRecoveryAttempts += 1
+                                        Handler(Looper.getMainLooper()).postDelayed({
+                                            triggerScreenshot()
+                                        }, 700)
                                     } else {
-                                        restoreOverlayVisibility(currentInputText)
+                                        screenshotRecoveryAttempts = 0
+                                        Log.w("ScreenCaptureService", "Manual image acquisition failed - restoring overlay")
+                                        if (isEmulator()) {
+                                            restoreEmulatorOverlayVisibility(currentInputText)
+                                        } else {
+                                            restoreOverlayVisibility(currentInputText)
+                                        }
                                     }
                                 }
                             } catch (e: Exception) {

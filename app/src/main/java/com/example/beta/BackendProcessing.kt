@@ -50,7 +50,8 @@ object BackendProcessing {
 
     private fun appNameForBackend(appName: String?): String {
         return when (appName?.trim()) {
-            null, "", "com.grofers.customerapp" -> "Blinkit"
+            null, "" -> ""
+            "com.grofers.customerapp" -> "Blinkit"
             "in.swiggy.android.instamart" -> "Swiggy Instamart"
             "com.zeptoconsumerapp" -> "Zepto"
             else -> appName.trim()
@@ -745,18 +746,32 @@ object BackendProcessing {
         val requestTreeData = treeData
         if (
             isActionSequenceActive &&
-            isSupportedCommerceApp(backendAppName) &&
             requestTreeData.isNullOrBlank() &&
+            (backendAppName.isBlank() || isSupportedCommerceApp(backendAppName)) &&
             emptyBlinkitTreeRetries < 3
         ) {
             emptyBlinkitTreeRetries++
-            Log.w("BackendProcessing", "Blinkit tree was empty; retrying capture before asking backend ($emptyBlinkitTreeRetries/3)")
+            Log.w("BackendProcessing", "Commerce tree was empty; retrying capture before asking backend ($emptyBlinkitTreeRetries/3)")
             updateFlowStatus(context, "Reading screen")
             clearRequestInFlight(requestGeneration)
             triggerNextAction()
             return
         }
         emptyBlinkitTreeRetries = 0
+
+        if (isActionSequenceActive && backendAppName.isBlank()) {
+            Log.e("BackendProcessing", "Commerce app could not be identified; refusing to send a default Blinkit request")
+            Log.e(TAG, "FLOW_FAILED: reason=commerce_app_unidentified")
+            clearRequestInFlight(requestGeneration)
+            emitPhase0Outcome(
+                context = context,
+                item = requestInputText,
+                status = ItemOutcomeStatus.TIMEOUT,
+                notes = "commerce_app_unidentified"
+            )
+            stopActionSequence()
+            return
+        }
         
         // Log screenshot dimensions
         // Log.d("BackendProcessing", "Screenshot dimensions - Width: ${bitmap.width}, Height: ${bitmap.height}")
