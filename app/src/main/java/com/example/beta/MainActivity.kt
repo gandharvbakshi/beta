@@ -272,6 +272,10 @@ class MainActivity : ComponentActivity() {
             "launch blinkit",
             "start blinkit",
             "open blinkit app",
+            "open zepto",
+            "launch zepto",
+            "start zepto",
+            "open zepto app",
             "open grocery app",
             "launch grocery app",
         )

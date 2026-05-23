@@ -20,10 +20,12 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         private const val TAG = "ActionExecutor"
         private const val BLINKIT_PACKAGE = "com.grofers.customerapp"
         private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
+        private const val ZEPTO_PACKAGE = "com.zeptoconsumerapp"
         private const val SWIGGY_SEARCH_FOCUS_MARK_MAX_AGE_MS = 120000L
         private val SUPPORTED_COMMERCE_PACKAGES = setOf(
             BLINKIT_PACKAGE,
             SWIGGY_INSTAMART_PACKAGE,
+            ZEPTO_PACKAGE,
         )
         private val COMMERCE_SEARCH_FIELD_VIEW_IDS = listOf(
             "in.swiggy.android.instamart:id/et_search_query_v2",
@@ -34,6 +36,13 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         val x: Int,
         val y: Int,
         val overlayDeflection: Int
+    )
+
+    private data class DismissNodeCandidate(
+        val node: AccessibilityNodeInfo,
+        val score: Int,
+        val top: Int,
+        val left: Int
     )
 
     private enum class QuantityStepDirection {
@@ -130,6 +139,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         val permissionHandled = handleRuntimePermissionDialogByDenying()
         val anrHandled = handleAnrByClickingWait()
         return permissionHandled || anrHandled
+    }
+
+    private fun handleBlockingCommerceAppDialogs(): Boolean {
+        return handleZeptoPromotionalPopupIfActive()
     }
 
     private fun handleRuntimePermissionDialogByDenying(): Boolean {
@@ -233,6 +246,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
             // Keep system-owned blocker dialogs from trapping the commerce app.
             handleBlockingSystemDialogs()
+            handleBlockingCommerceAppDialogs()
 
             // Add a small delay to ensure UI is stable
             Thread.sleep(500)
@@ -258,7 +272,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 return firstAttempt
             }
 
-            if (!handleBlockingSystemDialogs()) {
+            if (!handleBlockingSystemDialogs() && !handleBlockingCommerceAppDialogs()) {
                 return false
             }
             Thread.sleep(300)
@@ -1012,6 +1026,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return visibleWindowPackages().any { it == SWIGGY_INSTAMART_PACKAGE }
     }
 
+    private fun isZeptoForeground(): Boolean {
+        return visibleWindowPackages().any { it == ZEPTO_PACKAGE }
+    }
+
     private fun activeRootPackage(): String? {
         return try {
             accessibilityService.rootInActiveWindow?.packageName?.toString()
@@ -1061,6 +1079,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         ).joinToString(" ").lowercase()
         return when {
             "swiggy" in actionText || "instamart" in actionText -> SWIGGY_INSTAMART_PACKAGE
+            "zepto" in actionText -> ZEPTO_PACKAGE
             "blinkit" in actionText || "grofers" in actionText -> BLINKIT_PACKAGE
             else -> null
         }
@@ -2014,6 +2033,146 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             Log.w(TAG, "Failed to close Swiggy product image preview: ${e.message}")
             false
         }
+    }
+
+    private fun handleZeptoPromotionalPopupIfActive(): Boolean {
+        if (!isZeptoForeground()) {
+            return false
+        }
+
+        return try {
+            commerceWindowRoots()
+                .filter { it.packageName?.toString() == ZEPTO_PACKAGE }
+                .firstNotNullOfOrNull { root ->
+                    val surfaceText = collectNodeText(root).lowercase()
+                    if (!isZeptoDismissiblePromotionalPopupText(surfaceText)) {
+                        null
+                    } else {
+                        findZeptoPromotionalPopupDismissNode(root)
+                    }
+                }
+                ?.let { dismissNode ->
+                    val clicked = dismissNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if (clicked) {
+                        Log.d(TAG, "Dismissed Zepto promotional popup using accessibility close control")
+                        Thread.sleep(550)
+                        true
+                    } else {
+                        Log.w(TAG, "Zepto promo close node click failed; trying Back")
+                        accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                        Thread.sleep(450)
+                        true
+                    }
+                } ?: run {
+                val hasBlockingPromo = commerceWindowRoots()
+                    .filter { it.packageName?.toString() == ZEPTO_PACKAGE }
+                    .any { root -> isZeptoDismissiblePromotionalPopupText(collectNodeText(root).lowercase()) }
+                if (!hasBlockingPromo) {
+                    false
+                } else {
+                    Log.w(TAG, "Zepto promotional popup detected without close node; trying Back")
+                    accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                    Thread.sleep(450)
+                    true
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Zepto promotional popup handling failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun isZeptoDismissiblePromotionalPopupText(surfaceText: String): Boolean {
+        if (surfaceText.isBlank() || isZeptoCheckoutOrPaymentText(surfaceText)) {
+            return false
+        }
+        val hasPromoCue = listOf(
+            "summer cool deals",
+            "top picks for summer",
+            "free delivery",
+            "exclusive offer",
+            "exclusive offers",
+            "coupon",
+            "coupons",
+            "offer",
+            "offers",
+            "deal",
+            "deals",
+            "sale"
+        ).any { surfaceText.contains(it) }
+        val hasCloseCue = listOf(
+            "close",
+            "dismiss",
+            "skip",
+            "not now",
+            "maybe later",
+            "no thanks"
+        ).any { surfaceText.contains(it) }
+        return hasPromoCue && hasCloseCue
+    }
+
+    private fun isZeptoCheckoutOrPaymentText(surfaceText: String): Boolean {
+        if (surfaceText.isBlank()) {
+            return false
+        }
+        return listOf(
+            "pay now",
+            "instant order",
+            "view payment offers",
+            "apply coupons",
+            "place order in one tap",
+            "skip payment for now",
+            "pay while we deliver",
+            "to pay"
+        ).any { surfaceText.contains(it) }
+    }
+
+    private fun findZeptoPromotionalPopupDismissNode(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val candidates = mutableListOf<DismissNodeCandidate>()
+        val (screenWidth, screenHeight) = ScreenMetrics.getScreenDimensions(accessibilityService)
+
+        fun scan(node: AccessibilityNodeInfo, budget: NodeScanBudget) {
+            if (!budget.markVisited()) return
+
+            val text = node.text?.toString().orEmpty().trim().lowercase()
+            val description = node.contentDescription?.toString().orEmpty().trim().lowercase()
+            val combined = "$text $description"
+            val closePhraseScore = when {
+                combined.contains("close") || combined.contains("dismiss") -> 0
+                combined.contains("not now") || combined.contains("no thanks") || combined.contains("maybe later") -> 1
+                combined.contains("skip") -> 2
+                else -> null
+            }
+            val exactX = text in setOf("x", "×") || description in setOf("x", "×")
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+            val compactCloseLike = exactX &&
+                bounds.width() in 1..160 &&
+                bounds.height() in 1..160 &&
+                (bounds.top <= (screenHeight * 0.55f).toInt() || bounds.left >= (screenWidth * 0.55f).toInt())
+            val score = closePhraseScore ?: if (compactCloseLike) 3 else null
+            val clickableNode = if (score != null && node.isVisibleToUser && node.isEnabled) {
+                findClickableSelfOrAncestor(node) ?: if (node.isClickable) node else null
+            } else {
+                null
+            }
+            if (clickableNode != null && score != null) {
+                candidates.add(DismissNodeCandidate(clickableNode, score, bounds.top, bounds.left))
+            }
+
+            for (i in 0 until node.childCount) {
+                if (budget.shouldStop()) break
+                val child = node.getChild(i) ?: continue
+                scan(child, budget)
+            }
+        }
+
+        scan(root, NodeScanBudget(maxNodes = 260, maxDurationMs = 450))
+        return candidates.sortedWith(
+            compareBy<DismissNodeCandidate> { it.score }
+                .thenBy { it.top }
+                .thenByDescending { it.left }
+        ).firstOrNull()?.node
     }
 
     private fun isSwiggyCheckoutOrPaymentText(surfaceText: String): Boolean {

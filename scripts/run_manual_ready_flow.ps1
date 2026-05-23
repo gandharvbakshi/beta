@@ -42,7 +42,7 @@ function ConvertTo-AdbShellArg([string]$Value) {
 }
 
 function Get-FilteredLogText {
-    $pattern = "AUTOMATION_INSTRUCTION_RECEIVED|AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE|INSTRUCTION_RECEIVED|MULTI_ORDER_STARTED|BLINKIT_SEARCH_STARTED|PARSED:|ITEM_RESULT|ORDER_RESULT|FLOW_FAILED|STATE: FAILED|checkout_boundary|store_unavailable|Stopped - backend error|Unexpected response|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|ANR in live\.betaapp\.android|ANR in com\.grofers\.customerapp|ANR in in\.swiggy\.android\.instamart|Application Not Responding: in\.swiggy\.android\.instamart|in\.swiggy\.android\.instamart isn't responding|DeadSystemException"
+    $pattern = "AUTOMATION_INSTRUCTION_RECEIVED|AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE|INSTRUCTION_RECEIVED|MULTI_ORDER_STARTED|BLINKIT_SEARCH_STARTED|PARSED:|ITEM_RESULT|ORDER_RESULT|FLOW_FAILED|STATE: FAILED|checkout_boundary|store_unavailable|Stopped - backend error|Unexpected response|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|ANR in live\.betaapp\.android|ANR in com\.grofers\.customerapp|ANR in in\.swiggy\.android\.instamart|ANR in com\.zeptoconsumerapp|Application Not Responding: in\.swiggy\.android\.instamart|Application Not Responding: com\.zeptoconsumerapp|in\.swiggy\.android\.instamart isn't responding|com\.zeptoconsumerapp isn't responding|DeadSystemException"
     $matches = adb logcat -d -v time | Select-String $pattern
     if (-not $matches) {
         return ""
@@ -115,7 +115,7 @@ function Resolve-ManualReadyOutcome([string]$LogText, [bool]$InstructionReceived
     if ($LogText -match "Stopped - backend error|Unexpected response: Response\{[^}]*code=\d+") {
         return "backend_error"
     }
-    if ($LogText -match "ANR in in\.swiggy\.android\.instamart|Application Not Responding: in\.swiggy\.android\.instamart|in\.swiggy\.android\.instamart isn't responding") {
+    if ($LogText -match "ANR in in\.swiggy\.android\.instamart|Application Not Responding: in\.swiggy\.android\.instamart|in\.swiggy\.android\.instamart isn't responding|ANR in com\.zeptoconsumerapp|Application Not Responding: com\.zeptoconsumerapp|com\.zeptoconsumerapp isn't responding") {
         if ($AllowExternalAppUnresponsive) {
             return "external_app_unresponsive"
         }
@@ -237,10 +237,10 @@ if (-not $outcome) {
 Save-Artifacts $outcome
 
 if ($outcome -notin @("success", "success_with_failed_items", "store_unavailable", "external_app_unresponsive")) {
-    throw "Manual-ready Blinkit flow failed for '$Instruction': $outcome. See $FullLogPath and $FinalScreenPath."
+    throw "Manual-ready flow failed for '$Instruction': $outcome. See $FullLogPath and $FinalScreenPath."
 }
 
-Write-Host "Manual-ready Blinkit flow passed for '$Instruction' with outcome '$outcome'."
+Write-Host "Manual-ready flow passed for '$Instruction' with outcome '$outcome'."
 Write-Host "Artifacts:"
 Write-Host "  $FullLogPath"
 Write-Host "  $FinalScreenPath"

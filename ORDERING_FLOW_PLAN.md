@@ -36,6 +36,28 @@ Universal **safety boundary** (do not violate in any phase):
 - Keep every provider cart-only: no payment handling, no final checkout
   confirmation, and no irreversible order submission.
 
+Current provider status as of 2026-05-23:
+
+- Blinkit: existing baseline provider.
+- Swiggy Instamart: live single and multi-item cart-only phase closed on the
+  emulator; durable behavior lives in the backend Swiggy profile/summary.
+- Zepto: installed/logged in and first onboarding pass completed. Package is
+  `com.zeptoconsumerapp`; first profile/support gates have been added. Zepto
+  must still run focused Phase A/B live automation before it is treated as
+  closed for real user flows.
+
+Zepto phase gates:
+
+- Phase 0: app/package/address/search/cart surface discovery is complete.
+- Phase A next: run a single safe item through Beta end-to-end and stop at cart
+  verification.
+- Phase B next: prove Zepto ignores pre-query promo ADD buttons and matches
+  only same-card product summaries.
+- Phase C next: verify quantity/pack handling using Zepto's same-card stepper
+  IDs and cart row quantity IDs.
+- Hard stop: Zepto cart page exposes `Instant Order` and `Pay Now`; backend and
+  Android action logic must treat these as checkout/payment boundaries.
+
 Conventions used throughout this doc:
 
 - **INTENT** sections state the goal in one paragraph, in plain English, so

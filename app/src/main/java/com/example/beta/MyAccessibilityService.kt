@@ -724,10 +724,12 @@ class MyAccessibilityService : AccessibilityService() {
         private const val PERMISSION_CONTROLLER_PACKAGE = "com.google.android.permissioncontroller"
         private const val BLINKIT_PACKAGE = "com.grofers.customerapp"
         private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
+        private const val ZEPTO_PACKAGE = "com.zeptoconsumerapp"
         private const val NON_BLINKIT_LOG_INTERVAL_MS = 5000L
         private val SUPPORTED_COMMERCE_PACKAGES = setOf(
             BLINKIT_PACKAGE,
             SWIGGY_INSTAMART_PACKAGE,
+            ZEPTO_PACKAGE,
         )
 
         private fun isSupportedCommercePackage(packageName: String?): Boolean {

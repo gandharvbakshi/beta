@@ -112,11 +112,11 @@
                 android:layout_height="wrap_content"
                 android:text="@string/works_with_label" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:orientation="horizontal">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="vertical">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -137,7 +137,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
+                    android:layout_marginTop="10dp"
                     android:background="@drawable/beta_app_chip"
                     android:drawableStart="@drawable/beta_dot_instamart"
                     android:drawablePadding="8dp"
@@ -147,6 +147,23 @@
                     android:paddingEnd="14dp"
                     android:paddingBottom="10dp"
                     android:text="@string/works_with_instamart"
+                    android:textColor="@color/beta_text_primary"
+                    android:textSize="15sp"
+                    android:fontFamily="sans-serif-medium" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/beta_app_chip"
+                    android:drawableStart="@drawable/beta_dot_zepto"
+                    android:drawablePadding="8dp"
+                    android:gravity="center_vertical"
+                    android:paddingStart="14dp"
+                    android:paddingTop="10dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="10dp"
+                    android:text="@string/works_with_zepto"
                     android:textColor="@color/beta_text_primary"
                     android:textSize="15sp"
                     android:fontFamily="sans-serif-medium" />

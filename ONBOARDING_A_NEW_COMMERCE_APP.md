@@ -27,6 +27,9 @@ This automation stops at **cart verification**.
 Before writing adapter logic, gather the basics:
 
 - App package name and launch entry point.
+- What is available through Android Accessibility: resource IDs, content
+  descriptions, focused/editable fields, clickability, enabled state, bounds,
+  and whether product/cart rows are paired by stable IDs.
 - Whether the UI is XML, Compose, hybrid, or mostly webview.
 - Search entry path, product-card layout, cart badge, and cart row layout.
 - Any required permissions, onboarding, login wall, address gate, or popup
@@ -63,6 +66,43 @@ Home/search surface before any product probe.
 Do not advance to single-item search until this gate passes on the target
 device.
 
+Generic capture helper:
+
+- Use `scripts/onboard_commerce_app.ps1` for every new app before adding app
+  logic. It records package metadata, focused window state, screenshot, UI
+  text, resource IDs, and a node CSV with text, content descriptions, resource
+  IDs, clickability, focus, and bounds.
+- Run it for each scenario name you learn: `home`, `address_gate`,
+  `home_after_address`, `search_entry`, `search_results_<item>`,
+  `add_<item>_cart_banner`, `cart_page_<item>`, and cleanup/failure states.
+- If a UI dump is flaky while the app animates, increase the retry count with
+  `-UiDumpAttempts`; do not proceed from screenshot-only evidence unless the
+  automation path can safely rely on OCR.
+
+Zepto first-pass notes from the May 23, 2026 onboarding run:
+
+- Package: `com.zeptoconsumerapp`; launch activity: `.MainActivity`.
+- Cold launch can open a saved-address/location bottom sheet. Use an existing
+  saved address such as Home; do not enable location, create addresses, or edit
+  address data.
+- Serviceable Home exposes `com.zeptoconsumerapp:id/homepage-search-box`, an
+  ETA/address header, and bottom tabs.
+- Search entry exposes a focused `EditText` with `content-desc="Search"` and
+  Back/Clear controls. Zepto can show product cards before a query is typed, so
+  never treat pre-query ADD buttons as requested-item results.
+- Search results expose UUID-paired `product-card-container...` and
+  `product-card-add-button...` nodes. Match the container product summary to
+  the requested item before tapping the paired ADD.
+- After ADD, the result card becomes a minus/plus stepper and the page exposes
+  `floating-cart-button` with a cart item count.
+- The cart page exposes product-name and SKU quantity resource IDs, but also
+  shows `Instant Order` and `Pay Now`; treat those as hard checkout/payment
+  boundaries and stop before any payment action.
+- Zepto learning should always inspect Accessibility before relying on OCR:
+  the first pass found usable content descriptions, UUID-paired card/add IDs,
+  cart-row resource IDs, focused search state, bounds, and explicit
+  payment-boundary text.
+
 ## 3) First-screen study
 
 Spend time on the home screen before touching code.
@@ -70,14 +110,17 @@ Spend time on the home screen before touching code.
 Look for:
 
 - Search bar location and label variants.
+- Accessibility structure for the search field, product cards, ADD controls,
+  steppers, cart banners, cart rows, and checkout/payment boundaries.
 - Hero banners, sponsored rows, category chips, and sticky popups.
 - Whether the first useful action is tap-search, type-search, or open a search
   icon.
 - What the app shows after a search: product cards, quick-add buttons, variant
   modals, quantity steppers, or no-results states.
 
-Capture at least one screenshot, one accessibility tree dump, and one OCR pass
-for the home screen and the search-results screen. These become your baseline.
+Capture at least one screenshot, one accessibility tree dump, one accessibility
+node table, and one OCR pass for the home screen and the search-results screen.
+These become your baseline.
 
 ## 4) App profile setup
 

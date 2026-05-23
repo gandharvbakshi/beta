@@ -52,12 +52,13 @@ object BackendProcessing {
         return when (appName?.trim()) {
             null, "", "com.grofers.customerapp" -> "Blinkit"
             "in.swiggy.android.instamart" -> "Swiggy Instamart"
+            "com.zeptoconsumerapp" -> "Zepto"
             else -> appName.trim()
         }
     }
 
     private fun isSupportedCommerceApp(appName: String?): Boolean {
-        return appName == "Blinkit" || appName == "Swiggy Instamart"
+        return appName == "Blinkit" || appName == "Swiggy Instamart" || appName == "Zepto"
     }
     
     // Sequential action tracking

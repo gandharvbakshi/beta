@@ -11,10 +11,12 @@ object CommerceAppLauncher {
     private const val TAG = "CommerceAppLauncher"
     private const val BLINKIT_PACKAGE = "com.grofers.customerapp"
     private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
+    private const val ZEPTO_PACKAGE = "com.zeptoconsumerapp"
 
     private val candidates = listOf(
         CommerceApp("Blinkit", BLINKIT_PACKAGE),
         CommerceApp("Swiggy Instamart", SWIGGY_INSTAMART_PACKAGE),
+        CommerceApp("Zepto", ZEPTO_PACKAGE),
     )
 
     data class LaunchResult(

@@ -30,17 +30,18 @@
     <string name="works_with_label">Works with</string>
     <string name="works_with_blinkit">Blinkit</string>
     <string name="works_with_instamart">Swiggy Instamart</string>
+    <string name="works_with_zepto">Zepto</string>
     <string name="status_ready_pill">Ready</string>
     <string name="setup_accessibility_body">So Beta can see your grocery app.</string>
     <string name="setup_overlay_body">So Beta can show its helper on top.</string>
     <string name="setup_screen_capture_body">Beta only looks when you ask it to.</string>
     <string name="setup_microphone_body">Optional — needed only for voice orders.</string>
     <string name="automation_disclosure_title">Before Beta helps in another app</string>
-    <string name="automation_disclosure_message">Beta uses screen capture and AccessibilityService only after you choose to start. When you ask for a cart, Beta opens Blinkit first, or Swiggy Instamart if Blinkit is not installed. Keep the grocery app open while Beta works. It reads supported grocery app screens, including visible text, buttons, product names, prices, cart contents, and delivery details such as your name, precise delivery location, delivery address, and locality if they are shown on the screen. Beta sends this screen context to the Beta backend only to build the cart you request. Beta stops before checkout and payment. It does not place orders or pay. You can continue manually or cancel whenever you want. Diagnostic feedback is optional.</string>
+    <string name="automation_disclosure_message">Beta uses screen capture and AccessibilityService only after you choose to start. When you ask for a cart, Beta opens Blinkit first, Swiggy Instamart if Blinkit is not installed, or Zepto if the others are not installed. Keep the grocery app open while Beta works. It reads supported grocery app screens, including visible text, buttons, product names, prices, cart contents, and delivery details such as your name, precise delivery location, delivery address, and locality if they are shown on the screen. Beta sends this screen context to the Beta backend only to build the cart you request. Beta stops before checkout and payment. It does not place orders or pay. You can continue manually or cancel whenever you want. Diagnostic feedback is optional.</string>
     <string name="automation_disclosure_accept">Continue</string>
     <string name="automation_disclosure_cancel">Not now</string>
     <string name="accessibility_setup_title">Turn on Beta in Accessibility</string>
-    <string name="accessibility_setup_message">Beta needs Accessibility permission before it can help in Blinkit or Swiggy Instamart. Android will open Settings. Choose Beta, turn it on, then return to Beta or the grocery app and press the start button again.</string>
+    <string name="accessibility_setup_message">Beta needs Accessibility permission before it can help in Blinkit, Swiggy Instamart, or Zepto. Android will open Settings. Choose Beta, turn it on, then return to Beta or the grocery app and press the start button again.</string>
     <string name="accessibility_setup_open_settings">Open Settings</string>
     <string name="overlay_status_ready">Tap to tell Beta</string>
     <string name="overlay_status_listening">Beta is listening…</string>
@@ -57,5 +58,5 @@
     <string name="input_or_speak">Or hold the mic to speak instead</string>
     <string name="commerce_app_opening">Opening %1$s</string>
     <string name="commerce_app_launch_failed">Could not open %1$s. Please open it manually and try again.</string>
-    <string name="commerce_app_not_installed">Install Blinkit or Swiggy Instamart to use Beta grocery automation.</string>
+    <string name="commerce_app_not_installed">Install Blinkit, Swiggy Instamart, or Zepto to use Beta grocery automation.</string>
 </resources>
