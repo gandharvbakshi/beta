@@ -25,6 +25,12 @@ interface so accessibility/OCR/screenshot automation can be one provider today
 and official API/MCP connectors can be added later without changing the
 ordering safety model.
 
+Universal preflight note: every app should first reach a clean home/search
+state before product work begins. Dismiss transient promos or sheets, reset to
+safe cart state when the app exposes a safe reset path, and keep the exact
+reset cues app-scoped in the relevant profile. The shared rule is simply: do
+not trust stale cart state or pre-query rows as evidence of the current query.
+
 Universal **safety boundary** (do not violate in any phase):
 
 - Never tap "Place order", "Pay", "Proceed to checkout", "Pay now",
@@ -41,20 +47,45 @@ Current provider status as of 2026-05-23:
 - Blinkit: existing baseline provider.
 - Swiggy Instamart: live single and multi-item cart-only phase closed on the
   emulator; durable behavior lives in the backend Swiggy profile/summary.
-- Zepto: installed/logged in and first onboarding pass completed. Package is
-  `com.zeptoconsumerapp`; first profile/support gates have been added. Zepto
-  must still run focused Phase A/B live automation before it is treated as
-  closed for real user flows.
+- Zepto: installed/logged in. Package is `com.zeptoconsumerapp`; Android,
+  backend, and profile support gates are in place. Non-voice typed/broadcast
+  testing through phase 10 is closed locally as of 2026-05-24; voice/input
+  parity remains a separate follow-up.
+
+Zepto search-learning notes:
+
+- Treat search as a ranking pipeline: recall first, then relevance scoring,
+  then final ranking.
+- The top 2-3 results and the top fold matter most; hard negatives and small
+  distilled rerankers are useful when tightening search relevance.
+- Capture relevance with continuous `0..1` labels rather than only binary
+  pass/fail labels.
+- During multi-item flows, never use visible product rows as proof of the
+  current query unless the search field/top query matches the requested item or
+  typing was just performed.
+- Keep behavior knowledge app-scoped and always-learning for live users so new
+  observations continuously refine the Zepto profile instead of living only in
+  one-off notes.
+- Treat clean-state preflight the same way: learn the exact safe path back to
+  a clean home/search surface and preserve the app-specific cues in the Zepto
+  profile, while the shared ordering logic only enforces the generic
+  clean-state requirement.
 
 Zepto phase gates:
 
 - Phase 0: app/package/address/search/cart surface discovery is complete.
-- Phase A next: run a single safe item through Beta end-to-end and stop at cart
+- Phase A: single safe item through Beta end-to-end passed and stopped at cart
   verification.
-- Phase B next: prove Zepto ignores pre-query promo ADD buttons and matches
-  only same-card product summaries.
-- Phase C next: verify quantity/pack handling using Zepto's same-card stepper
-  IDs and cart row quantity IDs.
+- Phase B: Zepto ignores pre-query promo ADD buttons and matches only same-card
+  product summaries.
+- Phase C: quantity/pack handling passed using Zepto's same-card stepper IDs
+  and cart row quantity IDs.
+- Phase D: preferences/variants passed with a seeded milk preference resolving
+  to Amul Gold Full Cream Milk.
+- Phase E: substitution/no-result continuation passed with `fresh ber` marked
+  `not_found` and the order continuing to add banana.
+- Short soak: passed for a two-item milk/banana cart-only flow.
+- Remaining: voice/input parity only.
 - Hard stop: Zepto cart page exposes `Instant Order` and `Pay Now`; backend and
   Android action logic must treat these as checkout/payment boundaries.
 

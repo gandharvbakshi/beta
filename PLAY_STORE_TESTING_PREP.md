@@ -65,6 +65,8 @@ $env:BETA_FEEDBACK_API_KEY = "<same value as Secret Manager BETA_FEEDBACK_API_KE
 2. Start Beta and accept disclosure.
 3. Enable accessibility and screen capture.
 4. Run one Blinkit cart-only order.
-5. Submit "Worked" feedback.
-6. Submit "Report issue" feedback with logs enabled.
-7. Verify both feedback rows reach the backend.
+5. Run one Swiggy Instamart cart-only order.
+6. Run one Zepto cart-only order.
+7. Submit "Worked" feedback.
+8. Submit "Report issue" feedback with logs enabled.
+9. Verify both feedback rows reach the backend.

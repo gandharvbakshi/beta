@@ -1,23 +1,38 @@
 # Beta Play Store Go-Live Tasks
 
-Last updated: 2026-05-22
+Last updated: 2026-05-23
 
-This is the current human checklist for getting `Beta` live on Google Play after the AccessibilityService rejection.
+This is the current owner-only checklist for getting `Beta` live on Google Play after the AccessibilityService rejection. API-doable build/listing/release tasks are separated from actions that require Play Console owner review or policy attestation.
 
 ## Current State
 
 - App name: `Beta`
 - Package / application ID: `live.betaapp.android`
 - Android namespace: `com.example.beta`
-- Current release config: `versionCode 4`, `versionName 0.2.2`
+- Current release config: `versionCode 5`, `versionName 0.2.3`
 - Release backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
-- Local release signing files exist, but they are sensitive and must not be committed or pasted into chat.
-- The Play listing draft for `en-US` was updated through the Android Publisher API with `changesNotSentForReview=true`.
+- Local Play Publisher credentials exist, but no Beta upload keystore/signing Gradle properties were found in the repo or user Gradle properties.
+- The Play listing drafts for `en-US` and default locale `en-GB` should name Blinkit, Swiggy Instamart, and Zepto before resubmission. The API update was prepared but not committed because this Play API path would send changes for review automatically without `changesNotSentForReview=true`.
 - The in-app prominent disclosure was updated.
 - The public privacy policy asset was updated.
 - The AccessibilityService review video was regenerated.
+- A local `0.2.3` release AAB was built at `app/build/outputs/bundle/release/app-release.aab`, but Play rejected upload because the bundle was not release-signed.
+- Open testing / API track `beta` previously had version code `4` assigned with status `completed`; the Zepto release should use version code `5` after a signed AAB is available.
+- The raw GitHub privacy-policy and review-video URLs were verified as publicly reachable.
 - Data Safety was not updated by API because there is no current Play Console CSV export/template in the repo.
-- Final Play Console attestations and send-for-review are still owner actions.
+- The privacy-policy URL, Data Safety form, AccessibilityService declaration, foreground service / media projection declaration, and final send-for-review are still owner-only Play Console actions.
+
+## Only You Must Do
+
+Do these in Play Console with the owner account:
+
+1. Set the privacy-policy URL and deletion instructions.
+2. Complete the Data Safety form for the data categories below.
+3. Complete the AccessibilityService declaration.
+4. Complete the foreground service / media projection declaration.
+5. Open Publishing overview, review the pending changes, and click send changes for review.
+
+For the Zepto release, provide or configure the Beta upload signing key, then confirm version code `5`, the updated app list, and release notes before sending changes for review.
 
 ## URLs To Use
 
@@ -41,22 +56,22 @@ https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/f
 
 Do not use the old SMS Classifier URLs for Beta. Do not use the Beta GitHub Pages URL unless GitHub Pages is enabled and the URL is verified.
 
-## What I Can Still Do
+## What Codex Can Still Do
 
-- Build a signed `0.2.2` release AAB from the current repo.
-- Upload the AAB to the open testing track through the Play Developer API if the service-account permissions still work.
-- Update localized store listing text through the Play Developer API.
+- Build the signed `0.2.3` release AAB after the upload signing config is available.
+- Upload the signed `0.2.3` AAB to the open testing track through the Play Developer API if the service-account permissions still work.
+- Update localized store listing text through the Play Developer API only if committing the edit is acceptable, because this app now rejects `changesNotSentForReview=true` and says changes are sent for review automatically.
 - Write Data Safety through the Play Developer API only after you export/download a current Data Safety CSV/template from Play Console or Google and provide it in the repo.
 - Verify raw GitHub asset URLs.
 
-## What You Must Do In Play Console
+## Play Console Owner Steps
 
 ### 1. Confirm The Draft Store Listing
 
-Check that the long description explicitly says `AccessibilityService` and matches the current app behavior:
+Check that the long description explicitly says `AccessibilityService`, names Blinkit, Swiggy Instamart, and Zepto, and matches the current app behavior:
 
 ```text
-Beta helps testers build grocery carts in supported grocery apps from a typed or spoken instruction. After the user starts a flow, Beta uses screen capture and AccessibilityService to read the visible supported grocery app screen, search for the requested items, add matching products to the cart, and stop before checkout or payment so the user can review everything manually.
+Beta helps testers build grocery carts in supported grocery apps, currently Blinkit, Swiggy Instamart, and Zepto, from a typed or spoken instruction. After the user starts a flow, Beta uses screen capture and AccessibilityService to read the visible supported grocery app screen, search for the requested items, add matching products to the cart, and stop before checkout or payment so the user can review everything manually.
 
 Beta is an early testing app. It requires explicit user consent for screen capture and AccessibilityService access. While the user-started cart-building flow is running, Beta may read visible grocery app screen data such as product names, prices, cart contents, buttons, and delivery details including name, precise delivery location, delivery address, locality, or delivery-area header text if shown by the grocery app. Beta sends this screen context to the Beta backend only to build the requested cart. It does not place orders, make payments, complete checkout, sell personal data, or use this data for advertising.
 ```
@@ -146,23 +161,22 @@ Beta uses Android screen capture only after user consent during an active cart-b
 
 Video URL: use the foreground service / media projection review video URL above.
 
-### 6. Upload The New Build
+### 6. Confirm The New Build Is Pending
 
-Because the in-app disclosure changed after the earlier Play rejection, upload a new release build before resubmitting.
+Because the in-app disclosure changed after the earlier Play rejection, confirm the new release build is present before resubmitting.
 
-Current target:
+Current Play API state:
 
 - Track: open testing first
-- Release name: `0.2.2 open testing`
-- Version code: `4`
+- Release name: `0.2.3 open testing`
+- Version code: `5`
+- Status: blocked on signed AAB / Play Console confirmation
 
 Release notes:
 
 ```text
-Updates the AccessibilityService prominent disclosure, privacy disclosure alignment, and review-supporting policy copy for Beta cart-only grocery assistance. Beta helps build requested grocery carts and stops before checkout/payment.
+Adds Zepto as a supported cart-only grocery app alongside Blinkit and Swiggy Instamart. Improves Zepto search, same-card ADD targeting, quantity handling, no-result continuation, and screen-capture recovery while keeping Beta stopped before checkout/payment.
 ```
-
-I can build and upload this AAB through the API once you want me to proceed.
 
 ### 7. Send Changes For Review
 
@@ -184,9 +198,10 @@ For open testing:
 1. Install from the Play testing link.
 2. Run one Blinkit cart-only smoke test.
 3. Run one Swiggy Instamart cart-only smoke test.
-4. Submit one worked feedback item.
-5. Submit one issue feedback item with logs enabled.
-6. Verify feedback reaches the backend.
+4. Run one Zepto cart-only smoke test.
+5. Submit one worked feedback item.
+6. Submit one issue feedback item with logs enabled.
+7. Verify feedback reaches the backend.
 
 For production:
 

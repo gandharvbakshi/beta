@@ -865,7 +865,7 @@ class ScreenCaptureService : Service() {
         }
         
         try {
-            // Use emulator-specific settings if running on emulator
+            // Emulator frames can arrive in bursts; keep enough buffers to avoid maxImages stalls.
             val bufferSize = if (isEmulator()) 3 else 2
             val pixelFormat = PixelFormat.RGBA_8888
             
@@ -897,9 +897,125 @@ class ScreenCaptureService : Service() {
     }
 
     private fun recreateCaptureSurfaceForScreenshot(reason: String): Boolean {
-        Log.e("ScreenCaptureService", "Screenshot pipeline stalled; capture permission must be restarted: $reason")
-        markCaptureLost("screenshot pipeline stalled: $reason", stopProjection = true)
-        return false
+        Log.w("ScreenCaptureService", "Screenshot pipeline stalled; recreating capture surface: $reason")
+
+        if (!isCapturing || mediaProjection == null) {
+            markCaptureLost(
+                "screenshot pipeline stalled without active projection: $reason",
+                stopProjection = mediaProjection != null
+            )
+            return false
+        }
+
+        pendingScreenshot = false
+
+        return try {
+            try {
+                virtualDisplay?.setSurface(null)
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error detaching old screenshot surface during recovery: ", e)
+            }
+
+            try {
+                imageReader?.close()
+            } catch (e: Exception) {
+                Log.e("ScreenCaptureService", "Error closing old ImageReader during recovery: ", e)
+            } finally {
+                imageReader = null
+            }
+
+            createImageReader()
+            if (imageReader?.surface == null) {
+                markCaptureLost("screenshot recovery failed to recreate ImageReader: $reason", stopProjection = true)
+                return false
+            }
+
+            virtualDisplay?.setSurface(imageReader?.surface)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                virtualDisplay?.resize(width, height, density)
+            }
+
+            Log.i("ScreenCaptureService", "Screenshot capture surface recreated successfully")
+            true
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error recreating screenshot capture surface: ", e)
+            markCaptureLost("screenshot recovery threw after stall: $reason", stopProjection = true)
+            false
+        }
+    }
+
+    private fun drainStaleScreenshotFrame(reason: String) {
+        try {
+            imageReader?.acquireLatestImage()?.close()
+        } catch (e: Exception) {
+            Log.w("ScreenCaptureService", "Failed to drain stale screenshot frame before $reason: ${e.message}")
+        }
+    }
+
+    private fun processTreeOnlyScreenshotFallback(reason: String): Boolean {
+        val treeData = currentTreeData
+        if (treeData.isNullOrBlank() || width <= 0 || height <= 0) {
+            Log.w("ScreenCaptureService", "Cannot use tree-only screenshot fallback for $reason")
+            return false
+        }
+
+        return try {
+            Log.w(
+                "ScreenCaptureService",
+                "Using tree-only screenshot fallback after capture stall: $reason"
+            )
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            (application as? MyApplication)?.setLastScreenshotDimensions(width, height)
+            (application as? MyApplication)?.saveScreenshot(bitmap)
+
+            val filename = "tree_only_screenshot_${System.currentTimeMillis()}.jpg"
+            val inputTextForProcessing = if (isActionSequenceActive && originalInputText != null) {
+                originalInputText
+            } else {
+                currentInputText
+            }
+
+            if (inputTextForProcessing != null) {
+                BackendProcessing.processScreenshotWithInput(
+                    this,
+                    bitmap,
+                    filename,
+                    inputTextForProcessing,
+                    currentAppName,
+                    treeData,
+                    (application as? MyApplication)?.getAccessibilityService(),
+                    currentSession,
+                    currentSequenceGeneration
+                )
+                if (!isActionSequenceActive) {
+                    currentInputText = null
+                    currentTreeData = null
+                    currentAppName = null
+                }
+            } else {
+                BackendProcessing.uploadScreenshotAndProcess(
+                    this,
+                    bitmap,
+                    filename,
+                    currentAppName,
+                    treeData,
+                    currentSession
+                )
+            }
+
+            screenshotRecoveryAttempts = 0
+            pendingScreenshot = false
+            disableScreenshots()
+            if (isEmulator()) {
+                restoreEmulatorOverlayVisibility(inputTextForProcessing)
+            } else {
+                restoreOverlayVisibility(inputTextForProcessing)
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Tree-only screenshot fallback failed: ${e.message}", e)
+            false
+        }
     }
 
     // ImageAvailableListener moved outside createImageReader
@@ -2614,6 +2730,8 @@ class ScreenCaptureService : Service() {
 
         Log.d("ScreenCaptureService", "Setting pending screenshot flag")
         Log.d("ScreenCaptureService", "Current input text: $currentInputText")
+        drainStaleScreenshotFrame("trigger")
+        pendingScreenshot = true
         
         // ENHANCED: Temporarily hide the overlay during screenshot capture
         try {
@@ -2647,8 +2765,11 @@ class ScreenCaptureService : Service() {
             
             handler?.post {
                 try {
-                    pendingScreenshot = true
-                    Log.d("ScreenCaptureService", "Pending screenshot set to true after overlay delay")
+                    if (!pendingScreenshot) {
+                        Log.d("ScreenCaptureService", "Screenshot frame arrived after overlay hide")
+                        return@post
+                    }
+                    Log.d("ScreenCaptureService", "Pending screenshot still waiting after overlay delay")
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         virtualDisplay?.resize(width, height, density)
@@ -2676,9 +2797,17 @@ class ScreenCaptureService : Service() {
                                         screenshotRecoveryAttempts += 1
                                         Handler(Looper.getMainLooper()).postDelayed({
                                             triggerScreenshot()
-                                        }, 700)
+                                        }, 1200)
                                     } else {
                                         screenshotRecoveryAttempts = 0
+                                        val fallbackProcessed =
+                                            processTreeOnlyScreenshotFallback("timeout image null after recovery")
+                                        if (!fallbackProcessed && isCapturing) {
+                                            markCaptureLost(
+                                                "screenshot pipeline stalled after recovery: timeout image null",
+                                                stopProjection = true
+                                            )
+                                        }
                                         Log.w("ScreenCaptureService", "Manual image acquisition failed - restoring overlay")
                                         if (isEmulator()) {
                                             restoreEmulatorOverlayVisibility(currentInputText)
@@ -2696,7 +2825,7 @@ class ScreenCaptureService : Service() {
                                 }
                             }
                         }
-                    }, 5000)
+                    }, 9000)
                 } catch (e: Exception) {
                     Log.e("ScreenCaptureService", "Error forcing frame update: ${e.message}", e)
                     pendingScreenshot = false

@@ -1,13 +1,13 @@
 # Beta Privacy Policy Draft
 
-Beta helps users add requested grocery items to a supported grocery app cart.
+Beta helps users add requested grocery items to a supported grocery app cart, currently Blinkit, Swiggy Instamart, or Zepto.
 It stops before payment and requires the user to review the cart.
 
 ## Data Used
 
 - User order instructions.
 - Screen capture and AccessibilityService information from supported grocery
-  apps while an order is running.
+  apps, currently Blinkit, Swiggy Instamart, and Zepto, while an order is running.
 - Visible grocery app screen details that may include product names, prices,
   cart contents, buttons, and delivery details such as the user's name, precise delivery location, delivery address, locality, or delivery-area header text if those details are shown by the grocery app.
 - App version, build type, device model, Android version, and order result.

@@ -2510,11 +2510,26 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             description.contains("what", ignoreCase = true)
     }
 
-    private fun getOverlayDeflectionAdjustment(x: Int, y: Int): TapAdjustment {
+    private fun shouldSkipOverlayDeflection(recommendedAction: JSONObject, y: Int): Boolean {
+        val actionTarget = recommendedAction.optString("action_target", "")
+        val elementClass = recommendedAction.optJSONObject("element_selector")?.optString("class_name", "").orEmpty()
+        val isSearchFocus = actionTarget.equals("Focus search field", ignoreCase = true) ||
+            actionTarget.contains("focused search field", ignoreCase = true) ||
+            actionTarget.contains("product search", ignoreCase = true) ||
+            elementClass.contains("EditText", ignoreCase = true)
+        val topTapBand = (accessibilityService.resources.displayMetrics.heightPixels * 0.20f).toInt()
+        return isSearchFocus && y <= topTapBand
+    }
+
+    private fun getOverlayDeflectionAdjustment(x: Int, y: Int, recommendedAction: JSONObject? = null): TapAdjustment {
         var adjustedX = x
         var adjustedY = y
         var overlayDeflection = 0
         try {
+            if (recommendedAction != null && shouldSkipOverlayDeflection(recommendedAction, y)) {
+                Log.d(TAG, "Skipping overlay deflection for trusted top search-field tap at ($x, $y)")
+                return TapAdjustment(adjustedX, adjustedY, overlayDeflection)
+            }
             val app = accessibilityService.application as? MyApplication
             val screenService = app?.getScreenCaptureService()
             val overlayRect = screenService?.getOverlayRect()
@@ -3437,7 +3452,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 return false
             }
 
-            val overlayAdjustment = getOverlayDeflectionAdjustment(x, y)
+            val overlayAdjustment = getOverlayDeflectionAdjustment(x, y, recommendedAction)
             x = overlayAdjustment.x
             y = overlayAdjustment.y
             val overlayDeflection = overlayAdjustment.overlayDeflection
@@ -3712,7 +3727,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 return false
             }
 
-            val overlayAdjustment = getOverlayDeflectionAdjustment(x, y)
+            val overlayAdjustment = getOverlayDeflectionAdjustment(x, y, recommendedAction)
             x = overlayAdjustment.x
             y = overlayAdjustment.y
             val overlayDeflection = overlayAdjustment.overlayDeflection

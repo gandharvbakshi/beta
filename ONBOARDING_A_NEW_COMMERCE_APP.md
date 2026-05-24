@@ -66,6 +66,17 @@ Home/search surface before any product probe.
 Do not advance to single-item search until this gate passes on the target
 device.
 
+Clean-state preflight:
+
+- Before the first product probe, learn how to return the app to a clean
+  search-ready surface.
+- Record the safe path for dismissing promos, closing sheets, and clearing any
+  leftover cart state that the app exposes safely.
+- Keep the generic rule shared: never treat stale cart contents or pre-query
+  product rows as proof of the requested item.
+- Put the exact app-specific cues in the profile; do not hardcode them into the
+  shared onboarding checklist.
+
 Generic capture helper:
 
 - Use `scripts/onboard_commerce_app.ps1` for every new app before adding app
@@ -90,6 +101,10 @@ Zepto first-pass notes from the May 23, 2026 onboarding run:
 - Search entry exposes a focused `EditText` with `content-desc="Search"` and
   Back/Clear controls. Zepto can show product cards before a query is typed, so
   never treat pre-query ADD buttons as requested-item results.
+- Zepto live multi-item runs can leave stale previous-search rows on screen.
+  Do not treat visible product rows as current-query evidence unless the search
+  field/top query matches the requested item or the typing action was just
+  performed.
 - Search results expose UUID-paired `product-card-container...` and
   `product-card-add-button...` nodes. Match the container product summary to
   the requested item before tapping the paired ADD.
@@ -102,6 +117,17 @@ Zepto first-pass notes from the May 23, 2026 onboarding run:
   the first pass found usable content descriptions, UUID-paired card/add IDs,
   cart-row resource IDs, focused search state, bounds, and explicit
   payment-boundary text.
+- Zepto search should be treated as a ranking pipeline: recall first, then
+  relevance scoring, then final ranking. The top 2-3 results and the top fold
+  matter most; use hard negatives, small distilled rerankers, and continuous
+  `0..1` relevance labels when capturing or refining learned behavior.
+- Keep Zepto behavior knowledge app-scoped and always-learning for live user
+  runs: each confirmed live observation should update the profile/notes for
+  that app instead of being treated as a one-off exception.
+- Zepto non-voice typed/broadcast testing closed locally on May 24, 2026:
+  single item, same-card ADD selection, quantity/pack, preference/variant,
+  no-result continuation, and short soak all passed. Voice/input parity is the
+  only Zepto phase left outside that scope.
 
 ## 3) First-screen study
 

@@ -7,7 +7,7 @@ Last updated: 2026-05-22
 - Play app name: `Beta`
 - Package / application ID: `live.betaapp.android`
 - Android namespace and Kotlin package: `com.example.beta`
-- Core feature: user-started, cart-only grocery assistance for Blinkit and Swiggy Instamart.
+- Core feature: user-started, cart-only grocery assistance for Blinkit, Swiggy Instamart, and Zepto.
 - Hard boundary: Beta must stop before checkout and payment. It must not place orders or pay.
 
 ## Where To Look First
@@ -77,6 +77,8 @@ Do not claim Play Console changes were submitted unless credentials were verifie
 6. Regenerate the review video after the disclosure copy changes; the video must show the current disclosure text, consent path, Accessibility settings grant, decline path if requested, and one core cart-building flow.
 7. Upload a new build if the app disclosure changed.
 8. Resubmit from Play Console Publishing overview.
+
+Zepto support changes the advertised-app surface. Before resubmitting, make sure the Play listing, privacy policy, review assets, and smoke plan all name Blinkit, Swiggy Instamart, and Zepto consistently.
 
 ## Review Video Regeneration
 
