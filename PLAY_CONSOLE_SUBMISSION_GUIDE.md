@@ -11,13 +11,13 @@ This is the current owner-only checklist for getting `Beta` live on Google Play 
 - Android namespace: `com.example.beta`
 - Current release config: `versionCode 5`, `versionName 0.2.3`
 - Release backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
-- Local Play Publisher credentials exist, but no Beta upload keystore/signing Gradle properties were found in the repo or user Gradle properties.
-- The Play listing drafts for `en-US` and default locale `en-GB` should name Blinkit, Swiggy Instamart, and Zepto before resubmission. The API update was prepared but not committed because this Play API path would send changes for review automatically without `changesNotSentForReview=true`.
+- Local Play Publisher credentials and Beta upload signing files exist in ignored local files.
+- The Play listing drafts for `en-US` and default locale `en-GB` were updated through the Android Publisher API to name Blinkit, Swiggy Instamart, and Zepto.
 - The in-app prominent disclosure was updated.
 - The public privacy policy asset was updated.
 - The AccessibilityService review video was regenerated.
-- A local `0.2.3` release AAB was built at `app/build/outputs/bundle/release/app-release.aab`, but Play rejected upload because the bundle was not release-signed.
-- Open testing / API track `beta` previously had version code `4` assigned with status `completed`; the Zepto release should use version code `5` after a signed AAB is available.
+- A signed local `0.2.3` release AAB was built at `app/build/outputs/bundle/release/app-release.aab`.
+- Open testing / API track `beta` now has version code `5` assigned with status `completed`, release name `0.2.3 open testing`, and Zepto release notes.
 - The raw GitHub privacy-policy and review-video URLs were verified as publicly reachable.
 - Data Safety was not updated by API because there is no current Play Console CSV export/template in the repo.
 - The privacy-policy URL, Data Safety form, AccessibilityService declaration, foreground service / media projection declaration, and final send-for-review are still owner-only Play Console actions.
@@ -32,7 +32,7 @@ Do these in Play Console with the owner account:
 4. Complete the foreground service / media projection declaration.
 5. Open Publishing overview, review the pending changes, and click send changes for review.
 
-For the Zepto release, provide or configure the Beta upload signing key, then confirm version code `5`, the updated app list, and release notes before sending changes for review.
+For the Zepto release, confirm the committed Play changes in Play Console Publishing overview before final owner submission/review steps.
 
 ## URLs To Use
 
@@ -58,9 +58,9 @@ Do not use the old SMS Classifier URLs for Beta. Do not use the Beta GitHub Page
 
 ## What Codex Can Still Do
 
-- Build the signed `0.2.3` release AAB after the upload signing config is available.
-- Upload the signed `0.2.3` AAB to the open testing track through the Play Developer API if the service-account permissions still work.
-- Update localized store listing text through the Play Developer API only if committing the edit is acceptable, because this app now rejects `changesNotSentForReview=true` and says changes are sent for review automatically.
+- Build a future signed release AAB if the version changes.
+- Upload a future signed AAB to the open testing track through the Play Developer API if the service-account permissions still work.
+- Update localized store listing text through the Play Developer API if owner review timing is acceptable.
 - Write Data Safety through the Play Developer API only after you export/download a current Data Safety CSV/template from Play Console or Google and provide it in the repo.
 - Verify raw GitHub asset URLs.
 
@@ -170,7 +170,7 @@ Current Play API state:
 - Track: open testing first
 - Release name: `0.2.3 open testing`
 - Version code: `5`
-- Status: blocked on signed AAB / Play Console confirmation
+- Status: completed through Android Publisher API; confirm in Play Console Publishing overview
 
 Release notes:
 
