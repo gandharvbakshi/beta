@@ -31,8 +31,8 @@ android {
         applicationId = "live.betaapp.android"
         minSdk = 33
         targetSdk = 35
-        versionCode = configIntValue("BETA_VERSION_CODE", 5)
-        versionName = configValue("BETA_VERSION_NAME", "0.2.3")
+        versionCode = configIntValue("BETA_VERSION_CODE", 6)
+        versionName = configValue("BETA_VERSION_NAME", "0.2.4")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -127,7 +127,11 @@ val startLogcatCapture by tasks.registering(Exec::class) {
 }
 
 tasks.named("preBuild") {
-    dependsOn(startLogcatCapture)
+    val autoLogcat = providers.gradleProperty("BETA_AUTO_LOGCAT").orNull
+        ?: System.getenv("BETA_AUTO_LOGCAT")
+    if (autoLogcat.equals("true", ignoreCase = true)) {
+        dependsOn(startLogcatCapture)
+    }
 }
 
 dependencies {

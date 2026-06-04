@@ -142,7 +142,182 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     }
 
     private fun handleBlockingCommerceAppDialogs(): Boolean {
-        return handleZeptoPromotionalPopupIfActive()
+        return handleBlinkitLocationRecoveryIfActive() ||
+            handleZeptoPromotionalPopupIfActive()
+    }
+
+    fun recoverBlockingCommerceDialogs(): Boolean {
+        return handleBlockingCommerceAppDialogs()
+    }
+
+    fun backOutOfCheckoutBoundaryIfActive(): Boolean {
+        val blinkitRoots = allAvailableWindowRoots().filter { root ->
+            root.packageName?.toString() == BLINKIT_PACKAGE
+        }
+        if (!blinkitRoots.any { root -> isBlinkitCheckoutBoundary(root) }) return false
+
+        val backedOut = accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        if (backedOut) {
+            Log.i(TAG, "BLINKIT_CHECKOUT_BOUNDARY_BACK_OUT")
+            Thread.sleep(900)
+        } else {
+            Log.w(TAG, "Failed to back out of Blinkit checkout boundary")
+        }
+        return backedOut
+    }
+
+    private fun isBlinkitCheckoutBoundary(rootNode: AccessibilityNodeInfo): Boolean {
+        val hasPlaceOrder = containsTextOrDescription(
+            rootNode,
+            listOf("Place Order", "PAY USING", "Pay using", "Pay now", "Proceed to payment"),
+            NodeScanBudget(maxNodes = 260, maxDurationMs = 350)
+        )
+        if (hasPlaceOrder) return true
+
+        val hasCheckoutTitle = containsTextOrDescription(
+            rootNode,
+            listOf("Checkout"),
+            NodeScanBudget(maxNodes = 180, maxDurationMs = 250)
+        )
+        val hasTotal = containsTextOrDescription(
+            rootNode,
+            listOf("TOTAL"),
+            NodeScanBudget(maxNodes = 180, maxDurationMs = 250)
+        )
+        return hasCheckoutTitle && hasTotal
+    }
+
+    private fun handleBlinkitLocationRecoveryIfActive(): Boolean {
+        val blinkitRoots = allAvailableWindowRoots().filter { root ->
+            root.packageName?.toString() == BLINKIT_PACKAGE
+        }
+        if (blinkitRoots.isEmpty()) return false
+
+        val savedHomeHandled = blinkitRoots.any { root ->
+            handleBlinkitSavedHomeAddressSheet(root)
+        }
+        if (savedHomeHandled) return true
+
+        for (root in blinkitRoots) {
+            if (!containsTextOrDescription(
+                    root,
+                    listOf("Location permission not enabled"),
+                    NodeScanBudget(maxNodes = 160, maxDurationMs = 250)
+                )
+            ) {
+                continue
+            }
+
+            val manualNode = findNodeByTextOrDescription(
+                root,
+                "Select location manually",
+                NodeScanBudget(maxNodes = 160, maxDurationMs = 250)
+            ) ?: continue
+            val clickableManualNode = findClickableSelfOrAncestor(manualNode) ?: manualNode
+            val clicked = clickableManualNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            if (!clicked) {
+                Log.w(TAG, "Failed to open Blinkit manual location selector")
+                return false
+            }
+
+            Log.i(TAG, "BLINKIT_LOCATION_PERMISSION_PROMPT_SELECT_MANUAL")
+            Thread.sleep(1200)
+            val selectedHome = allAvailableWindowRoots()
+                .filter { it.packageName?.toString() == BLINKIT_PACKAGE }
+                .any { handleBlinkitSavedHomeAddressSheet(it) }
+            if (!selectedHome) {
+                Log.d(TAG, "Blinkit manual location selector opened; saved Home row not visible yet")
+            }
+            return true
+        }
+
+        return false
+    }
+
+    private fun handleBlinkitSavedHomeAddressSheet(rootNode: AccessibilityNodeInfo): Boolean {
+        if (!containsTextOrDescription(
+                rootNode,
+                listOf("Select delivery location", "Your saved addresses"),
+                NodeScanBudget(maxNodes = 220, maxDurationMs = 300)
+            )
+        ) {
+            return false
+        }
+
+        val homeNode = findNodeByResourceId(
+            rootNode,
+            "com.grofers.customerapp:id/location_title",
+            NodeScanBudget(maxNodes = 220, maxDurationMs = 300)
+        )?.takeIf {
+            it.text?.toString()?.equals("Home", ignoreCase = true) == true
+        } ?: findNodeByExactText(
+            rootNode,
+            "Home",
+            NodeScanBudget(maxNodes = 220, maxDurationMs = 300)
+        ) ?: return false
+
+        val clickableHomeNode = findClickableSelfOrAncestor(homeNode) ?: homeNode
+        val clicked = clickableHomeNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        if (!clicked) {
+            Log.w(TAG, "Failed to select Blinkit saved Home address")
+            return false
+        }
+
+        Log.i(TAG, "BLINKIT_SAVED_HOME_ADDRESS_SELECTED")
+        Thread.sleep(1800)
+        return true
+    }
+
+    private fun containsTextOrDescription(
+        node: AccessibilityNodeInfo?,
+        needles: List<String>,
+        budget: NodeScanBudget
+    ): Boolean {
+        if (node == null || !budget.markVisited()) return false
+
+        val text = node.text?.toString().orEmpty()
+        val description = node.contentDescription?.toString().orEmpty()
+        if (needles.any { needle ->
+                text.contains(needle, ignoreCase = true) ||
+                    description.contains(needle, ignoreCase = true)
+            }
+        ) {
+            return true
+        }
+
+        for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
+            val child = node.getChild(i) ?: continue
+            if (containsTextOrDescription(child, needles, budget)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun findNodeByTextOrDescription(
+        node: AccessibilityNodeInfo?,
+        needle: String,
+        budget: NodeScanBudget
+    ): AccessibilityNodeInfo? {
+        if (node == null || !budget.markVisited()) return null
+
+        val text = node.text?.toString().orEmpty()
+        val description = node.contentDescription?.toString().orEmpty()
+        if (
+            text.contains(needle, ignoreCase = true) ||
+            description.contains(needle, ignoreCase = true)
+        ) {
+            return node
+        }
+
+        for (i in 0 until node.childCount) {
+            if (budget.shouldStop()) break
+            val child = node.getChild(i) ?: continue
+            val result = findNodeByTextOrDescription(child, needle, budget)
+            if (result != null) return result
+        }
+        return null
     }
 
     private fun handleRuntimePermissionDialogByDenying(): Boolean {

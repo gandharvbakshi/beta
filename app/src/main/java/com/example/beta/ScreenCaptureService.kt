@@ -491,6 +491,13 @@ class ScreenCaptureService : Service() {
                 return START_STICKY
             }
 
+            if (intent?.action == ACTION_STOP_CAPTURE) {
+                Log.d("ScreenCaptureService", "Stop capture action received")
+                stopCapture()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+
             // If intent is null and service is already running, just continue
             if (intent == null) {
                 if (isCapturing) {

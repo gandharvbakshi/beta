@@ -181,6 +181,13 @@ object BackendProcessing {
             ?.endSession(reason)
     }
 
+    private fun backOutOfCheckoutBoundaryIfActive(context: Context) {
+        if (!ensureActionExecutor(context)) return
+        if (actionExecutor?.backOutOfCheckoutBoundaryIfActive() == true) {
+            Log.i(TAG, "CHECKOUT_BOUNDARY_BACKED_OUT_AFTER_VERIFICATION")
+        }
+    }
+
     private fun statusForAction(actionType: String, actionTarget: String, step: Int, max: Int): String {
         val target = actionTarget.lowercase()
         val phase = when {
@@ -734,6 +741,16 @@ object BackendProcessing {
         
         // Initialize action executor if accessibility service is available
         ensureActionExecutor(context, accessibilityService)
+
+        if (requestWasSequenced && actionExecutor?.recoverBlockingCommerceDialogs() == true) {
+            Log.i(TAG, "BLOCKING_COMMERCE_DIALOG_RECOVERED_BEFORE_BACKEND")
+            updateFlowStatus(context, "Reading screen")
+            clearRequestInFlight(requestGeneration)
+            Handler(Looper.getMainLooper()).postDelayed({
+                triggerNextAction()
+            }, 800)
+            return
+        }
         
         // If this is part of an action sequence, increment action number
         var requestActionNumber = currentActionNumber
@@ -1085,6 +1102,7 @@ object BackendProcessing {
                                     qtyAdded = currentQtyRequested,
                                     notes = completedNotes
                                 )
+                                backOutOfCheckoutBoundaryIfActive(context)
                                 endScreenCaptureSession(context, "Completed")
                                 requestInFlight = false
                                 return@let
@@ -1253,6 +1271,7 @@ object BackendProcessing {
                                             notes = "checkout_boundary"
                                         )
                                         requestInFlight = false
+                                        backOutOfCheckoutBoundaryIfActive(context)
                                         endScreenCaptureSession(context, "Checkout boundary")
                                         stopActionSequence()
                                         hasEmittedItemOutcome = true
@@ -1663,6 +1682,7 @@ object BackendProcessing {
             }
             
             // End session successfully
+            backOutOfCheckoutBoundaryIfActive(context)
             endScreenCaptureSession(context, "Verification successful")
             stopActionSequence()
             return

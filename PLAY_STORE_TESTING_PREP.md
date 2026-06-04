@@ -27,11 +27,22 @@ account and existing Google Cloud account.
 Example release bundle:
 
 ```powershell
+$props = ConvertFrom-StringData (Get-Content -Raw -LiteralPath key.properties)
 $env:BETA_BACKEND_RELEASE_URL = "https://beta-backend-staging-kvuem5t7mq-el.a.run.app"
 $env:BETA_BACKEND_API_KEY = "<same value as Secret Manager BETA_BACKEND_API_KEY>"
 $env:BETA_FEEDBACK_API_KEY = "<same value as Secret Manager BETA_FEEDBACK_API_KEY>"
-.\gradlew.bat bundleRelease
+$env:BETA_RELEASE_STORE_PASSWORD = $props.BETA_RELEASE_STORE_PASSWORD
+$env:BETA_RELEASE_KEY_ALIAS = $props.BETA_RELEASE_KEY_ALIAS
+$env:BETA_RELEASE_KEY_PASSWORD = $props.BETA_RELEASE_KEY_PASSWORD
+$storePath = (Resolve-Path -LiteralPath $props.BETA_RELEASE_STORE_FILE).Path
+.\gradlew.bat --no-daemon "-PBETA_RELEASE_STORE_FILE=$storePath" :app:bundleRelease
 ```
+
+`BETA_RELEASE_STORE_FILE` must be absolute or relative to `app/`, because the
+Android Gradle plugin resolves `storeFile = file(...)` from the app module.
+Normal Gradle builds do not auto-start logcat capture. Set
+`BETA_AUTO_LOGCAT=true` only when a build should start
+`scripts/start-logcat-capture.ps1`.
 
 ## Policy Checklist
 

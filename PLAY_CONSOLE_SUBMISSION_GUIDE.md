@@ -1,6 +1,6 @@
 # Beta Play Store Go-Live Tasks
 
-Last updated: 2026-05-23
+Last updated: 2026-06-04
 
 This is the current owner-only checklist for getting `Beta` live on Google Play after the AccessibilityService rejection. API-doable build/listing/release tasks are separated from actions that require Play Console owner review or policy attestation.
 
@@ -9,15 +9,15 @@ This is the current owner-only checklist for getting `Beta` live on Google Play 
 - App name: `Beta`
 - Package / application ID: `live.betaapp.android`
 - Android namespace: `com.example.beta`
-- Current release config: `versionCode 5`, `versionName 0.2.3`
+- Current release config: `versionCode 6`, `versionName 0.2.4`
 - Release backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
 - Local Play Publisher credentials and Beta upload signing files exist in ignored local files.
 - The Play listing drafts for `en-US` and default locale `en-GB` were updated through the Android Publisher API to name Blinkit, Swiggy Instamart, and Zepto.
 - The in-app prominent disclosure was updated.
 - The public privacy policy asset was updated.
 - The AccessibilityService review video was regenerated.
-- A signed local `0.2.3` release AAB was built at `app/build/outputs/bundle/release/app-release.aab`.
-- Open testing / API track `beta` now has version code `5` assigned with status `completed`, release name `0.2.3 open testing`, and Zepto release notes.
+- A signed local `0.2.4` release AAB was built at `app/build/outputs/bundle/release/app-release.aab`.
+- Open testing / API track `beta` now has version code `6` assigned with status `completed`, release name `0.2.4 open testing`, and Blinkit recovery / checkout safety / overlay stop release notes.
 - The raw GitHub privacy-policy and review-video URLs were verified as publicly reachable.
 - Data Safety was not updated by API because there is no current Play Console CSV export/template in the repo.
 - The privacy-policy URL, Data Safety form, AccessibilityService declaration, foreground service / media projection declaration, and final send-for-review are still owner-only Play Console actions.
@@ -63,6 +63,16 @@ Do not use the old SMS Classifier URLs for Beta. Do not use the Beta GitHub Page
 - Update localized store listing text through the Play Developer API if owner review timing is acceptable.
 - Write Data Safety through the Play Developer API only after you export/download a current Data Safety CSV/template from Play Console or Google and provide it in the repo.
 - Verify raw GitHub asset URLs.
+
+## API Upload Notes
+
+- Current Play package: `live.betaapp.android`.
+- Current open-testing track name in the Android Publisher API: `beta`.
+- Query current Play versions by creating a temporary edit, reading `edits.tracks.list`, and deleting the edit without committing it.
+- Upload AABs through `edits.bundles.upload`, then update `edits.tracks.update` for `beta`, then commit the edit.
+- The 2026-06-04 upload returned `uploaded_bundle_version_code=6` and committed edit `15314746252293635489`.
+- Normal Gradle builds no longer start logcat capture by default. Set `BETA_AUTO_LOGCAT=true` only when a build should launch `scripts/start-logcat-capture.ps1`.
+- For signed release builds, pass `BETA_RELEASE_STORE_FILE` as an absolute path or a path relative to `app/`; Gradle resolves the signing file from the app module.
 
 ## Play Console Owner Steps
 
