@@ -9,15 +9,15 @@ This is the current owner-only checklist for getting `Beta` live on Google Play 
 - App name: `Beta`
 - Package / application ID: `live.betaapp.android`
 - Android namespace: `com.example.beta`
-- Current release config: `versionCode 6`, `versionName 0.2.4`
+- Current release config: `versionCode 7`, `versionName 0.2.5`
 - Release backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
 - Local Play Publisher credentials and Beta upload signing files exist in ignored local files.
 - The Play listing drafts for `en-US` and default locale `en-GB` were updated through the Android Publisher API to name Blinkit, Swiggy Instamart, and Zepto.
 - The in-app prominent disclosure was updated.
 - The public privacy policy asset was updated.
 - The AccessibilityService review video was regenerated.
-- A signed local `0.2.4` release AAB was built at `app/build/outputs/bundle/release/app-release.aab`.
-- Open testing / API track `beta` now has version code `6` assigned with status `completed`, release name `0.2.4 open testing`, and Blinkit recovery / checkout safety / overlay stop release notes.
+- A signed local `0.2.5` release AAB was built at `app/build/outputs/bundle/release/app-release.aab`.
+- Open testing / API track `beta` now has version code `7` assigned with status `completed`, release name `0.2.5 open testing`, and overlay recovery / Blinkit recovery release notes.
 - The raw GitHub privacy-policy and review-video URLs were verified as publicly reachable.
 - Data Safety was not updated by API because there is no current Play Console CSV export/template in the repo.
 - The privacy-policy URL, Data Safety form, AccessibilityService declaration, foreground service / media projection declaration, and final send-for-review are still owner-only Play Console actions.
@@ -70,7 +70,8 @@ Do not use the old SMS Classifier URLs for Beta. Do not use the Beta GitHub Page
 - Current open-testing track name in the Android Publisher API: `beta`.
 - Query current Play versions by creating a temporary edit, reading `edits.tracks.list`, and deleting the edit without committing it.
 - Upload AABs through `edits.bundles.upload`, then update `edits.tracks.update` for `beta`, then commit the edit.
-- The 2026-06-04 upload returned `uploaded_bundle_version_code=6` and committed edit `15314746252293635489`.
+- The 2026-06-04 `0.2.4` upload returned `uploaded_bundle_version_code=6` and committed edit `15314746252293635489`.
+- The 2026-06-04 `0.2.5` upload returned `uploaded_bundle_version_code=7` and committed edit `07289748393267164803`.
 - Normal Gradle builds no longer start logcat capture by default. Set `BETA_AUTO_LOGCAT=true` only when a build should launch `scripts/start-logcat-capture.ps1`.
 - For signed release builds, pass `BETA_RELEASE_STORE_FILE` as an absolute path or a path relative to `app/`; Gradle resolves the signing file from the app module.
 
@@ -178,14 +179,14 @@ Because the in-app disclosure changed after the earlier Play rejection, confirm 
 Current Play API state:
 
 - Track: open testing first
-- Release name: `0.2.3 open testing`
-- Version code: `5`
+- Release name: `0.2.5 open testing`
+- Version code: `7`
 - Status: completed through Android Publisher API; confirm in Play Console Publishing overview
 
 Release notes:
 
 ```text
-Adds Zepto as a supported cart-only grocery app alongside Blinkit and Swiggy Instamart. Improves Zepto search, same-card ADD targeting, quantity handling, no-result continuation, and screen-capture recovery while keeping Beta stopped before checkout/payment.
+Fixes Beta overlay recovery after automated Blinkit flows, so the helper control returns once automation is idle. Includes the Blinkit recovery, checkout safety, and overlay stop fixes from the prior open-testing build.
 ```
 
 ### 7. Send Changes For Review

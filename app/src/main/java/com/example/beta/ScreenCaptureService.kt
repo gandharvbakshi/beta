@@ -2087,9 +2087,9 @@ class ScreenCaptureService : Service() {
         if (!::overlayView.isInitialized) return
         overlayView.post {
             try {
+                val sequenceActive = releaseAutomationOverlaySuppressionIfIdle()
                 val touchable = status.state == OverlayState.READY &&
-                    !BackendProcessing.isSequenceActive() &&
-                    !isActionSequenceActive
+                    !sequenceActive
                 updateOverlayTouchability(
                     touchable = touchable
                 )
@@ -2109,6 +2109,15 @@ class ScreenCaptureService : Service() {
                 Log.e("ScreenCaptureService", "Error updating overlay state: ${e.message}", e)
             }
         }
+    }
+
+    private fun releaseAutomationOverlaySuppressionIfIdle(): Boolean {
+        val sequenceActive = BackendProcessing.isSequenceActive() || isActionSequenceActive
+        if (automationOverlaySuppressed && !sequenceActive) {
+            automationOverlaySuppressed = false
+            Log.d("ScreenCaptureService", "Automation overlay suppression released after sequence idle")
+        }
+        return sequenceActive
     }
 
     private fun updateOverlayTouchability(touchable: Boolean) {
@@ -2269,13 +2278,14 @@ class ScreenCaptureService : Service() {
             if (::overlayView.isInitialized) {
                 overlayView.post {
                     try {
+                        val sequenceActive = releaseAutomationOverlaySuppressionIfIdle()
                         updateOverlayTouchability(
-                            touchable = !BackendProcessing.isSequenceActive() && !isActionSequenceActive
+                            touchable = !sequenceActive
                         )
                         overlayView.visibility = if (automationOverlaySuppressed) View.GONE else View.VISIBLE
                         Log.d("ScreenCaptureService", "Emulator overlay visibility restored to ${overlayView.visibility}")
 
-                        if (BackendProcessing.isSequenceActive()) {
+                        if (sequenceActive) {
                             Log.d("ScreenCaptureService", "Sequence active; preserving current emulator overlay status")
                             return@post
                         }
@@ -2312,13 +2322,14 @@ class ScreenCaptureService : Service() {
         overlayView.post {
             try {
                 if (::overlayView.isInitialized) {
+                    val sequenceActive = releaseAutomationOverlaySuppressionIfIdle()
                     updateOverlayTouchability(
-                        touchable = !BackendProcessing.isSequenceActive() && !isActionSequenceActive
+                        touchable = !sequenceActive
                     )
                     overlayView.visibility = if (automationOverlaySuppressed) View.GONE else View.VISIBLE
                     Log.d("ScreenCaptureService", "Overlay visibility restored to ${overlayView.visibility}")
 
-                    if (BackendProcessing.isSequenceActive()) {
+                    if (sequenceActive) {
                         Log.d("ScreenCaptureService", "Sequence active; preserving current overlay status")
                         return@post
                     }
