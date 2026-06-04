@@ -19,7 +19,13 @@ android {
         return configValue(name, fallback.toString()).toIntOrNull() ?: fallback
     }
 
+    fun buildConfigString(value: String): String {
+        return "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+    }
+
     val hostedBackendDefault = "https://beta-backend-staging-kvuem5t7mq-el.a.run.app"
+    val feedbackApiKey = optionalConfigValue("BETA_FEEDBACK_API_KEY")
+    val backendApiKey = optionalConfigValue("BETA_BACKEND_API_KEY").ifBlank { feedbackApiKey }
 
     defaultConfig {
         applicationId = "live.betaapp.android"
@@ -56,7 +62,8 @@ android {
                 "BETA_BACKEND_BASE_URL",
                 "\"${configValue("BETA_BACKEND_DEBUG_URL", configValue("BETA_BACKEND_RELEASE_URL", hostedBackendDefault))}\""
             )
-            buildConfigField("String", "BETA_FEEDBACK_API_KEY", "\"${optionalConfigValue("BETA_FEEDBACK_API_KEY")}\"")
+            buildConfigField("String", "BETA_FEEDBACK_API_KEY", buildConfigString(feedbackApiKey))
+            buildConfigField("String", "BETA_BACKEND_API_KEY", buildConfigString(backendApiKey))
             buildConfigField("boolean", "REQUIRE_AUTOMATION_DISCLOSURE", "false")
         }
         release {
@@ -66,7 +73,8 @@ android {
                 "BETA_BACKEND_BASE_URL",
                 "\"${configValue("BETA_BACKEND_RELEASE_URL", hostedBackendDefault)}\""
             )
-            buildConfigField("String", "BETA_FEEDBACK_API_KEY", "\"${optionalConfigValue("BETA_FEEDBACK_API_KEY")}\"")
+            buildConfigField("String", "BETA_FEEDBACK_API_KEY", buildConfigString(feedbackApiKey))
+            buildConfigField("String", "BETA_BACKEND_API_KEY", buildConfigString(backendApiKey))
             buildConfigField("boolean", "REQUIRE_AUTOMATION_DISCLOSURE", "true")
             signingConfigs.findByName("release")?.let {
                 signingConfig = it

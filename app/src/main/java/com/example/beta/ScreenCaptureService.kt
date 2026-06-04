@@ -56,6 +56,7 @@ class ScreenCaptureService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var overlayView: View
     private lateinit var layoutParams: WindowManager.LayoutParams
+    private var automationOverlaySuppressed = false
     
     // Input overlay variables
     private var inputOverlayView: View? = null
@@ -395,15 +396,34 @@ class ScreenCaptureService : Service() {
             if (intent?.action != ACTION_SUBMIT_AUTOMATION_INSTRUCTION) {
                 return
             }
+            handleAutomationInstructionIntent(intent, "broadcast")
+        }
+    }
 
-            val instruction = intent.getStringExtra("instruction")?.trim().orEmpty()
-            if (instruction.isBlank()) {
-                Log.w("ScreenCaptureService", "Automation instruction broadcast had no instruction")
+    private fun handleAutomationInstructionIntent(intent: Intent, source: String) {
+        val instruction = intent.getStringExtra("instruction")?.trim().orEmpty()
+        if (instruction.isBlank()) {
+            Log.w("ScreenCaptureService", "Automation instruction $source had no instruction")
+            return
+        }
+
+        Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
+        if (intent.getBooleanExtra(CommerceAppLauncher.EXTRA_LAUNCH_PREFERRED_COMMERCE_APP, false)) {
+            val launchResult = CommerceAppLauncher.launchPreferred(this)
+            if (!launchResult.launched) {
+                Toast.makeText(this, launchResult.message, Toast.LENGTH_LONG).show()
+                Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_COMMERCE_APP: $instruction")
                 return
             }
-            Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
-            submitInstruction(instruction)
+
+            Toast.makeText(this, launchResult.message, Toast.LENGTH_SHORT).show()
+            Handler(Looper.getMainLooper()).postDelayed({
+                submitAutomationInstruction(instruction)
+            }, CommerceAppLauncher.LAUNCH_SETTLE_DELAY_MS)
+            return
         }
+
+        submitAutomationInstruction(instruction)
     }
 
     private fun registerAutomationInstructionReceiver() {
@@ -462,13 +482,7 @@ class ScreenCaptureService : Service() {
         
         try {
             if (intent?.action == ACTION_SUBMIT_AUTOMATION_INSTRUCTION) {
-                val instruction = intent.getStringExtra("instruction")?.trim().orEmpty()
-                if (instruction.isBlank()) {
-                    Log.w("ScreenCaptureService", "Automation instruction service command had no instruction")
-                } else {
-                    Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
-                    submitInstruction(instruction)
-                }
+                handleAutomationInstructionIntent(intent, "service command")
                 return START_STICKY
             }
 
@@ -1479,6 +1493,7 @@ class ScreenCaptureService : Service() {
             
             try {
                 windowManager.addView(overlayView, layoutParams)
+                automationOverlaySuppressed = false
                 setOverlayState(OverlayState.READY)
                 Log.d("ScreenCaptureService", "Emulator overlay window created successfully")
             } catch (e: Exception) {
@@ -1549,6 +1564,7 @@ class ScreenCaptureService : Service() {
             
             try {
                 windowManager.addView(overlayView, layoutParams)
+                automationOverlaySuppressed = false
                 setOverlayState(OverlayState.READY)
                 Log.d("ScreenCaptureService", "Overlay window created successfully")
             } catch (e: Exception) {
@@ -2080,7 +2096,7 @@ class ScreenCaptureService : Service() {
                 }
                 overlayText.text = status.label
                 overlayDot.setBackgroundResource(dot)
-                overlayView.visibility = if (touchable) View.VISIBLE else View.GONE
+                overlayView.visibility = if (automationOverlaySuppressed) View.GONE else View.VISIBLE
                 Log.d("ScreenCaptureService", "Overlay status updated to: ${status.label}")
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error updating overlay state: ${e.message}", e)
@@ -2171,7 +2187,8 @@ class ScreenCaptureService : Service() {
             normalized.contains("store_unavailable") -> OverlayStatus("Store unavailable", OverlayState.WORKING)
             normalized.startsWith("state:") -> OverlayStatus(getString(R.string.overlay_status_working), OverlayState.WORKING)
             normalized.startsWith("paused") -> OverlayStatus("Check cart", OverlayState.WORKING)
-            normalized.startsWith("stopped") -> OverlayStatus("Stopped", OverlayState.WORKING)
+            normalized.startsWith("stopped") && normalized.contains("backend") -> OverlayStatus("Backend unavailable", OverlayState.READY)
+            normalized.startsWith("stopped") -> OverlayStatus("Stopped", OverlayState.READY)
             else -> null
         }
     }
@@ -2214,7 +2231,7 @@ class ScreenCaptureService : Service() {
                 val overlayDot = overlayView.findViewById<View>(R.id.overlay_dot)
                 overlayText.text = text
                 overlayDot?.setBackgroundResource(R.drawable.beta_dot_amber)
-                overlayView.visibility = View.GONE
+                overlayView.visibility = if (automationOverlaySuppressed) View.GONE else View.VISIBLE
                 Log.d("ScreenCaptureService", "Overlay text updated to: $text")
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error updating overlay text: ${e.message}", e)
@@ -2248,11 +2265,7 @@ class ScreenCaptureService : Service() {
                         updateOverlayTouchability(
                             touchable = !BackendProcessing.isSequenceActive() && !isActionSequenceActive
                         )
-                        overlayView.visibility = if (BackendProcessing.isSequenceActive() || isActionSequenceActive) {
-                            View.GONE
-                        } else {
-                            View.VISIBLE
-                        }
+                        overlayView.visibility = if (automationOverlaySuppressed) View.GONE else View.VISIBLE
                         Log.d("ScreenCaptureService", "Emulator overlay visibility restored to ${overlayView.visibility}")
 
                         if (BackendProcessing.isSequenceActive()) {
@@ -2295,11 +2308,7 @@ class ScreenCaptureService : Service() {
                     updateOverlayTouchability(
                         touchable = !BackendProcessing.isSequenceActive() && !isActionSequenceActive
                     )
-                    overlayView.visibility = if (BackendProcessing.isSequenceActive() || isActionSequenceActive) {
-                        View.GONE
-                    } else {
-                        View.VISIBLE
-                    }
+                    overlayView.visibility = if (automationOverlaySuppressed) View.GONE else View.VISIBLE
                     Log.d("ScreenCaptureService", "Overlay visibility restored to ${overlayView.visibility}")
 
                     if (BackendProcessing.isSequenceActive()) {
@@ -2860,6 +2869,7 @@ class ScreenCaptureService : Service() {
                 overlayView.post {
                     try {
                         overlayView.isClickable = false
+                        automationOverlaySuppressed = true
                         overlayView.visibility = View.GONE
                         if (::windowManager.isInitialized && ::layoutParams.isInitialized) {
                             layoutParams.flags = layoutParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE

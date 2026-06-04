@@ -2,6 +2,7 @@ package com.example.beta
 
 object AppConfig {
     val backendBaseUrl: String = BuildConfig.BETA_BACKEND_BASE_URL.trim().trimEnd('/')
+    val backendApiKey: String = BuildConfig.BETA_BACKEND_API_KEY.trim()
 
     val analyzeScreenshotUrl: String
         get() = "$backendBaseUrl/analyze-screenshot"

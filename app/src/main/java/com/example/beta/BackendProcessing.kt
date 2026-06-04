@@ -29,6 +29,8 @@ import android.content.IntentFilter
 import android.content.Intent
 import android.graphics.Rect
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import com.example.beta.automation.ParsedItem
@@ -865,6 +867,11 @@ object BackendProcessing {
             val request = Request.Builder()
                 .url(AppConfig.analyzeScreenshotUrl)
                 .post(requestBody)
+                .apply {
+                    if (AppConfig.backendApiKey.isNotEmpty()) {
+                        header("x-beta-backend-key", AppConfig.backendApiKey)
+                    }
+                }
                 .build()
 
             client.newCall(request).enqueue(object : Callback {
@@ -895,9 +902,27 @@ object BackendProcessing {
                         return
                     }
                     if (!response.isSuccessful) {
-                        Log.e("UploadResponse", "Unexpected response: $response")
+                        val statusCode = response.code
+                        val errorBodyPreview = try {
+                            response.body?.string()?.take(300)
+                        } catch (e: Exception) {
+                            "Could not read error body: ${e.message}"
+                        }
+                        Log.e(
+                            "UploadResponse",
+                            "Unexpected response: code=${response.code} message=${response.message} " +
+                                "url=${response.request.url} body=${errorBodyPreview.orEmpty()}"
+                        )
+                        response.close()
                         clearRequestInFlight(requestGeneration)
-                        updateFlowStatus(context, "Stopped - backend error")
+                        Handler(Looper.getMainLooper()).post {
+                            handleBackendError(
+                                context,
+                                "backend $statusCode",
+                                errorBodyPreview.orEmpty(),
+                                sessionContext
+                            )
+                        }
                         // buttonHighlightService?.clearHighlight() - service removed
                         return
                     }

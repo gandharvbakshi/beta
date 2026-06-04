@@ -5,9 +5,16 @@
     <string name="main_title">Hi. Let\'s make grocery ordering easier.</string>
     <string name="main_subtitle">Tell Beta what you need. It can help you build the cart, and you decide when to pay.</string>
     <string name="main_primary_action">Get started</string>
+    <string name="main_primary_action_ready">Beta is ready</string>
     <string name="main_primary_action_description">Set up Beta so it can help you order</string>
     <string name="main_primary_note">Takes about two minutes. We\'ll walk you through it.</string>
+    <string name="main_primary_note_capture_prompt">On the Android screen, choose Entire screen, then tap Next.</string>
+    <string name="main_primary_note_ready">Beta is ready. Tap the floating helper or use Speak your order below.</string>
     <string name="main_status_ready">Ready to start</string>
+    <string name="main_status_starting">Starting setup</string>
+    <string name="main_status_capture_prompt">Choose Entire screen</string>
+    <string name="main_status_active">Beta is ready</string>
+    <string name="main_status_permission_needed">Permission needed</string>
     <string name="setup_heading">A few quick permissions</string>
     <string name="setup_accessibility">Let Beta read the grocery app\'s screen.</string>
     <string name="setup_overlay">Let Beta show its helper on top.</string>

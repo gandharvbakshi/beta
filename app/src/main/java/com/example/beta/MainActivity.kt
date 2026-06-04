@@ -17,6 +17,7 @@ import android.util.Log
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
@@ -29,6 +30,8 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
 
     private lateinit var captureScreenButton: Button
+    private lateinit var agentStatusText: TextView
+    private lateinit var primaryNoteText: TextView
     private lateinit var textRecognitionButton: Button
     private lateinit var voiceOrderButton: Button
     private lateinit var feedbackMessageInput: EditText
@@ -74,6 +77,8 @@ class MainActivity : ComponentActivity() {
 
         // Initialize UI elements
         captureScreenButton = findViewById(R.id.captureScreenButton)
+        agentStatusText = findViewById(R.id.text_agent_status)
+        primaryNoteText = findViewById(R.id.mainPrimaryNote)
         textRecognitionButton = findViewById(R.id.textRecognitionButton)
         voiceOrderButton = findViewById(R.id.voiceOrderButton)
         feedbackMessageInput = findViewById(R.id.feedbackMessageInput)
@@ -136,10 +141,20 @@ class MainActivity : ComponentActivity() {
                 // OverlayInputService removed - not available in current version
 
                 isCapturing = true
+                updateSetupStatus(
+                    statusRes = R.string.main_status_active,
+                    noteRes = R.string.main_primary_note_ready,
+                    actionRes = R.string.main_primary_action_ready
+                )
             } else {
                 Log.e("MainActivity", "Media projection failed")
                 Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
                 isCapturing = false
+                updateSetupStatus(
+                    statusRes = R.string.main_status_permission_needed,
+                    noteRes = R.string.main_primary_note,
+                    actionRes = R.string.main_primary_action
+                )
             }
         }
 
@@ -282,6 +297,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkPermissionsAndStartCapture() {
+        updateSetupStatus(
+            statusRes = R.string.main_status_starting,
+            noteRes = R.string.main_primary_note
+        )
         /*Log.d("MainActivity", "checkPermissionsAndStartCapture: Checking storage permission")
         // Check for storage permissions, request if not granted.
         if (ContextCompat.checkSelfPermission(
@@ -382,6 +401,10 @@ class MainActivity : ComponentActivity() {
         Log.d("MainActivity", "checkOverlayPermissionAndStartCapture: Checking overlay permission")
         // Check for overlay permission
         if (!Settings.canDrawOverlays(this)) {
+            updateSetupStatus(
+                statusRes = R.string.main_status_permission_needed,
+                noteRes = R.string.setup_overlay_body
+            )
             // Request overlay permission
             val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -400,6 +423,10 @@ class MainActivity : ComponentActivity() {
 
     private fun startMediaProjection() {
         Log.d("MainActivity", "startMediaProjection: Starting media projection")
+        updateSetupStatus(
+            statusRes = R.string.main_status_capture_prompt,
+            noteRes = R.string.main_primary_note_capture_prompt
+        )
         val projectionIntent = mediaProjectionManager.createScreenCaptureIntent()  // No need for safe call
         screenCaptureResult.launch(projectionIntent)  // Only responsible for starting projection
 
@@ -424,6 +451,19 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
             }
         }*/
+    }
+
+    private fun updateSetupStatus(statusRes: Int, noteRes: Int, actionRes: Int? = null) {
+        if (::agentStatusText.isInitialized) {
+            agentStatusText.setText(statusRes)
+            agentStatusText.contentDescription = getString(statusRes)
+        }
+        if (::primaryNoteText.isInitialized) {
+            primaryNoteText.setText(noteRes)
+        }
+        if (actionRes != null && ::captureScreenButton.isInitialized) {
+            captureScreenButton.setText(actionRes)
+        }
     }
 
     override fun onRequestPermissionsResult(
