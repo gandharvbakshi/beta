@@ -425,6 +425,14 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
             // Add a small delay to ensure UI is stable
             Thread.sleep(500)
+
+            if (!actionTarget.contains("search", ignoreCase = true) &&
+                requiresCommerceForegroundForAction(actionType, recommendedAction) &&
+                !isCommerceForeground() &&
+                !waitForSupportedCommerceForeground(900)
+            ) {
+                return pauseSequenceForForegroundLoss(actionType, recommendedAction)
+            }
             
             val firstAttempt = when (actionType.lowercase()) {
                 "click" -> performClick(recommendedAction)
@@ -1232,18 +1240,58 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         if (waitForSupportedCommerceForeground(2500)) {
             return true
         }
-        try {
-            accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-            Thread.sleep(700)
-        } catch (e: Exception) {
-            Log.w(TAG, "Back navigation before search action failed: ${e.message}")
-        }
-        if (waitForSupportedCommerceForeground(1500)) {
-            return true
+
+        return pauseSequenceForForegroundLoss("search", recommendedAction)
+    }
+
+    private fun requiresCommerceForegroundForAction(actionType: String, recommendedAction: JSONObject): Boolean {
+        val normalizedType = actionType.lowercase()
+        if (normalizedType !in setOf("click", "type", "scroll", "swipe", "long_press", "double_tap")) {
+            return false
         }
 
-        val launchPackage = intendedCommercePackageForAction(recommendedAction) ?: return false
-        return relaunchCommercePackage(launchPackage)
+        val actionContext = listOf(
+            recommendedAction.optString("action_target", ""),
+            recommendedAction.optString("reasoning", ""),
+            recommendedAction.optString("app_name", ""),
+            recommendedAction.optString("text", ""),
+            recommendedAction.optString("content_description", ""),
+            recommendedAction.optString("resource_id", "")
+        ).joinToString(" ").lowercase()
+        if (actionContext.isBlank()) {
+            return false
+        }
+
+        val commercePackageMentioned = SUPPORTED_COMMERCE_PACKAGES.any { packageName ->
+            packageName.lowercase() in actionContext
+        }
+        val commerceKeywordMentioned = listOf(
+            "blinkit",
+            "grofers",
+            "swiggy",
+            "instamart",
+            "zepto",
+            "grocery",
+            "search",
+            "cart",
+            "add",
+            "product",
+            "checkout",
+            "results"
+        ).any { keyword -> keyword in actionContext }
+        return commercePackageMentioned || commerceKeywordMentioned
+    }
+
+    private fun pauseSequenceForForegroundLoss(actionType: String, recommendedAction: JSONObject): Boolean {
+        val activePackage = activeRootPackage().orEmpty()
+        val visiblePackages = visibleWindowPackages().distinct().joinToString(",").ifBlank { "<none>" }
+        val target = recommendedAction.optString("action_target", "")
+        Log.w(TAG, "Pausing action '$actionType' for '$target' because no supported commerce app is foreground; active='$activePackage', visible=$visiblePackages")
+        BackendProcessing.pauseActionSequenceForUserInterruption(
+            accessibilityService.applicationContext,
+            "foreground_lost action=$actionType target='$target' active='$activePackage' visible='$visiblePackages'"
+        )
+        return false
     }
 
     private fun intendedCommercePackageForAction(recommendedAction: JSONObject): String? {

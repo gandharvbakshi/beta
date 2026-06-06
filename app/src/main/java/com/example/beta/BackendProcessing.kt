@@ -85,6 +85,7 @@ object BackendProcessing {
     private var multiItemSequenceIndex: Int = 0
     private var multiItemSequenceAwaitingNext = false
     private val multiItemSequenceOutcomes = mutableListOf<ItemOutcome>()
+    private var lastUserInterruptionPauseAtMs = 0L
     
     // Historical context tracking
     private val actionHistory = mutableListOf<JSONObject>()
@@ -374,7 +375,8 @@ object BackendProcessing {
                     nextItem.backendInputText(),
                     multiItemSequenceAccessibilityService,
                     nextItem.parserConfidence,
-                    nextItem.quantity.requestedCount()
+                    nextItem.quantity.requestedCount(),
+                    preserveMultiItemState = true
                 )
                 val nextGeneration = getCurrentSequenceGeneration()
                 multiItemSequenceAwaitingNext = false
@@ -511,7 +513,8 @@ object BackendProcessing {
             validItems.first().backendInputText(),
             accessibilityService,
             validItems.first().parserConfidence,
-            validItems.first().quantity.requestedCount()
+            validItems.first().quantity.requestedCount(),
+            preserveMultiItemState = true
         )
 
         val sequenceStartedAt = multiItemSequenceStartedAtMs
@@ -575,13 +578,19 @@ object BackendProcessing {
         inputText: String,
         accessibilityService: MyAccessibilityService? = null,
         parserConfidence: Float = 1.0f,
-        qtyRequested: Int = 1
+        qtyRequested: Int = 1,
+        preserveMultiItemState: Boolean = false
     ) {
         // Log.d("BackendProcessing", "Starting action sequence for: '$inputText'")
         
         // Log test run start for easy identification in logs
         DebugLogger.logTestRunStart("Action sequence: '$inputText'")
         
+        if (multiItemSequenceActive && !preserveMultiItemState) {
+            Log.w(TAG, "Clearing stale multi-item state before fresh action sequence")
+            resetMultiItemSequenceState()
+        }
+
         // Reset sequence tracking
         val sequenceGeneration = advanceActionSequenceGeneration()
         currentActionNumber = 0
@@ -620,9 +629,36 @@ object BackendProcessing {
             resetMultiItemSequenceState()
         }
     }
+
+    fun pauseActionSequenceForUserInterruption(context: Context, reason: String) {
+        Log.w(TAG, "USER_INTERRUPTION_PAUSE: $reason")
+        lastUserInterruptionPauseAtMs = System.currentTimeMillis()
+        stopActionSequence()
+
+        val status = "Paused - tap Beta to resume"
+        val screenService = (context.applicationContext as? MyApplication)?.getScreenCaptureService()
+        if (screenService != null) {
+            screenService.showPausedInterruptionStatus(status)
+        } else {
+            updateFlowStatus(context, status)
+        }
+
+        Handler(Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(
+                context,
+                "Beta paused. Return to the grocery app and tap Beta when ready.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
     
     fun isSequenceActive(): Boolean {
         return isActionSequenceActive
+    }
+
+    private fun wasUserInterruptionPauseRecent(): Boolean {
+        val pausedAt = lastUserInterruptionPauseAtMs
+        return pausedAt > 0L && System.currentTimeMillis() - pausedAt <= 5000L
     }
     
     fun getCurrentActionNumber(): Int {
@@ -1365,6 +1401,11 @@ object BackendProcessing {
                                                         
                                         val actionSuccess = actionExecutor!!.executeAction(recommendedAction, minConfidence)
                                         Log.d("BackendProcessing", "🎯 ACTION EXECUTION RESULT: $actionSuccess")
+                                        if (wasSequenceAction && !isRequestStillCurrent(requestWasSequenced, requestInputText, requestGeneration)) {
+                                            Log.w("BackendProcessing", "⚠️ Action sequence changed during execution - leaving current status untouched")
+                                            clearRequestInFlight(requestGeneration)
+                                            return@onResponse
+                                        }
                                         updateFlowStatus(
                                             context,
                                             if (actionSuccess) {
@@ -1503,6 +1544,11 @@ object BackendProcessing {
                                             }
                                          } else {
                                              Log.w("BackendProcessing", "❌ Action execution failed")
+                                             if (wasUserInterruptionPauseRecent()) {
+                                                 Log.w("BackendProcessing", "Action failed because the user interruption pause already stopped the flow")
+                                                 requestInFlight = false
+                                                 return@onResponse
+                                             }
                                              Log.e(TAG, "FLOW_FAILED: reason=action_execution_failed")
                                              emitPhase0Outcome(
                                                  context = context,

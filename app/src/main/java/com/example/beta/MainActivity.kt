@@ -38,6 +38,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var includeLogsCheckbox: CheckBox
     private lateinit var feedbackWorkedButton: Button
     private lateinit var feedbackIssueButton: Button
+    private lateinit var setupAccessibilityStep: TextView
+    private lateinit var setupOverlayStep: TextView
+    private lateinit var setupScreenCaptureStep: TextView
+    private lateinit var setupMicrophoneStep: TextView
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private val screenCaptureRequestCode = 100
     private var isCapturing = false // Track capture state
@@ -85,6 +89,10 @@ class MainActivity : ComponentActivity() {
         includeLogsCheckbox = findViewById(R.id.includeLogsCheckbox)
         feedbackWorkedButton = findViewById(R.id.feedbackWorkedButton)
         feedbackIssueButton = findViewById(R.id.feedbackIssueButton)
+        setupAccessibilityStep = findViewById(R.id.setupAccessibilityStep)
+        setupOverlayStep = findViewById(R.id.setupOverlayStep)
+        setupScreenCaptureStep = findViewById(R.id.setupScreenCaptureStep)
+        setupMicrophoneStep = findViewById(R.id.setupMicrophoneStep)
 
         // Get MediaProjectionManager
         mediaProjectionManager =
@@ -146,6 +154,9 @@ class MainActivity : ComponentActivity() {
                     noteRes = R.string.main_primary_note_ready,
                     actionRes = R.string.main_primary_action_ready
                 )
+                Handler(Looper.getMainLooper()).postDelayed({
+                    refreshSetupChecklist()
+                }, 1000)
             } else {
                 Log.e("MainActivity", "Media projection failed")
                 Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
@@ -155,6 +166,7 @@ class MainActivity : ComponentActivity() {
                     noteRes = R.string.main_primary_note,
                     actionRes = R.string.main_primary_action
                 )
+                refreshSetupChecklist()
             }
         }
 
@@ -176,6 +188,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 Toast.makeText(this, R.string.voice_microphone_required, Toast.LENGTH_LONG).show()
             }
+            refreshSetupChecklist()
         }
 
         // Set click listener for the capture screen button
@@ -204,6 +217,12 @@ class MainActivity : ComponentActivity() {
         // AutomatedActionTestActivity removed - not available in current version
 
         (application as MyApplication).registerActivity(this)
+        refreshSetupChecklist()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshSetupChecklist()
     }
 
     override fun onDestroy() {
@@ -320,6 +339,7 @@ class MainActivity : ComponentActivity() {
         if (BuildConfig.REQUIRE_AUTOMATION_DISCLOSURE && !automationDisclosureAccepted()) {
             showAutomationDisclosure()
         } else if (!isBetaAccessibilityEnabled()) {
+            refreshSetupChecklist()
             showAccessibilitySetupHelp()
         } else {
             checkOverlayPermissionAndStartCapture()
@@ -342,7 +362,9 @@ class MainActivity : ComponentActivity() {
             .setPositiveButton(R.string.accessibility_setup_open_settings) { _, _ ->
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
-            .setNegativeButton(R.string.automation_disclosure_cancel, null)
+            .setNegativeButton(R.string.automation_disclosure_cancel) { _, _ ->
+                refreshSetupChecklist()
+            }
             .show()
     }
 
@@ -366,7 +388,9 @@ class MainActivity : ComponentActivity() {
                 markAutomationDisclosureAccepted()
                 checkPermissionsAndStartCapture()
             }
-            .setNegativeButton(R.string.automation_disclosure_cancel, null)
+            .setNegativeButton(R.string.automation_disclosure_cancel) { _, _ ->
+                refreshSetupChecklist()
+            }
             .show()
     }
 
@@ -401,6 +425,7 @@ class MainActivity : ComponentActivity() {
         Log.d("MainActivity", "checkOverlayPermissionAndStartCapture: Checking overlay permission")
         // Check for overlay permission
         if (!Settings.canDrawOverlays(this)) {
+            refreshSetupChecklist()
             updateSetupStatus(
                 statusRes = R.string.main_status_permission_needed,
                 noteRes = R.string.setup_overlay_body
@@ -451,6 +476,82 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
             }
         }*/
+    }
+
+    private fun refreshSetupChecklist() {
+        if (!::setupAccessibilityStep.isInitialized) return
+
+        val accessibilityReady = isBetaAccessibilityEnabled()
+        val overlayReady = Settings.canDrawOverlays(this)
+        val screenCaptureService = (application as? MyApplication)?.getScreenCaptureService()
+        val captureReady = screenCaptureService?.canCapture() == true
+        isCapturing = captureReady
+        val microphoneReady = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val currentStep = when {
+            !accessibilityReady -> 1
+            !overlayReady -> 2
+            !captureReady -> 3
+            !microphoneReady -> 4
+            else -> 0
+        }
+
+        updateStepMarker(setupAccessibilityStep, "1", accessibilityReady, currentStep == 1)
+        updateStepMarker(setupOverlayStep, "2", overlayReady, currentStep == 2)
+        updateStepMarker(setupScreenCaptureStep, "3", captureReady, currentStep == 3)
+        updateStepMarker(setupMicrophoneStep, "4", microphoneReady, currentStep == 4)
+
+        if (BackendProcessing.isSequenceActive()) {
+            return
+        }
+
+        when {
+            !accessibilityReady -> updateSetupStatus(
+                statusRes = R.string.main_status_permission_needed,
+                noteRes = R.string.setup_accessibility_body,
+                actionRes = R.string.main_primary_action
+            )
+            !overlayReady -> updateSetupStatus(
+                statusRes = R.string.main_status_permission_needed,
+                noteRes = R.string.setup_overlay_body,
+                actionRes = R.string.main_primary_action
+            )
+            !captureReady -> updateSetupStatus(
+                statusRes = R.string.main_status_ready,
+                noteRes = R.string.main_primary_note,
+                actionRes = R.string.main_primary_action
+            )
+            else -> updateSetupStatus(
+                statusRes = R.string.main_status_active,
+                noteRes = R.string.main_primary_note_ready,
+                actionRes = R.string.main_primary_action_ready
+            )
+        }
+    }
+
+    private fun updateStepMarker(
+        marker: TextView,
+        number: String,
+        done: Boolean,
+        current: Boolean
+    ) {
+        marker.text = if (done) "\u2713" else number
+        marker.setBackgroundResource(
+            when {
+                done -> R.drawable.beta_step_done
+                current -> R.drawable.beta_step_current
+                else -> R.drawable.beta_step_pending
+            }
+        )
+        marker.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (done || current) R.color.white else R.color.beta_text_secondary
+            )
+        )
     }
 
     private fun updateSetupStatus(statusRes: Int, noteRes: Int, actionRes: Int? = null) {

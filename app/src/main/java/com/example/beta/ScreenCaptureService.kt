@@ -57,6 +57,11 @@ class ScreenCaptureService : Service() {
     private lateinit var overlayView: View
     private lateinit var layoutParams: WindowManager.LayoutParams
     private var automationOverlaySuppressed = false
+    private var overlayTouchStartRawX = 0f
+    private var overlayTouchStartRawY = 0f
+    private var overlayStartX = 0
+    private var overlayStartY = 0
+    private var overlayMovedDuringTouch = false
     
     // Input overlay variables
     private var inputOverlayView: View? = null
@@ -125,6 +130,139 @@ class ScreenCaptureService : Service() {
         }
         val margin = (12 * resources.displayMetrics.density).toInt()
         return statusBarHeight + margin
+    }
+
+    private fun getSavedOverlayX(): Int {
+        return getSharedPreferences(OVERLAY_PREFS, Context.MODE_PRIVATE)
+            .getInt(OVERLAY_PREF_X, DEFAULT_OVERLAY_RIGHT_INSET_PX)
+    }
+
+    private fun getSavedOverlayY(): Int {
+        return getSharedPreferences(OVERLAY_PREFS, Context.MODE_PRIVATE)
+            .getInt(OVERLAY_PREF_Y, getOverlayTopOffsetPx())
+    }
+
+    private fun overlayMarginPx(): Int {
+        return (8 * resources.displayMetrics.density).toInt()
+    }
+
+    private fun fallbackOverlayWidthPx(): Int {
+        return (160 * resources.displayMetrics.density).toInt()
+    }
+
+    private fun fallbackOverlayHeightPx(): Int {
+        return (56 * resources.displayMetrics.density).toInt()
+    }
+
+    private fun clampOverlayX(x: Int): Int {
+        val margin = overlayMarginPx()
+        val overlayWidth = if (::overlayView.isInitialized && overlayView.width > 0) {
+            overlayView.width
+        } else {
+            fallbackOverlayWidthPx()
+        }
+        val maxX = maxOf(margin, resources.displayMetrics.widthPixels - overlayWidth - margin)
+        return x.coerceIn(margin, maxX)
+    }
+
+    private fun clampOverlayY(y: Int): Int {
+        val minY = getOverlayTopOffsetPx()
+        val overlayHeight = if (::overlayView.isInitialized && overlayView.height > 0) {
+            overlayView.height
+        } else {
+            fallbackOverlayHeightPx()
+        }
+        val maxY = maxOf(minY, resources.displayMetrics.heightPixels - overlayHeight - overlayMarginPx())
+        return y.coerceIn(minY, maxY)
+    }
+
+    private fun saveOverlayPosition() {
+        if (!::layoutParams.isInitialized) return
+        getSharedPreferences(OVERLAY_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(OVERLAY_PREF_X, layoutParams.x)
+            .putInt(OVERLAY_PREF_Y, layoutParams.y)
+            .apply()
+    }
+
+    private fun clampOverlayIntoScreen(persist: Boolean) {
+        if (!::windowManager.isInitialized || !::layoutParams.isInitialized || !::overlayView.isInitialized) return
+        val clampedX = clampOverlayX(layoutParams.x)
+        val clampedY = clampOverlayY(layoutParams.y)
+        if (layoutParams.x != clampedX || layoutParams.y != clampedY) {
+            layoutParams.x = clampedX
+            layoutParams.y = clampedY
+            windowManager.updateViewLayout(overlayView, layoutParams)
+        }
+        if (persist) {
+            saveOverlayPosition()
+        }
+    }
+
+    private fun configureOverlayInteractions() {
+        if (!::overlayView.isInitialized) return
+
+        overlayView.isFocusable = false
+        overlayView.isFocusableInTouchMode = false
+        overlayView.isClickable = false
+        overlayView.setOnClickListener {
+            Log.d("ScreenCaptureService", "Overlay clicked - calling showInputDialog()")
+            showInputDialog()
+        }
+        overlayView.setOnTouchListener { _, event ->
+            handleOverlayTouch(event)
+        }
+    }
+
+    private fun handleOverlayTouch(event: MotionEvent): Boolean {
+        if (!::layoutParams.isInitialized || !::windowManager.isInitialized || !::overlayView.isInitialized) {
+            return false
+        }
+        if (!overlayView.isClickable) {
+            return false
+        }
+
+        return when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                overlayTouchStartRawX = event.rawX
+                overlayTouchStartRawY = event.rawY
+                overlayStartX = layoutParams.x
+                overlayStartY = layoutParams.y
+                overlayMovedDuringTouch = false
+                true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val deltaX = event.rawX - overlayTouchStartRawX
+                val deltaY = event.rawY - overlayTouchStartRawY
+                val slop = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+                if (!overlayMovedDuringTouch &&
+                    (Math.abs(deltaX) > slop || Math.abs(deltaY) > slop)
+                ) {
+                    overlayMovedDuringTouch = true
+                }
+                if (overlayMovedDuringTouch) {
+                    layoutParams.x = clampOverlayX(overlayStartX - deltaX.toInt())
+                    layoutParams.y = clampOverlayY(overlayStartY + deltaY.toInt())
+                    windowManager.updateViewLayout(overlayView, layoutParams)
+                }
+                true
+            }
+            MotionEvent.ACTION_UP -> {
+                if (overlayMovedDuringTouch) {
+                    saveOverlayPosition()
+                } else {
+                    overlayView.performClick()
+                }
+                true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                if (overlayMovedDuringTouch) {
+                    saveOverlayPosition()
+                }
+                true
+            }
+            else -> false
+        }
     }
 
     private fun markCaptureLost(reason: String, stopProjection: Boolean = false) {
@@ -1477,29 +1615,22 @@ class ScreenCaptureService : Service() {
                 type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                x = 50 // inset from right edge
-                y = getOverlayTopOffsetPx()
+                gravity = Gravity.TOP or Gravity.RIGHT
+                x = getSavedOverlayX()
+                y = getSavedOverlayY()
             }
             
-            // Make the overlay non-focusable so it doesn't steal focus from Blinkit
-            overlayView.isFocusable = false
-            overlayView.isFocusableInTouchMode = false
-            
-            // Keep the overlay pass-through until READY explicitly enables taps.
-            overlayView.isClickable = false
-            overlayView.setOnClickListener {
-                Log.d("ScreenCaptureService", "Overlay clicked - calling showInputDialog()")
-                showInputDialog()
-            }
+            configureOverlayInteractions()
             
             Log.d("ScreenCaptureService", "Overlay click listener set up - isClickable: ${overlayView.isClickable}")
             
             try {
                 windowManager.addView(overlayView, layoutParams)
+                overlayView.post { clampOverlayIntoScreen(persist = false) }
                 automationOverlaySuppressed = false
                 setOverlayState(OverlayState.READY)
                 Log.d("ScreenCaptureService", "Emulator overlay window created successfully")
@@ -1551,26 +1682,18 @@ class ScreenCaptureService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                x = 50 // inset from right edge
-                y = getOverlayTopOffsetPx()
+                gravity = Gravity.TOP or Gravity.RIGHT
+                x = getSavedOverlayX()
+                y = getSavedOverlayY()
             }
             
-            // Make the overlay non-focusable so it doesn't steal focus from Blinkit
-            overlayView.isFocusable = false
-            overlayView.isFocusableInTouchMode = false
-            
-            // Keep the overlay pass-through until READY explicitly enables taps.
-            overlayView.isClickable = false
-            overlayView.setOnClickListener {
-                Log.d("ScreenCaptureService", "Overlay clicked - calling showInputDialog()")
-                showInputDialog()
-            }
+            configureOverlayInteractions()
             
             Log.d("ScreenCaptureService", "Overlay click listener set up - isClickable: ${overlayView.isClickable}")
             
             try {
                 windowManager.addView(overlayView, layoutParams)
+                overlayView.post { clampOverlayIntoScreen(persist = false) }
                 automationOverlaySuppressed = false
                 setOverlayState(OverlayState.READY)
                 Log.d("ScreenCaptureService", "Overlay window created successfully")
@@ -1676,6 +1799,18 @@ class ScreenCaptureService : Service() {
                     updateOverlayText(status)
                 }
             }
+        }
+    }
+
+    fun showPausedInterruptionStatus(status: String) {
+        isActionSequenceActive = false
+        originalInputText = null
+        currentSequenceGeneration = -1L
+        currentInputText = null
+
+        Handler(Looper.getMainLooper()).post {
+            hideInputOverlay()
+            applyOverlayTextOrState(status)
         }
     }
     
@@ -2202,6 +2337,10 @@ class ScreenCaptureService : Service() {
             normalized == "state: order_done" || normalized.startsWith("state: order_done") -> OverlayStatus("Done", OverlayState.READY)
             normalized.contains("store_unavailable") -> OverlayStatus("Store unavailable", OverlayState.WORKING)
             normalized.startsWith("state:") -> OverlayStatus(getString(R.string.overlay_status_working), OverlayState.WORKING)
+            normalized.startsWith("paused") &&
+                (normalized.contains("tap beta") ||
+                    normalized.contains("resume") ||
+                    normalized.contains("return to")) -> OverlayStatus("Tap to resume", OverlayState.READY)
             normalized.startsWith("paused") -> OverlayStatus("Check cart", OverlayState.WORKING)
             normalized.startsWith("stopped") && normalized.contains("backend") -> OverlayStatus("Backend unavailable", OverlayState.READY)
             normalized.startsWith("stopped") -> OverlayStatus("Stopped", OverlayState.READY)
@@ -2700,6 +2839,10 @@ class ScreenCaptureService : Service() {
         const val ACTION_STOP_CAPTURE = "com.example.beta.STOP_CAPTURE"
         const val ACTION_SUBMIT_AUTOMATION_INSTRUCTION = "live.betaapp.android.SUBMIT_AUTOMATION_INSTRUCTION"
         const val ACTION_HIDE_AUTOMATION_OVERLAY = "live.betaapp.android.HIDE_AUTOMATION_OVERLAY"
+        private const val OVERLAY_PREFS = "beta_overlay_prefs"
+        private const val OVERLAY_PREF_X = "overlay_right_inset_px"
+        private const val OVERLAY_PREF_Y = "overlay_top_px"
+        private const val DEFAULT_OVERLAY_RIGHT_INSET_PX = 50
         // Consider adding actions for START if needed, though currently handled by intent extras
     }
 
