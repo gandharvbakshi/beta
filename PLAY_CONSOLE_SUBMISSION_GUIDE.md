@@ -1,6 +1,6 @@
 # Beta Play Store Go-Live Tasks
 
-Last updated: 2026-06-04
+Last updated: 2026-06-06
 
 This is the current owner-only checklist for getting `Beta` live on Google Play after the AccessibilityService rejection. API-doable build/listing/release tasks are separated from actions that require Play Console owner review or policy attestation.
 
@@ -18,6 +18,7 @@ This is the current owner-only checklist for getting `Beta` live on Google Play 
 - The AccessibilityService review video was regenerated.
 - A signed local `0.2.5` release AAB was built at `app/build/outputs/bundle/release/app-release.aab`.
 - Open testing / API track `beta` now has version code `7` assigned with status `completed`, release name `0.2.5 open testing`, and overlay recovery / Blinkit recovery release notes.
+- The 2026-06-06 Android pause / overlay hardening patch is pushed to GitHub in commit `dc5900e` but is not uploaded to Play yet.
 - The raw GitHub privacy-policy and review-video URLs were verified as publicly reachable.
 - Data Safety was not updated by API because there is no current Play Console CSV export/template in the repo.
 - The privacy-policy URL, Data Safety form, AccessibilityService declaration, foreground service / media projection declaration, and final send-for-review are still owner-only Play Console actions.
@@ -72,6 +73,9 @@ Do not use the old SMS Classifier URLs for Beta. Do not use the Beta GitHub Page
 - Upload AABs through `edits.bundles.upload`, then update `edits.tracks.update` for `beta`, then commit the edit.
 - The 2026-06-04 `0.2.4` upload returned `uploaded_bundle_version_code=6` and committed edit `15314746252293635489`.
 - The 2026-06-04 `0.2.5` upload returned `uploaded_bundle_version_code=7` and committed edit `07289748393267164803`.
+- The next Play upload must use a new version, likely `versionCode 8` / `versionName 0.2.6`, unless the Play beta track has advanced since this note.
+- Do not upload a release AAB unless `BETA_BACKEND_API_KEY` and `BETA_FEEDBACK_API_KEY` are set for `:app:bundleRelease`; a release built without them may install but fail backend calls.
+- On 2026-06-06, `D:\Projects\beta\beta-496723-040570e7b0fa.json` could query Android Publisher, but could not read Secret Manager (`403`). The active `gcloud` user account also needed browser reauthentication before it could fetch `BETA_BACKEND_API_KEY` / `BETA_FEEDBACK_API_KEY`.
 - Normal Gradle builds no longer start logcat capture by default. Set `BETA_AUTO_LOGCAT=true` only when a build should launch `scripts/start-logcat-capture.ps1`.
 - For signed release builds, pass `BETA_RELEASE_STORE_FILE` as an absolute path or a path relative to `app/`; Gradle resolves the signing file from the app module.
 
