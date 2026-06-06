@@ -4,6 +4,12 @@ Last updated: 2026-06-06
 
 This is the current owner-only checklist for getting `Beta` live on Google Play after the AccessibilityService rejection. API-doable build/listing/release tasks are separated from actions that require Play Console owner review or policy attestation.
 
+## Future Codex Start Here
+
+- Before any future Beta Play upload, search Codex memory for `beta-play-upload-smooth-runbook` and `beta-play-026-upload-result`.
+- The detailed local memory notes are `C:\Users\gandh\.codex\memories\extensions\ad_hoc\notes\2026-06-06-beta-play-upload-smooth-runbook.md` and `C:\Users\gandh\.codex\memories\extensions\ad_hoc\notes\2026-06-06-beta-play-026-upload-result.md`.
+- Do not rediscover package name, Play track, signing, Secret Manager key source, `gcloud auth login --no-launch-browser`, or the `changesNotSentForReview` rejection from scratch.
+
 ## Current State
 
 - App name: `Beta`
