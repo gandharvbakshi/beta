@@ -85,6 +85,7 @@ object BackendProcessing {
     private var multiItemSequenceIndex: Int = 0
     private var multiItemSequenceAwaitingNext = false
     private val multiItemSequenceOutcomes = mutableListOf<ItemOutcome>()
+    private var lastOrderSummaryStatus: String? = null
     private var lastUserInterruptionPauseAtMs = 0L
     
     // Historical context tracking
@@ -177,9 +178,20 @@ object BackendProcessing {
             Log.d(TAG, "Keeping screen capture session active during multi-item sequence: $reason")
             return
         }
+        val terminalReason = if (
+            lastOrderSummaryStatus != null &&
+            (
+                reason.contains("complete", ignoreCase = true) ||
+                    reason.contains("verification successful", ignoreCase = true)
+            )
+        ) {
+            lastOrderSummaryStatus.also { lastOrderSummaryStatus = null } ?: reason
+        } else {
+            reason
+        }
         (context.applicationContext as? MyApplication)
             ?.getScreenCaptureService()
-            ?.endSession(reason)
+            ?.endSession(terminalReason)
     }
 
     private fun backOutOfCheckoutBoundaryIfActive(context: Context) {
@@ -423,8 +435,21 @@ object BackendProcessing {
             Log.i(TAG, "Swiggy continuation is no longer foreground (active=$activePackage); backing out of external surface")
         }
         try {
-            service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
-            Thread.sleep(700)
+            val backPresses = if (
+                activePackage == "com.grofers.customerapp" ||
+                lastCapturedPackage == "com.grofers.customerapp" ||
+                activePackage == "com.zeptoconsumerapp" ||
+                lastCapturedPackage == "com.zeptoconsumerapp"
+            ) {
+                2
+            } else {
+                1
+            }
+            repeat(backPresses) { index ->
+                val backedOut = service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+                Log.i(TAG, "Multi-item cleanup back ${index + 1}/$backPresses success=$backedOut active=$activePackage captured=$lastCapturedPackage")
+                Thread.sleep(650)
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Multi-item cleanup back navigation failed: ${e.message}")
         }
@@ -471,7 +496,9 @@ object BackendProcessing {
             failures = failures
         )
         Log.i(TAG, orderOutcome.orderDoneLine())
-        updateFlowStatus(context, formatOrderDoneStateLine())
+        val summaryStatus = formatOrderSummaryStateLine(orderOutcome)
+        lastOrderSummaryStatus = summaryStatus
+        updateFlowStatus(context, summaryStatus)
 
         resetMultiItemSequenceState()
     }
@@ -505,6 +532,7 @@ object BackendProcessing {
         multiItemSequenceIndex = 0
         multiItemSequenceOutcomes.clear()
         multiItemSequenceAwaitingNext = false
+        lastOrderSummaryStatus = null
 
         Log.i(TAG, "MULTI_ORDER_STARTED items_total=${validItems.size} items=\"${validItems.joinToString(";") { it.query }}\"")
         updateFlowStatus(context, "STATE: MULTI_ORDER_STARTED\nITEM 1/${validItems.size}: ${validItems.first().query}")
@@ -589,6 +617,9 @@ object BackendProcessing {
         if (multiItemSequenceActive && !preserveMultiItemState) {
             Log.w(TAG, "Clearing stale multi-item state before fresh action sequence")
             resetMultiItemSequenceState()
+        }
+        if (!preserveMultiItemState) {
+            lastOrderSummaryStatus = null
         }
 
         // Reset sequence tracking
@@ -1409,7 +1440,7 @@ object BackendProcessing {
                                         updateFlowStatus(
                                             context,
                                             if (actionSuccess) {
-                                                "Done: ${statusForAction(actionType, actionTarget, currentActionNumber, maxActions).substringBefore(" (")}"
+                                                "Working: ${statusForAction(actionType, actionTarget, currentActionNumber, maxActions).substringBefore(" (")}"
                                             } else {
                                                 "Failed: ${statusForAction(actionType, actionTarget, currentActionNumber, maxActions).substringBefore(" (")}"
                                             }

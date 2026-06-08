@@ -4,6 +4,7 @@ enum class ItemOutcomeStatus(val code: String) {
     SUCCESS("success"),
     OOS("oos"),
     STORE_UNAVAILABLE("store_unavailable"),
+    BACKEND_UNAVAILABLE("backend_unavailable"),
     NOT_FOUND("not_found"),
     MISCLICK("misclick"),
     SKIPPED("skipped"),
@@ -58,11 +59,28 @@ fun isStoreAppUnavailableFailureReason(reason: String?): Boolean {
     ).any { normalized.contains(it) }
 }
 
+fun isBackendUnavailableFailureReason(reason: String?): Boolean {
+    val normalized = reason?.trim()?.lowercase()?.replace('-', ' ').orEmpty()
+    if (normalized.isBlank()) return false
+
+    return listOf(
+        "backend 401",
+        "http 401",
+        "unauthorized",
+        "missing backend api key",
+        "api key",
+        "backend unavailable",
+        "backend error",
+        "backend_error"
+    ).any { normalized.contains(it) }
+}
+
 fun terminalFailureStatusForReason(reason: String?): ItemOutcomeStatus {
-    val normalized = reason?.trim()?.lowercase().orEmpty()
+    val normalized = reason?.trim()?.lowercase()?.replace('-', ' ').orEmpty()
     if (normalized.isBlank()) return ItemOutcomeStatus.NOT_FOUND
 
     return when {
+        isBackendUnavailableFailureReason(normalized) -> ItemOutcomeStatus.BACKEND_UNAVAILABLE
         isStoreAppUnavailableFailureReason(normalized) ||
             isStoreUnavailableFailureReason(normalized) -> ItemOutcomeStatus.STORE_UNAVAILABLE
         normalized.contains("out of stock") ||
@@ -70,6 +88,7 @@ fun terminalFailureStatusForReason(reason: String?): ItemOutcomeStatus {
             normalized.contains("notify me") ||
             normalized.contains("currently unavailable") ||
             normalized.contains("unavailable") ||
+            normalized.contains("substitution") ||
             (normalized.contains("quantity") && normalized.contains("did not reach")) ||
             (normalized.contains("requested quantity") && normalized.contains("not visible")) -> ItemOutcomeStatus.OOS
         normalized.contains("low") && normalized.contains("confidence") -> ItemOutcomeStatus.LOW_CONFIDENCE
@@ -89,6 +108,7 @@ fun terminalFailureNoteForStatus(status: ItemOutcomeStatus, fallback: String): S
     return when (status) {
         ItemOutcomeStatus.OOS -> "out_of_stock"
         ItemOutcomeStatus.STORE_UNAVAILABLE -> "store_unavailable"
+        ItemOutcomeStatus.BACKEND_UNAVAILABLE -> "backend_unavailable"
         ItemOutcomeStatus.LOW_CONFIDENCE -> "low_confidence"
         ItemOutcomeStatus.TIMEOUT -> "timeout"
         ItemOutcomeStatus.MISCLICK -> "misclick"
@@ -157,6 +177,42 @@ fun formatOrderResultLine(summary: OrderOutcomeSummary): String {
         "items_succeeded=${summary.itemsSucceeded} " +
         "items_failed=${summary.itemsFailed} " +
         "failures=\"${failuresText}\""
+}
+
+private fun orderFailureLabel(reason: ItemOutcomeStatus): String {
+    return when (reason) {
+        ItemOutcomeStatus.OOS -> "unavailable"
+        ItemOutcomeStatus.STORE_UNAVAILABLE -> "store unavailable"
+        ItemOutcomeStatus.BACKEND_UNAVAILABLE -> "blocked by Beta"
+        ItemOutcomeStatus.LOW_CONFIDENCE -> "needs review"
+        ItemOutcomeStatus.TIMEOUT -> "timed out"
+        ItemOutcomeStatus.MISCLICK -> "needs review"
+        ItemOutcomeStatus.NOT_FOUND -> "not found"
+        ItemOutcomeStatus.SKIPPED -> "skipped"
+        ItemOutcomeStatus.SUCCESS -> "added"
+    }
+}
+
+fun formatOrderSummaryStateLine(summary: OrderOutcomeSummary): String {
+    if (summary.itemsFailed > 0 && summary.failures.all { it.reason == ItemOutcomeStatus.BACKEND_UNAVAILABLE }) {
+        return "Stopped: Backend unavailable\nTry again after Beta is fixed."
+    }
+
+    if (summary.itemsFailed <= 0) {
+        return "Done: ${summary.itemsSucceeded} added\nCheck cart before paying."
+    }
+
+    val firstFailure = summary.failures.firstOrNull()
+    val failureText = firstFailure?.let { failure ->
+        "${failure.item} ${orderFailureLabel(failure.reason)}"
+    } ?: "${summary.itemsFailed} need review"
+    val extraFailures = if (summary.failures.size > 1) " +${summary.failures.size - 1} more" else ""
+
+    return if (summary.itemsSucceeded > 0) {
+        "Done: ${summary.itemsSucceeded} added; $failureText$extraFailures\nCheck cart before paying."
+    } else {
+        "Stopped: $failureText$extraFailures\nTry manually or choose another item."
+    }
 }
 
 fun formatOrderDoneStateLine(): String = "STATE: ORDER_DONE"

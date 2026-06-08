@@ -90,6 +90,10 @@ class OrderOutcomeTest {
     @Test
     fun terminalFailureStatusForReason_separatesStoreUnavailableFromOutOfStock() {
         assertEquals(
+            ItemOutcomeStatus.BACKEND_UNAVAILABLE,
+            terminalFailureStatusForReason("backend 401")
+        )
+        assertEquals(
             ItemOutcomeStatus.STORE_UNAVAILABLE,
             terminalFailureStatusForReason("Temporarily unavailable due to high traffic")
         )
@@ -114,6 +118,10 @@ class OrderOutcomeTest {
     @Test
     fun terminalFailureNoteForStatus_isSeparateForStoreUnavailable() {
         assertEquals(
+            "backend_unavailable",
+            terminalFailureNoteForStatus(ItemOutcomeStatus.BACKEND_UNAVAILABLE, "workflow_failed")
+        )
+        assertEquals(
             "store_unavailable",
             terminalFailureNoteForStatus(ItemOutcomeStatus.STORE_UNAVAILABLE, "workflow_failed")
         )
@@ -128,6 +136,24 @@ class OrderOutcomeTest {
         assertEquals(
             "STATE: STORE_UNAVAILABLE\nBeta has paused. Try again later or continue manually.",
             formatStoreUnavailableStateLine()
+        )
+    }
+
+    @Test
+    fun formatOrderSummaryStateLine_namesBackendUnavailableInsteadOfProductsNotFound() {
+        val summary = OrderOutcomeSummary(
+            itemsTotal = 2,
+            itemsSucceeded = 0,
+            itemsFailed = 2,
+            failures = listOf(
+                OrderFailure("skyr", ItemOutcomeStatus.BACKEND_UNAVAILABLE),
+                OrderFailure("vicks", ItemOutcomeStatus.BACKEND_UNAVAILABLE)
+            )
+        )
+
+        assertEquals(
+            "Stopped: Backend unavailable\nTry again after Beta is fixed.",
+            formatOrderSummaryStateLine(summary)
         )
     }
 }

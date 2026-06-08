@@ -25,7 +25,24 @@ android {
 
     val hostedBackendDefault = "https://beta-backend-staging-kvuem5t7mq-el.a.run.app"
     val feedbackApiKey = optionalConfigValue("BETA_FEEDBACK_API_KEY")
-    val backendApiKey = optionalConfigValue("BETA_BACKEND_API_KEY").ifBlank { feedbackApiKey }
+    val backendApiKey = optionalConfigValue("BETA_BACKEND_API_KEY")
+    val debugBackendUrl = configValue("BETA_BACKEND_DEBUG_URL", configValue("BETA_BACKEND_RELEASE_URL", hostedBackendDefault))
+    val releaseBackendUrl = configValue("BETA_BACKEND_RELEASE_URL", hostedBackendDefault)
+
+    fun isHostedBackendUrl(url: String): Boolean {
+        val normalized = url.lowercase()
+        return !normalized.contains("10.0.2.2") &&
+            !normalized.contains("localhost") &&
+            !normalized.contains("127.0.0.1")
+    }
+
+    fun requireBackendApiKeyIfHosted(buildType: String, backendUrl: String) {
+        if (isHostedBackendUrl(backendUrl) && backendApiKey.isBlank()) {
+            throw org.gradle.api.GradleException(
+                "BETA_BACKEND_API_KEY is required for $buildType builds that use the hosted Beta backend."
+            )
+        }
+    }
 
     defaultConfig {
         applicationId = "live.betaapp.android"
@@ -60,7 +77,7 @@ android {
             buildConfigField(
                 "String",
                 "BETA_BACKEND_BASE_URL",
-                "\"${configValue("BETA_BACKEND_DEBUG_URL", configValue("BETA_BACKEND_RELEASE_URL", hostedBackendDefault))}\""
+                buildConfigString(debugBackendUrl)
             )
             buildConfigField("String", "BETA_FEEDBACK_API_KEY", buildConfigString(feedbackApiKey))
             buildConfigField("String", "BETA_BACKEND_API_KEY", buildConfigString(backendApiKey))
@@ -71,7 +88,7 @@ android {
             buildConfigField(
                 "String",
                 "BETA_BACKEND_BASE_URL",
-                "\"${configValue("BETA_BACKEND_RELEASE_URL", hostedBackendDefault)}\""
+                buildConfigString(releaseBackendUrl)
             )
             buildConfigField("String", "BETA_FEEDBACK_API_KEY", buildConfigString(feedbackApiKey))
             buildConfigField("String", "BETA_BACKEND_API_KEY", buildConfigString(backendApiKey))
@@ -84,6 +101,12 @@ android {
                 "proguard-rules.pro"
             )
         }
+    }
+    tasks.matching { it.name == "preDebugBuild" }.configureEach {
+        doFirst { requireBackendApiKeyIfHosted("debug", debugBackendUrl) }
+    }
+    tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+        doFirst { requireBackendApiKeyIfHosted("release", releaseBackendUrl) }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8

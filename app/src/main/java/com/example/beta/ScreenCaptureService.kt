@@ -320,9 +320,15 @@ class ScreenCaptureService : Service() {
 
     private fun markCaptureLost(reason: String, stopProjection: Boolean = false) {
         Log.e("BetaAgent", "CAPTURE_LOST: $reason")
+        val automationWasActive =
+            isActionSequenceActive || BackendProcessing.isSequenceActive() || currentSession != null
         isCapturing = false
         pendingScreenshot = false
         screenshotRecoveryAttempts = 0
+
+        if (automationWasActive) {
+            stopAutomationForCaptureUnavailable(reason)
+        }
 
         if (!stopProjection) {
             return
@@ -356,6 +362,42 @@ class ScreenCaptureService : Service() {
             Log.e("ScreenCaptureService", "Error stopping MediaProjection after capture loss: ", e)
         } finally {
             mediaProjection = null
+        }
+    }
+
+    private fun ensureCaptureReadyForAutomation(reason: String): Boolean {
+        if (canCapture()) return true
+
+        Log.e("BetaAgent", "CAPTURE_UNAVAILABLE_BEFORE_AUTOMATION: $reason (${getCaptureStatus()})")
+        stopAutomationForCaptureUnavailable(reason)
+        return false
+    }
+
+    private fun stopAutomationForCaptureUnavailable(reason: String) {
+        Log.w("BetaAgent", "AUTOMATION_STOPPED_CAPTURE_UNAVAILABLE: $reason")
+        BackendProcessing.stopActionSequence()
+        isActionSequenceActive = false
+        originalInputText = null
+        currentInputText = null
+        currentSequenceGeneration = -1L
+        pendingScreenshot = false
+        disableScreenshots()
+        automationOverlaySuppressed = false
+        currentSession = null
+        retryAttempts = 0
+        consecutiveFailures = 0
+
+        Handler(Looper.getMainLooper()).post {
+            hideInputOverlay()
+            if (::overlayView.isInitialized) {
+                overlayView.visibility = View.VISIBLE
+                setOverlayStatus(OverlayStatus("Open Beta to restart", OverlayState.READY))
+            }
+            Toast.makeText(
+                this,
+                "Open Beta and start screen capture again.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
     
@@ -908,6 +950,7 @@ class ScreenCaptureService : Service() {
             if (virtualDisplay != null) {
                 isCapturing = true
                 Log.d("ScreenCaptureService", "Screen capture started successfully.")
+                markCaptureReadyForUser()
                 Toast.makeText(this, "Screen capture started", Toast.LENGTH_SHORT).show()
             } else {
                 Log.e("ScreenCaptureService", "Failed to create VirtualDisplay. Stopping capture.")
@@ -966,6 +1009,7 @@ class ScreenCaptureService : Service() {
             if (virtualDisplay != null) {
                 isCapturing = true
                 Log.d("ScreenCaptureService", "Screen capture started successfully after retry.")
+                markCaptureReadyForUser()
                 Toast.makeText(this, "Screen capture started", Toast.LENGTH_SHORT).show()
             } else {
                 Log.e("ScreenCaptureService", "Failed to create VirtualDisplay. Stopping capture.")
@@ -1817,6 +1861,8 @@ class ScreenCaptureService : Service() {
                 overlayView.visibility = View.VISIBLE
                 val terminalText = when {
                     reason.trimStart().startsWith("STATE:", ignoreCase = true) -> reason.trim()
+                    reason.trimStart().startsWith("Done:", ignoreCase = true) ||
+                        reason.trimStart().startsWith("Stopped:", ignoreCase = true) -> reason.trim()
                     reason.contains("await", ignoreCase = true) -> "Paused - check cart"
                     reason.contains("complete", ignoreCase = true) ||
                         reason.contains("success", ignoreCase = true) -> "Done"
@@ -1900,12 +1946,38 @@ class ScreenCaptureService : Service() {
             val chipBasics = inflated.findViewById<TextView>(R.id.inputChipBasics)
             val chipCleaning = inflated.findViewById<TextView>(R.id.inputChipCleaning)
 
-            input.setText(currentInputText ?: "")
+            // User prompts must start clean; currentInputText can hold in-flight automation state.
+            input.setText("")
+
+            var submitHandled = false
+            fun submitFromInputOverlay(source: String) {
+                if (submitHandled) {
+                    Log.d("BetaAgent", "USER_INSTRUCTION_SUBMIT_IGNORED_DUPLICATE source=$source")
+                    return
+                }
+                submitHandled = true
+                Log.i("BetaAgent", "USER_INSTRUCTION_SUBMIT_REQUESTED source=$source")
+                val submittedText = input.text.toString().trim()
+                currentInputText = null
+                input.setText("")
+                submitUserInstruction(submittedText)
+            }
 
             cancel.setOnClickListener { stopBetaFromUser("input overlay stop") }
             close.setOnClickListener { hideInputOverlay() }
             submit.setOnClickListener {
-                submitInstruction(input.text.toString().trim())
+                submitFromInputOverlay("click")
+            }
+            submit.setOnTouchListener { _, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> true
+                    MotionEvent.ACTION_UP -> {
+                        submitFromInputOverlay("touch")
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> true
+                    else -> false
+                }
             }
 
             chipRefill.setOnClickListener { fillInputFromChip(input, R.string.input_example_refill) }
@@ -1957,13 +2029,60 @@ class ScreenCaptureService : Service() {
     }
     
     fun submitAutomationInstruction(inputText: String) {
-        submitInstruction(inputText)
+        val instruction = inputText.trim()
+        Log.i("BetaAgent", "SUBMIT_AUTOMATION_INSTRUCTION_CALLED: $instruction")
+        submitInstruction(instruction)
+    }
+
+    private fun submitUserInstruction(inputText: String) {
+        val instruction = inputText.trim()
+        if (instruction.isBlank()) {
+            Log.w("BetaAgent", "USER_INSTRUCTION_EMPTY")
+            return
+        }
+
+        Log.i("BetaAgent", "USER_INSTRUCTION_RECEIVED: $instruction")
+        BackendProcessing.stopActionSequence()
+        isActionSequenceActive = false
+        currentSequenceGeneration = -1L
+        if (!ensureCaptureReadyForAutomation("user instruction before commerce launch")) {
+            return
+        }
+        hideInputOverlay()
+
+        val launchResult = CommerceAppLauncher.launchPreferred(this)
+        if (!launchResult.launched) {
+            Toast.makeText(this, launchResult.message, Toast.LENGTH_LONG).show()
+            Log.w("BetaAgent", "USER_INSTRUCTION_NO_COMMERCE_APP: $instruction")
+            return
+        }
+
+        Log.i(
+            "BetaAgent",
+            "USER_INSTRUCTION_LAUNCH_OK app=${launchResult.appName} package=${launchResult.packageName} delayMs=${CommerceAppLauncher.LAUNCH_SETTLE_DELAY_MS}"
+        )
+        Toast.makeText(this, launchResult.message, Toast.LENGTH_SHORT).show()
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                if (!ensureCaptureReadyForAutomation("user instruction after commerce launch")) {
+                    return@postDelayed
+                }
+                Log.i("BetaAgent", "USER_INSTRUCTION_SUBMIT_AFTER_LAUNCH: $instruction")
+                submitAutomationInstruction(instruction)
+            } catch (e: Exception) {
+                Log.e("BetaAgent", "USER_INSTRUCTION_SUBMIT_AFTER_LAUNCH_FAILED: ${e.message}", e)
+                Toast.makeText(this, "Beta could not start that order. Please try again.", Toast.LENGTH_LONG).show()
+            }
+        }, CommerceAppLauncher.LAUNCH_SETTLE_DELAY_MS)
     }
 
     private fun submitInstruction(inputText: String) {
         // Log.d("ScreenCaptureService", "submitInstruction called with: '$inputText'")
         
         if (inputText.isNotEmpty()) {
+            if (!ensureCaptureReadyForAutomation("submit automation instruction")) {
+                return
+            }
             BackendProcessing.stopActionSequence()
             isActionSequenceActive = false
             originalInputText = null
@@ -2098,6 +2217,9 @@ class ScreenCaptureService : Service() {
 
     private fun triggerSequenceScreenshot() {
         try {
+            if (!ensureCaptureReadyForAutomation("sequence screenshot")) {
+                return
+            }
             enableScreenshots()
             pendingScreenshot = true
             triggerScreenshot()
@@ -2117,6 +2239,10 @@ class ScreenCaptureService : Service() {
                 "ScreenCaptureService",
                 "Ignoring stale sequence setup for '$originalInput' generation=$sequenceGeneration"
             )
+            return
+        }
+
+        if (!ensureCaptureReadyForAutomation("next action sequence")) {
             return
         }
         
@@ -2169,6 +2295,9 @@ class ScreenCaptureService : Service() {
                         currentAppName = appName
                         
                         // Now trigger screenshot with tree data ready
+                        if (!ensureCaptureReadyForAutomation("next action screenshot")) {
+                            return@treeCapture
+                        }
                         enableScreenshots()
                         pendingScreenshot = true
                         triggerScreenshot()
@@ -2178,6 +2307,9 @@ class ScreenCaptureService : Service() {
                 } else {
                     // Log.w("ScreenCaptureService", "Accessibility service not available for next action")
                     // Fallback: trigger screenshot without tree data
+                    if (!ensureCaptureReadyForAutomation("next action without accessibility")) {
+                        return@outerTrigger
+                    }
                     enableScreenshots()
                     pendingScreenshot = true
                     triggerScreenshot()
@@ -2186,6 +2318,9 @@ class ScreenCaptureService : Service() {
                 Log.e("ScreenCaptureService", "Error triggering next action tree view: ${e.message}", e)
                 e.printStackTrace()
                 // Fallback: trigger screenshot without tree data
+                if (!ensureCaptureReadyForAutomation("next action fallback after error")) {
+                    return@outerTrigger
+                }
                 enableScreenshots()
                 pendingScreenshot = true
                 triggerScreenshot()
@@ -2198,6 +2333,7 @@ class ScreenCaptureService : Service() {
         // Log.d("ScreenCaptureService", "Stopping action sequence")
         isActionSequenceActive = false
         originalInputText = null
+        currentInputText = null
         currentSequenceGeneration = -1L
         BackendProcessing.stopActionSequence()
     }
@@ -2269,6 +2405,22 @@ class ScreenCaptureService : Service() {
             OverlayState.CAPTURING -> getString(R.string.overlay_status_capturing)
         }
         setOverlayStatus(OverlayStatus(label, state))
+    }
+
+    private fun markCaptureReadyForUser() {
+        isActionSequenceActive = false
+        originalInputText = null
+        currentInputText = null
+        currentSequenceGeneration = -1L
+        pendingScreenshot = false
+        automationOverlaySuppressed = false
+        Handler(Looper.getMainLooper()).post {
+            hideInputOverlay()
+            if (::overlayView.isInitialized) {
+                overlayView.visibility = View.VISIBLE
+                setOverlayState(OverlayState.READY)
+            }
+        }
     }
 
     private fun setOverlayStatus(status: OverlayStatus) {

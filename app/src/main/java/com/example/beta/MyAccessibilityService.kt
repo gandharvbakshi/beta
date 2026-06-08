@@ -545,7 +545,7 @@ class MyAccessibilityService : AccessibilityService() {
      * Traverses the accessibility tree and appends each node to StringBuilder
      */
     private fun traverseAndAppendTree(treeBuilder: StringBuilder, node: AccessibilityNodeInfo, depth: Int) {
-        if (depth > 10) return // Prevent infinite recursion
+        if (depth > COMMERCE_TREE_CAPTURE_MAX_DEPTH) return
         
         // Append current node
         appendNodeInfo(treeBuilder, node, depth, "NODE")
@@ -728,6 +728,7 @@ class MyAccessibilityService : AccessibilityService() {
         private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
         private const val ZEPTO_PACKAGE = "com.zeptoconsumerapp"
         private const val NON_BLINKIT_LOG_INTERVAL_MS = 5000L
+        private const val COMMERCE_TREE_CAPTURE_MAX_DEPTH = 24
         private val SUPPORTED_COMMERCE_PACKAGES = setOf(
             BLINKIT_PACKAGE,
             SWIGGY_INSTAMART_PACKAGE,
