@@ -69,6 +69,42 @@
                 android:contentDescription="@string/input_close" />
         </LinearLayout>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/inputCancel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="56dp"
+                android:background="@drawable/beta_btn_secondary"
+                android:fontFamily="sans-serif-medium"
+                android:text="@string/input_stop_beta"
+                android:textAllCaps="false"
+                android:textColor="@color/beta_text_primary"
+                android:textSize="16sp"
+                android:stateListAnimator="@null" />
+
+            <Button
+                android:id="@+id/inputSubmit"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:layout_marginStart="10dp"
+                android:minHeight="56dp"
+                android:background="@drawable/beta_btn_primary"
+                android:fontFamily="sans-serif-medium"
+                android:text="@string/input_send"
+                android:textAllCaps="false"
+                android:textColor="@color/beta_on_primary"
+                android:textSize="17sp"
+                android:stateListAnimator="@null" />
+        </LinearLayout>
+
         <EditText
             android:id="@+id/inputField"
             android:layout_width="match_parent"
@@ -142,42 +178,6 @@
                 android:textSize="13sp"
                 android:maxLines="1"
                 android:ellipsize="end" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/inputCancel"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:minHeight="56dp"
-                android:background="@drawable/beta_btn_secondary"
-                android:fontFamily="sans-serif-medium"
-                android:text="@string/input_stop_beta"
-                android:textAllCaps="false"
-                android:textColor="@color/beta_text_primary"
-                android:textSize="16sp"
-                android:stateListAnimator="@null" />
-
-            <Button
-                android:id="@+id/inputSubmit"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="2"
-                android:layout_marginStart="10dp"
-                android:minHeight="56dp"
-                android:background="@drawable/beta_btn_primary"
-                android:fontFamily="sans-serif-medium"
-                android:text="@string/input_send"
-                android:textAllCaps="false"
-                android:textColor="@color/beta_on_primary"
-                android:textSize="17sp"
-                android:stateListAnimator="@null" />
         </LinearLayout>
 
         <TextView

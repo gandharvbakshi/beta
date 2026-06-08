@@ -2275,9 +2275,9 @@ class ScreenCaptureService : Service() {
         if (!::overlayView.isInitialized) return
         overlayView.post {
             try {
-                val sequenceActive = releaseAutomationOverlaySuppressionIfIdle()
+                releaseAutomationOverlaySuppressionIfIdle()
                 val touchable = status.state == OverlayState.READY &&
-                    !sequenceActive
+                    !automationOverlaySuppressed
                 updateOverlayTouchability(
                     touchable = touchable
                 )
