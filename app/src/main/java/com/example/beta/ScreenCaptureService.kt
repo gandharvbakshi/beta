@@ -62,6 +62,9 @@ class ScreenCaptureService : Service() {
     private var overlayStartX = 0
     private var overlayStartY = 0
     private var overlayMovedDuringTouch = false
+    private var overlayLongPressTriggered = false
+    private var overlayLongPressRunnable: Runnable? = null
+    private val overlayLongPressHandler = Handler(Looper.getMainLooper())
     
     // Input overlay variables
     private var inputOverlayView: View? = null
@@ -205,6 +208,8 @@ class ScreenCaptureService : Service() {
         overlayView.isFocusable = false
         overlayView.isFocusableInTouchMode = false
         overlayView.isClickable = false
+        overlayView.isLongClickable = true
+        overlayView.contentDescription = getString(R.string.overlay_helper_content_description)
         overlayView.setOnClickListener {
             Log.d("ScreenCaptureService", "Overlay clicked - calling showInputDialog()")
             showInputDialog()
@@ -229,6 +234,8 @@ class ScreenCaptureService : Service() {
                 overlayStartX = layoutParams.x
                 overlayStartY = layoutParams.y
                 overlayMovedDuringTouch = false
+                overlayLongPressTriggered = false
+                scheduleOverlayLongPressStop()
                 true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -241,6 +248,7 @@ class ScreenCaptureService : Service() {
                     overlayMovedDuringTouch = true
                 }
                 if (overlayMovedDuringTouch) {
+                    clearOverlayLongPressStop()
                     layoutParams.x = clampOverlayX(overlayStartX - deltaX.toInt())
                     layoutParams.y = clampOverlayY(overlayStartY + deltaY.toInt())
                     windowManager.updateViewLayout(overlayView, layoutParams)
@@ -248,14 +256,16 @@ class ScreenCaptureService : Service() {
                 true
             }
             MotionEvent.ACTION_UP -> {
+                clearOverlayLongPressStop()
                 if (overlayMovedDuringTouch) {
                     saveOverlayPosition()
-                } else {
+                } else if (!overlayLongPressTriggered) {
                     overlayView.performClick()
                 }
                 true
             }
             MotionEvent.ACTION_CANCEL -> {
+                clearOverlayLongPressStop()
                 if (overlayMovedDuringTouch) {
                     saveOverlayPosition()
                 }
@@ -263,6 +273,49 @@ class ScreenCaptureService : Service() {
             }
             else -> false
         }
+    }
+
+    private fun scheduleOverlayLongPressStop() {
+        clearOverlayLongPressStop()
+        overlayLongPressRunnable = Runnable {
+            if (
+                ::overlayView.isInitialized &&
+                overlayView.isClickable &&
+                !overlayMovedDuringTouch
+            ) {
+                overlayLongPressTriggered = true
+                overlayView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                stopBetaFromUser("overlay long press")
+            }
+        }
+        overlayLongPressHandler.postDelayed(
+            overlayLongPressRunnable!!,
+            ViewConfiguration.getLongPressTimeout().toLong()
+        )
+    }
+
+    private fun clearOverlayLongPressStop() {
+        overlayLongPressRunnable?.let { overlayLongPressHandler.removeCallbacks(it) }
+        overlayLongPressRunnable = null
+    }
+
+    private fun stopBetaFromUser(source: String) {
+        Log.d("ScreenCaptureService", "Stopping Beta from user action: $source")
+        clearOverlayLongPressStop()
+        stopActionSequence()
+        disableScreenshots()
+        pendingScreenshot = false
+        hideInputOverlay()
+        Toast.makeText(this, R.string.overlay_stopped_toast, Toast.LENGTH_SHORT).show()
+        try {
+            if (::overlayView.isInitialized) {
+                overlayView.visibility = View.GONE
+            }
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error hiding overlay during user stop: ${e.message}", e)
+        }
+        stopCapture()
+        stopSelf()
     }
 
     private fun markCaptureLost(reason: String, stopProjection: Boolean = false) {
@@ -1849,7 +1902,7 @@ class ScreenCaptureService : Service() {
 
             input.setText(currentInputText ?: "")
 
-            cancel.setOnClickListener { hideInputOverlay() }
+            cancel.setOnClickListener { stopBetaFromUser("input overlay stop") }
             close.setOnClickListener { hideInputOverlay() }
             submit.setOnClickListener {
                 submitInstruction(input.text.toString().trim())
@@ -2774,6 +2827,7 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         Log.d("ScreenCaptureService", "Service destroyed.")
+        clearOverlayLongPressStop()
         
         try {
             // Use emulator-specific cleanup if running on emulator

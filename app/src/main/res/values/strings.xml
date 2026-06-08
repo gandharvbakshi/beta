@@ -54,6 +54,8 @@
     <string name="overlay_status_listening">Beta is listening…</string>
     <string name="overlay_status_working">Beta is working…</string>
     <string name="overlay_status_capturing">Reading your screen…</string>
+    <string name="overlay_helper_content_description">Tap to tell Beta. Long press to stop Beta.</string>
+    <string name="overlay_stopped_toast">Beta stopped. Open Beta to start again.</string>
     <string name="input_title">What can I help with?</string>
     <string name="input_subtitle">I\'ll build the cart. You finish the order.</string>
     <string name="input_hint">For example, &quot;2 kg atta and a packet of milk&quot;</string>
@@ -61,6 +63,7 @@
     <string name="input_example_basics">Bread, eggs and milk</string>
     <string name="input_example_cleaning">Cleaning supplies</string>
     <string name="input_close">Close</string>
+    <string name="input_stop_beta">Stop Beta</string>
     <string name="input_send">Send to Beta</string>
     <string name="input_or_speak">Or hold the mic to speak instead</string>
     <string name="commerce_app_opening">Opening %1$s</string>
