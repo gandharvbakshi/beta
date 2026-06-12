@@ -65,6 +65,7 @@ class ScreenCaptureService : Service() {
     private var overlayLongPressTriggered = false
     private var overlayLongPressRunnable: Runnable? = null
     private val overlayLongPressHandler = Handler(Looper.getMainLooper())
+    private var overlayInteractionMode = OverlayInteractionMode.START_INPUT
     
     // Input overlay variables
     private var inputOverlayView: View? = null
@@ -211,12 +212,34 @@ class ScreenCaptureService : Service() {
         overlayView.isLongClickable = true
         overlayView.contentDescription = getString(R.string.overlay_helper_content_description)
         overlayView.setOnClickListener {
-            Log.d("ScreenCaptureService", "Overlay clicked - calling showInputDialog()")
-            showInputDialog()
+            handleOverlayClick()
         }
         overlayView.setOnTouchListener { _, event ->
             handleOverlayTouch(event)
         }
+    }
+
+    private fun handleOverlayClick() {
+        when (overlayInteractionMode) {
+            OverlayInteractionMode.START_INPUT -> {
+                Log.d("ScreenCaptureService", "Overlay clicked - calling showInputDialog()")
+                showInputDialog()
+            }
+            OverlayInteractionMode.CAPTURE_LOST -> {
+                Log.i("BetaAgent", "CAPTURE_LOST_OVERLAY_CLICKED: opening MainActivity for regrant")
+                openBetaForScreenCaptureRestart()
+            }
+        }
+    }
+
+    private fun openBetaForScreenCaptureRestart() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra(MainActivity.EXTRA_START_CAPTURE_ON_OPEN, true)
+            putExtra(MainActivity.EXTRA_CAPTURE_RESTART_REASON, "capture_lost")
+        }
+        startActivity(intent)
+        Toast.makeText(this, "Restart screen capture to continue.", Toast.LENGTH_LONG).show()
     }
 
     private fun handleOverlayTouch(event: MotionEvent): Boolean {
@@ -373,6 +396,43 @@ class ScreenCaptureService : Service() {
         return false
     }
 
+    private fun alignCaptureDimensionsWithScreen(source: String) {
+        val (screenWidth, screenHeight) = ScreenMetrics.getScreenDimensions(this)
+        if (screenWidth <= 0 || screenHeight <= 0) {
+            Log.w("BetaAgent", "CAPTURE_FRAME_SCREEN_UNAVAILABLE: source=$source screen=${screenWidth}x${screenHeight}")
+            return
+        }
+
+        if (width != screenWidth || height != screenHeight) {
+            Log.w(
+                "BetaAgent",
+                "CAPTURE_FRAME_INTENT_MISMATCH: source=$source intent=${width}x${height} screen=${screenWidth}x${screenHeight}; using screen frame"
+            )
+            width = screenWidth
+            height = screenHeight
+        }
+
+        if (density <= 0) {
+            density = resources.displayMetrics.densityDpi
+            Log.i("BetaAgent", "CAPTURE_FRAME_DENSITY_FILLED: source=$source density=$density")
+        }
+    }
+
+    private fun verifyCapturedBitmapFrame(bitmapWidth: Int, bitmapHeight: Int, source: String) {
+        val (screenWidth, screenHeight) = ScreenMetrics.getScreenDimensions(this)
+        val matchesScreen = bitmapWidth == screenWidth && bitmapHeight == screenHeight
+        val matchesVirtualDisplay = bitmapWidth == width && bitmapHeight == height
+        val message =
+            "source=$source bitmap=${bitmapWidth}x${bitmapHeight} screen=${screenWidth}x${screenHeight} virtual=${width}x${height}"
+
+        if (matchesScreen && matchesVirtualDisplay) {
+            Log.i("BetaAgent", "CAPTURE_FRAME_OK: $message")
+        } else {
+            Log.w("BetaAgent", "CAPTURE_FRAME_MISMATCH: $message")
+            DebugLogger.logError("ScreenCaptureService", "CAPTURE_FRAME_MISMATCH: $message")
+        }
+    }
+
     private fun stopAutomationForCaptureUnavailable(reason: String) {
         Log.w("BetaAgent", "AUTOMATION_STOPPED_CAPTURE_UNAVAILABLE: $reason")
         BackendProcessing.stopActionSequence()
@@ -391,11 +451,17 @@ class ScreenCaptureService : Service() {
             hideInputOverlay()
             if (::overlayView.isInitialized) {
                 overlayView.visibility = View.VISIBLE
-                setOverlayStatus(OverlayStatus("Open Beta to restart", OverlayState.READY))
+                setOverlayStatus(
+                    OverlayStatus(
+                        label = "Tap to restart Beta",
+                        state = OverlayState.READY,
+                        interactionMode = OverlayInteractionMode.CAPTURE_LOST
+                    )
+                )
             }
             Toast.makeText(
                 this,
-                "Open Beta and start screen capture again.",
+                "Tap Beta and restart screen capture.",
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -751,6 +817,7 @@ class ScreenCaptureService : Service() {
                 width = intent.getIntExtra("width", 0)
                 height = intent.getIntExtra("height", 0)
                 density = intent.getIntExtra("density", 0)
+                alignCaptureDimensionsWithScreen("start_intent")
 
                 // Log received data for debugging
                 Log.d("ScreenCaptureService", "Received data - resultCode: $resultCode, width: $width, height: $height, density: $density")
@@ -1485,6 +1552,7 @@ class ScreenCaptureService : Service() {
                 Log.d("ScreenCaptureService", "Emulator bitmap created successfully")
                 
                 // Store screenshot dimensions for coordinate calculations
+                verifyCapturedBitmapFrame(bitmap.width, bitmap.height, "emulator")
                 (application as? MyApplication)?.setLastScreenshotDimensions(bitmap.width, bitmap.height)
                 
                 val filename = "emulator_screenshot_${System.currentTimeMillis()}.jpg"
@@ -1611,6 +1679,7 @@ class ScreenCaptureService : Service() {
             Log.d("ScreenCaptureService", "Bitmap created successfully")
             
             // Store screenshot dimensions for coordinate calculations
+            verifyCapturedBitmapFrame(bitmap.width, bitmap.height, "device")
             (application as? MyApplication)?.setLastScreenshotDimensions(bitmap.width, bitmap.height)
             
             // Log screenshot resolution comparison
@@ -2392,9 +2461,15 @@ class ScreenCaptureService : Service() {
         CAPTURING
     }
 
+    private enum class OverlayInteractionMode {
+        START_INPUT,
+        CAPTURE_LOST
+    }
+
     private data class OverlayStatus(
         val label: String,
-        val state: OverlayState
+        val state: OverlayState,
+        val interactionMode: OverlayInteractionMode = OverlayInteractionMode.START_INPUT
     )
 
     private fun setOverlayState(state: OverlayState) {
@@ -2428,6 +2503,7 @@ class ScreenCaptureService : Service() {
         overlayView.post {
             try {
                 releaseAutomationOverlaySuppressionIfIdle()
+                overlayInteractionMode = status.interactionMode
                 val touchable = status.state == OverlayState.READY &&
                     !automationOverlaySuppressed
                 updateOverlayTouchability(

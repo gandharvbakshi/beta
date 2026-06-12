@@ -41,6 +41,8 @@ import java.util.Locale
 
 object BackendProcessing {
     private const val TAG = "BetaAgent"
+    private const val SCREENSHOT_UPLOAD_JPEG_QUALITY = 70
+    private const val SCREENSHOT_UPLOAD_MAX_WIDTH = 1080
     private val client = provideOkHttpClient()
     var currentBitmap: Bitmap? = null
     var currentFilename: String? = null
@@ -62,6 +64,15 @@ object BackendProcessing {
 
     private fun isSupportedCommerceApp(appName: String?): Boolean {
         return appName == "Blinkit" || appName == "Swiggy Instamart" || appName == "Zepto"
+    }
+
+    private fun bitmapForBackendUpload(bitmap: Bitmap): Bitmap {
+        if (bitmap.width <= SCREENSHOT_UPLOAD_MAX_WIDTH || bitmap.width <= 0 || bitmap.height <= 0) {
+            return bitmap
+        }
+        val scale = SCREENSHOT_UPLOAD_MAX_WIDTH.toFloat() / bitmap.width.toFloat()
+        val targetHeight = (bitmap.height * scale).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(bitmap, SCREENSHOT_UPLOAD_MAX_WIDTH, targetHeight, true)
     }
     
     // Sequential action tracking
@@ -867,11 +878,30 @@ object BackendProcessing {
         // AutomatedActionService removed - not available in current version
 
         val attemptUpload = {
+            val uploadBitmap = bitmapForBackendUpload(bitmap)
+            val uploadWidth = uploadBitmap.width
+            val uploadHeight = uploadBitmap.height
+
+            (context.applicationContext as? MyApplication)?.setLastScreenshotDimensions(uploadWidth, uploadHeight)
+
             // Create a temporary file for the bitmap
             val tempFile = File(context.cacheDir, filename)
-            FileOutputStream(tempFile).use { outStream ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outStream)
+            try {
+                FileOutputStream(tempFile).use { outStream ->
+                    uploadBitmap.compress(Bitmap.CompressFormat.JPEG, SCREENSHOT_UPLOAD_JPEG_QUALITY, outStream)
+                }
+            } finally {
+                if (uploadBitmap !== bitmap && !uploadBitmap.isRecycled) {
+                    uploadBitmap.recycle()
+                }
             }
+
+            Log.i(
+                TAG,
+                "SCREENSHOT_UPLOAD_READY original=${bitmap.width}x${bitmap.height} " +
+                    "upload=${uploadWidth}x${uploadHeight} " +
+                    "quality=$SCREENSHOT_UPLOAD_JPEG_QUALITY bytes=${tempFile.length()}"
+            )
 
             val fileBody = tempFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
             
@@ -942,8 +972,8 @@ object BackendProcessing {
                 inputText = requestInputText,
                 appName = backendAppName,
                 treeDataLength = requestTreeData?.length ?: 0,
-                imageWidth = bitmap.width,
-                imageHeight = bitmap.height
+                imageWidth = uploadWidth,
+                imageHeight = uploadHeight
             )
             
             val requestBody = requestBodyBuilder.build()

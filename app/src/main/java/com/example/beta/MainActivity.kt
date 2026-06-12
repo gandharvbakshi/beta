@@ -109,24 +109,28 @@ class MainActivity : ComponentActivity() {
             if (result.resultCode == RESULT_OK && result.data != null) {
                 Log.d("MainActivity", "Media projection successful, starting service")
 
-                // Get display metrics here to pass it along to the service
+                // Keep getMetrics only as diagnostic evidence; the capture frame must use real display bounds.
                 val displayMetrics = DisplayMetrics()
                 windowManager.defaultDisplay.getMetrics(displayMetrics)
-                
+
                 // Also get real metrics for comparison (includes status bar and navigation bar)
                 val realMetrics = DisplayMetrics()
                 windowManager.defaultDisplay.getRealMetrics(realMetrics)
-                
+
+                val (captureWidth, captureHeight) = ScreenMetrics.getScreenDimensions(this)
+                val captureDensity = resources.displayMetrics.densityDpi
+
                 // Log dimension comparison for scaling hypothesis verification
                 Log.i("MainActivity", "Display Metrics (getMetrics): ${displayMetrics.widthPixels}x${displayMetrics.heightPixels}")
                 Log.i("MainActivity", "Real Metrics (getRealMetrics): ${realMetrics.widthPixels}x${realMetrics.heightPixels}")
-                
-                val widthDiff = realMetrics.widthPixels - displayMetrics.widthPixels
-                val heightDiff = realMetrics.heightPixels - displayMetrics.heightPixels
-                
+                Log.i("BetaAgent", "CAPTURE_FRAME_REQUESTED: ${captureWidth}x${captureHeight} @ $captureDensity dpi")
+
+                val widthDiff = captureWidth - displayMetrics.widthPixels
+                val heightDiff = captureHeight - displayMetrics.heightPixels
+
                 if (widthDiff != 0 || heightDiff != 0) {
-                    Log.w("MainActivity", "DIMENSION MISMATCH: Width diff: ${widthDiff}px, Height diff: ${heightDiff}px")
-                    Log.w("MainActivity", "This could cause scaling issues in screenshots!")
+                    Log.w("MainActivity", "DIMENSION MISMATCH: getMetrics differs from capture frame by ${widthDiff}px x ${heightDiff}px")
+                    Log.w("MainActivity", "Using real/window metrics for MediaProjection to keep screenshots and taps in one frame.")
                 } else {
                     Log.i("MainActivity", "Dimensions match - no scaling issues expected")
                 }
@@ -135,9 +139,9 @@ class MainActivity : ComponentActivity() {
                 val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
                     putExtra("resultCode", result.resultCode)
                     putExtra("resultData", result.data)
-                    putExtra("width", displayMetrics.widthPixels)
-                    putExtra("height", displayMetrics.heightPixels)
-                    putExtra("density", displayMetrics.densityDpi)
+                    putExtra("width", captureWidth)
+                    putExtra("height", captureHeight)
+                    putExtra("density", captureDensity)
                 }
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -218,11 +222,18 @@ class MainActivity : ComponentActivity() {
 
         (application as MyApplication).registerActivity(this)
         refreshSetupChecklist()
+        handleStartCaptureIntent(intent)
     }
 
     override fun onResume() {
         super.onResume()
         refreshSetupChecklist()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleStartCaptureIntent(intent)
     }
 
     override fun onDestroy() {
@@ -234,6 +245,21 @@ class MainActivity : ComponentActivity() {
 
     private fun speak(message: String) {
         textToSpeech?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "beta_voice_prompt")
+    }
+
+    private fun handleStartCaptureIntent(sourceIntent: Intent?) {
+        if (sourceIntent?.getBooleanExtra(EXTRA_START_CAPTURE_ON_OPEN, false) != true) {
+            return
+        }
+
+        val reason = sourceIntent.getStringExtra(EXTRA_CAPTURE_RESTART_REASON).orEmpty()
+        sourceIntent.removeExtra(EXTRA_START_CAPTURE_ON_OPEN)
+        sourceIntent.removeExtra(EXTRA_CAPTURE_RESTART_REASON)
+        Log.i("BetaAgent", "CAPTURE_RESTART_REQUESTED_FROM_INTENT: reason=$reason")
+        Toast.makeText(this, "Restarting screen capture", Toast.LENGTH_SHORT).show()
+        Handler(Looper.getMainLooper()).post {
+            checkPermissionsAndStartCapture()
+        }
     }
 
     private fun checkMicrophoneAndStartVoice() {
@@ -585,6 +611,8 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        const val EXTRA_START_CAPTURE_ON_OPEN = "com.example.beta.extra.START_CAPTURE_ON_OPEN"
+        const val EXTRA_CAPTURE_RESTART_REASON = "com.example.beta.extra.CAPTURE_RESTART_REASON"
         private const val STORAGE_PERMISSION_CODE = 101
     }
 }
