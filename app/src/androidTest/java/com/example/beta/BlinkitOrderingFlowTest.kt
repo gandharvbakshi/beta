@@ -21,9 +21,9 @@ class BlinkitOrderingFlowTest {
     private lateinit var device: UiDevice
     private lateinit var context: Context
 
-    private val betaPackage = "com.example.beta"
+    private val betaPackage = "live.betaapp.android"
     private val blinkitPackage = "com.grofers.customerapp"
-    private val accessibilityService = "com.example.beta/.MyAccessibilityService"
+    private val accessibilityService = "live.betaapp.android/com.example.beta.MyAccessibilityService"
     private val targetInstruction = "order butter"
 
     @Before
@@ -144,8 +144,8 @@ class BlinkitOrderingFlowTest {
             val dump = runShell("dumpsys accessibility")
             if (!dump.contains("Bound services:{}") &&
                 !dump.contains("Bound services: {}") &&
-                dump.contains("com.example.beta/com.example.beta.MyAccessibilityService") &&
-                !dump.contains("Crashed services:{{com.example.beta/com.example.beta.MyAccessibilityService}}")
+                dump.contains("live.betaapp.android/com.example.beta.MyAccessibilityService") &&
+                !dump.contains("Crashed services:{{live.betaapp.android/com.example.beta.MyAccessibilityService}}")
             ) {
                 return true
             }

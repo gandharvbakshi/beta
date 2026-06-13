@@ -40,6 +40,24 @@ For one instrumented test class:
 
 Do not assume `<package>`. Inspect the repo first.
 
+## Backend Target For Testing
+
+Default emulator and release verification must target the hosted Google Cloud Run backend, not a local Docker backend, unless the task is explicitly backend-local debugging.
+
+- Google Cloud project: `beta-496723`
+- Cloud Run service: `beta-backend-staging`
+- Region: `asia-south1`
+- Hosted URL: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
+
+Before hosted-backend Android testing, verify:
+
+```powershell
+gcloud run services describe beta-backend-staging --project beta-496723 --region asia-south1 --format="value(status.url)"
+curl.exe -s https://beta-backend-staging-kvuem5t7mq-el.a.run.app/health
+```
+
+For debug builds against the hosted backend, provide `BETA_BACKEND_API_KEY` from Google Cloud Secret Manager without printing it in logs. Local Docker is acceptable only for backend code debugging or isolated offline tests, and its missing local Vision credentials must not be treated as representative of production Cloud Run behavior.
+
 ## Android Automation Rules
 
 For app UI, prefer stable resource IDs, useful content descriptions, and Compose test tags if Compose is used. For Blinkit UI, prefer UI Automator, defensive selectors, and `device.wait(Until.findObject(...), timeout)` over arbitrary sleeps.
@@ -67,3 +85,21 @@ After changes, run the smallest relevant build/test command. If it fails, inspec
 ## Definition Of Done
 
 A task is done only when the code builds or the exact build failure is reported, relevant tests are added or updated where applicable, scripts are documented where applicable, no payment/checkout automation is introduced, and the diff is minimal.
+
+## ChatGPT Handoff
+
+Canonical handoff folder: G:\My Drive\ChatGPT handover.
+
+After meaningful work in this repo, update the flat handoff files for Beta Android grocery automation:
+
+- ${Prefix}PROJECT_STATUS.md: concise current state, branch/commit if relevant, files changed, verification run, blockers, and next 3 actions.
+- ${Prefix}ROADMAP.md: update only when priorities, milestones, or sequencing changed.
+- ${Prefix}DECISIONS.md: append durable decisions; explicitly supersede stale decisions instead of deleting history.
+
+Use repo evidence, logs, tests, and live system checks for current claims. Do not use memory as proof of live GitHub, Vercel, Render, Play Console, emulator, Docker, or production state. Do not copy secrets, tokens, credentials, private keys, sensitive logs, or user-private raw data into the handoff folder. If writing to G:\ is blocked by sandboxing, ask for approval and mention that the ChatGPT handoff was not updated yet.
+
+### Compatibility And Non-Interference
+
+These handoff instructions apply to Codex CLI, Codex app, IDE extension, and other local Codex surfaces that can read these `AGENTS.md` files. Treat the ChatGPT handoff update as a final reporting step after the normal repo workflow. It must not replace project-specific build, test, safety, Play, deployment, review, or approval instructions.
+
+If handoff instructions conflict with repo-specific work rules, follow the repo-specific rules first, then update the handoff with the verified outcome. On native Windows, use `G:\My Drive\ChatGPT handover\`. In WSL, use `/mnt/g/My Drive/ChatGPT handover/` only if that mount exists and is writable. If the Drive path is unavailable, Google Drive is paused, or sandboxing blocks the write, ask for approval or report clearly that the ChatGPT handoff was not updated yet. If a Codex surface cannot write to Drive but can edit the repo, update the repo-local handoff files as a fallback and mention that the Drive canonical copy still needs syncing.

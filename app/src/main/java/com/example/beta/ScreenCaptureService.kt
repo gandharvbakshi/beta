@@ -2014,6 +2014,35 @@ class ScreenCaptureService : Service() {
             val chipRefill = inflated.findViewById<TextView>(R.id.inputChipRefill)
             val chipBasics = inflated.findViewById<TextView>(R.id.inputChipBasics)
             val chipCleaning = inflated.findViewById<TextView>(R.id.inputChipCleaning)
+            val minimumTouchTargetPx = (48 * resources.displayMetrics.density).toInt()
+
+            fun dismissInputOverlayAfterIme() {
+                try {
+                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.hideSoftInputFromWindow(input.windowToken, 0)
+                } catch (e: Exception) {
+                    Log.w("ScreenCaptureService", "Could not hide keyboard before dismissing input overlay: ${e.message}")
+                }
+                input.postDelayed({
+                    hideInputOverlay()
+                }, 100)
+            }
+
+            val backKeyListener = View.OnKeyListener { _, keyCode, event ->
+                if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                    dismissInputOverlayAfterIme()
+                    true
+                } else {
+                    false
+                }
+            }
+
+            inflated.isFocusable = true
+            inflated.isFocusableInTouchMode = true
+            inflated.setOnKeyListener(backKeyListener)
+            input.setOnKeyListener(backKeyListener)
+            close.minimumWidth = maxOf(close.minimumWidth, minimumTouchTargetPx)
+            close.minimumHeight = maxOf(close.minimumHeight, minimumTouchTargetPx)
 
             // User prompts must start clean; currentInputText can hold in-flight automation state.
             input.setText("")

@@ -43,6 +43,9 @@ object BackendProcessing {
     private const val TAG = "BetaAgent"
     private const val SCREENSHOT_UPLOAD_JPEG_QUALITY = 70
     private const val SCREENSHOT_UPLOAD_MAX_WIDTH = 1080
+    private const val BLINKIT_PACKAGE = "com.grofers.customerapp"
+    private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
+    private const val ZEPTO_PACKAGE = "com.zeptoconsumerapp"
     private val client = provideOkHttpClient()
     var currentBitmap: Bitmap? = null
     var currentFilename: String? = null
@@ -438,32 +441,82 @@ object BackendProcessing {
         val service = multiItemSequenceAccessibilityService ?: return
         val activePackage = service.activeAppPackage
         val lastCapturedPackage = service.getLastAppName()
-        if (activePackage == "in.swiggy.android.instamart") {
+        if (activePackage == SWIGGY_INSTAMART_PACKAGE) {
             Log.i(TAG, "Skipping global back cleanup for Swiggy multi-item continuation")
             return
         }
-        if (lastCapturedPackage == "in.swiggy.android.instamart") {
+        if (lastCapturedPackage == SWIGGY_INSTAMART_PACKAGE) {
             Log.i(TAG, "Swiggy continuation is no longer foreground (active=$activePackage); backing out of external surface")
         }
         try {
-            val backPresses = if (
-                activePackage == "com.grofers.customerapp" ||
-                lastCapturedPackage == "com.grofers.customerapp" ||
-                activePackage == "com.zeptoconsumerapp" ||
-                lastCapturedPackage == "com.zeptoconsumerapp"
-            ) {
-                2
-            } else {
-                1
-            }
-            repeat(backPresses) { index ->
-                val backedOut = service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
-                Log.i(TAG, "Multi-item cleanup back ${index + 1}/$backPresses success=$backedOut active=$activePackage captured=$lastCapturedPackage")
+            val backedOut = service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            Log.i(TAG, "Multi-item cleanup back 1 success=$backedOut active=$activePackage captured=$lastCapturedPackage")
+            Thread.sleep(900)
+
+            service.showBlinkitTree()
+            Thread.sleep(300)
+            val inspectedActivePackage = service.activeAppPackage
+            val inspectedCapturedPackage = service.getLastAppName()
+            val inspectedTreeData = service.getLastTreeData()
+
+            if (shouldPressSecondMultiItemCleanupBack(inspectedActivePackage, inspectedCapturedPackage, inspectedTreeData)) {
+                val secondBackedOut = service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+                Log.i(
+                    TAG,
+                    "Multi-item cleanup back 2 success=$secondBackedOut active=$inspectedActivePackage captured=$inspectedCapturedPackage"
+                )
                 Thread.sleep(650)
+            } else {
+                Log.i(
+                    TAG,
+                    "Multi-item cleanup second back skipped active=$inspectedActivePackage captured=$inspectedCapturedPackage"
+                )
             }
         } catch (e: Exception) {
             Log.w(TAG, "Multi-item cleanup back navigation failed: ${e.message}")
         }
+    }
+
+    internal fun shouldPressSecondMultiItemCleanupBack(
+        activePackage: String?,
+        lastCapturedPackage: String?,
+        treeData: String?
+    ): Boolean {
+        val packageName = activePackage?.takeIf { it == BLINKIT_PACKAGE || it == ZEPTO_PACKAGE }
+            ?: lastCapturedPackage?.takeIf { it == BLINKIT_PACKAGE || it == ZEPTO_PACKAGE }
+            ?: return false
+        val normalizedTree = treeData.orEmpty().lowercase(Locale.US)
+        if (normalizedTree.isBlank()) return false
+
+        val checkoutSignals = listOf(
+            "checkout",
+            "place order",
+            "pay using",
+            "pay now",
+            "proceed to payment",
+            "proceed to pay"
+        )
+        if (checkoutSignals.any { normalizedTree.contains(it) }) return true
+
+        val cartSignals = when (packageName) {
+            BLINKIT_PACKAGE -> listOf(
+                "your cart",
+                "bill details",
+                "delivery partner tip",
+                "to pay",
+                "item total",
+                "cart total"
+            )
+            ZEPTO_PACKAGE -> listOf(
+                "your cart",
+                "cart total",
+                "item total",
+                "bill details",
+                "to pay"
+            )
+            else -> emptyList()
+        }
+        return cartSignals.any { normalizedTree.contains(it) }
     }
 
     private fun resetMultiItemSequenceState() {
