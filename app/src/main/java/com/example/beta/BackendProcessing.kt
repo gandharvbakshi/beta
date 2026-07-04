@@ -232,22 +232,63 @@ object BackendProcessing {
         return phase
     }
 
-    private fun isCheckoutBoundaryDetected(responseText: String?, treeData: String?): Boolean {
-        val checkoutBoundaryPhrases = listOf(
-            "place order",
-            "pay now",
-            "continue to payment",
-            "proceed to payment",
-            "to payment",
-            "place the order",
-            "payment",
-            "finalize",
-            "finalize order"
+    internal fun isCheckoutBoundaryDetected(responseText: String?, treeData: String?): Boolean {
+        if (CommerceActionClassifier.isCheckoutOrPaymentExecutionAction(responseText)) {
+            return true
+        }
+        if (isGenericCheckoutContinuationAction(responseText) && isCheckoutOrPaymentSurface(treeData)) {
+            return true
+        }
+        return isPaymentExecutionSurface(treeData)
+    }
+
+    private fun isGenericCheckoutContinuationAction(responseText: String?): Boolean {
+        val normalizedResponseText = responseText?.lowercase(Locale.US) ?: ""
+        if (normalizedResponseText.isBlank()) return false
+
+        val genericControls = listOf(
+            "continue",
+            "confirm",
+            "submit",
+            "proceed",
+            "next"
         )
-        val normalizedResponseText = responseText?.lowercase() ?: ""
-        val normalizedTreeData = treeData?.lowercase() ?: ""
-        return checkoutBoundaryPhrases.any { normalizedResponseText.contains(it) } ||
-            checkoutBoundaryPhrases.any { normalizedTreeData.contains(it) }
+        return genericControls.any { control ->
+            Regex("""\b${Regex.escape(control)}\b""").containsMatchIn(normalizedResponseText)
+        }
+    }
+
+    private fun isCheckoutOrPaymentSurface(treeData: String?): Boolean {
+        val normalizedTreeData = treeData?.lowercase(Locale.US) ?: ""
+        if (normalizedTreeData.isBlank()) return false
+
+        val checkoutSurfacePhrases = listOf(
+            "checkout",
+            "place order",
+            "pay using",
+            "pay now",
+            "payment method",
+            "order summary",
+            "to pay",
+            "proceed to payment",
+            "proceed to pay"
+        )
+        return checkoutSurfacePhrases.any { normalizedTreeData.contains(it) }
+    }
+
+    private fun isPaymentExecutionSurface(treeData: String?): Boolean {
+        val normalizedTreeData = treeData?.lowercase(Locale.US) ?: ""
+        if (normalizedTreeData.isBlank()) return false
+
+        val paymentExecutionSurfacePhrases = listOf(
+            "enter upi pin",
+            "complete this payment",
+            "payment failed",
+            "payment successful",
+            "processing payment",
+            "order placed"
+        )
+        return paymentExecutionSurfacePhrases.any { normalizedTreeData.contains(it) }
     }
 
     private fun statusForTerminalReason(reason: String): ItemOutcomeStatus =

@@ -376,6 +376,9 @@ function Test-BlinkitHomeSelected([string]$Xml = "") {
         $Xml = Get-UiDump
     }
     $xml = Dismiss-SystemWaitDialog $Xml
+    if ($xml -match "BHOPAL HOUSE|G B,\s*303|E-2|Ordering for someone else|No, it.?s for me") {
+        return $false
+    }
     $isSavedHome = "(?i)Jayanagar|Bangalore|7th\\s+Block|4th\\s+Block|Jains\\s+Prakriti|KR\\s+Road|\\b602\\b"
     if ($xml -match "Unserviceable|Select delivery location|Choose delivery location|Search for area|Your saved addresses|Use current location|Add new address|Santa Clara|Mountain View") {
         return $false
@@ -412,11 +415,23 @@ function Test-BlinkitHomeSelected([string]$Xml = "") {
         }
     }
 
-    if (-not $activeAddress -and ($xml -match "Search for atta|Search for") -and ($xml -notmatch "Unserviceable|Select delivery location")) {
-        return $true
-    }
-
     return $false
+}
+
+function Test-BlinkitHomeReady([string]$Xml = "") {
+    if (-not (Test-BlinkitTopNoDump -RequireHomeActivity)) {
+        return $false
+    }
+    if (-not $Xml) {
+        $Xml = Dismiss-SystemWaitDialog (Get-UiDump)
+    }
+    if (-not $Xml -or $Xml -notmatch 'package="com.grofers.customerapp"') {
+        return $false
+    }
+    if ($Xml -match "Filters|Sort|Search across filters|Add to cart|Checkout|Place order|Payment|Ordering for someone else|No, it.?s for me") {
+        return $false
+    }
+    return (Test-BlinkitHomeSelected $Xml) -and ($Xml -match "Search for atta|Search for|Blinkit in")
 }
 
 function Get-TopActivityState {
@@ -544,6 +559,25 @@ function Close-BlinkitReceiverPrompt([string]$Xml = "") {
     return $Xml
 }
 
+function Close-BlinkitProductSurfaceIfActive {
+    for ($attempt = 0; $attempt -lt 4; $attempt++) {
+        $isHomeActivity = Test-BlinkitTopNoDump -RequireHomeActivity
+        $topActivityState = Get-TopActivityState
+        $xml = Close-BlinkitReceiverPrompt (Dismiss-SystemWaitDialog (Get-UiDump))
+        $isProductSurface = $topActivityState -match "PdpActivity|PdpGalleryActivity" -or
+            ($xml -match "Add to cart|Select Unit|Inclusive of all taxes|Explore all products|Navigate up")
+        if (-not $isProductSurface) {
+            return
+        }
+        if ($isHomeActivity -and (Test-BlinkitHomeReady $xml)) {
+            return
+        }
+        Write-Phase "[home] backing out of Blinkit product detail/gallery before home validation"
+        adb shell input keyevent 4 | Out-Null
+        Start-Sleep -Seconds 2
+    }
+}
+
 function Open-BlinkitLocationPicker {
     $xml = Dismiss-SystemWaitDialog (Close-BlinkitAddressTip)
     if ($xml -match "Select delivery location|Choose delivery location") {
@@ -641,7 +675,7 @@ function Open-BlinkitLocationPicker {
 function Wait-BlinkitLocationUiReady([int]$TimeoutSeconds = 8) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
-        $xml = Dismiss-SystemWaitDialog (Get-UiDump)
+        $xml = Close-BlinkitReceiverPrompt (Dismiss-SystemWaitDialog (Get-UiDump))
         if ($xml -match "Unserviceable area|subtitle2|HOME -|Blinkit in|Search for atta|Select delivery location") {
             return $xml
         }
@@ -653,8 +687,9 @@ function Wait-BlinkitLocationUiReady([int]$TimeoutSeconds = 8) {
 function Wait-BlinkitHomeMainScreen([int]$TimeoutSeconds = 20) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
-        $xml = Dismiss-SystemWaitDialog (Get-UiDump)
-        if (Test-BlinkitHomeSelected $xml) {
+        Close-BlinkitProductSurfaceIfActive
+        $xml = Close-BlinkitReceiverPrompt (Dismiss-SystemWaitDialog (Get-UiDump))
+        if (Test-BlinkitHomeReady $xml) {
             $script:BlinkitHomeConfirmed = $true
             return $xml
         }
@@ -892,7 +927,7 @@ function Start-BlinkitAndWait([int]$TimeoutSeconds = 20) {
 }
 
 function Select-BlinkitHomeByVisibleCoordinates {
-    if (-not (Test-BlinkitTopNoDump)) {
+    if (-not (Test-BlinkitTopNoDump -RequireHomeActivity)) {
         return $false
     }
 
@@ -903,7 +938,8 @@ function Select-BlinkitHomeByVisibleCoordinates {
 
     $deadline = (Get-Date).AddSeconds(35)
     do {
-        if (Test-BlinkitTopNoDump) {
+        $xml = Dismiss-SystemWaitDialog (Get-UiDump)
+        if (Test-BlinkitHomeReady $xml) {
             $script:BlinkitHomeConfirmed = $true
             return $true
         }
@@ -1109,18 +1145,26 @@ function Select-BlinkitHomeIfNeeded {
         adb shell am force-stop com.google.android.calendar | Out-Null
         Start-BlinkitAndWait 45 | Out-Null
     }
+    Close-BlinkitProductSurfaceIfActive
+    $xml = Close-BlinkitReceiverPrompt (Dismiss-SystemWaitDialog (Get-UiDump))
+    if (Test-BlinkitHomeReady $xml) {
+        Write-Phase "[home] already on saved Home"
+        $script:BlinkitHomeConfirmed = $true
+        return
+    }
     if (Select-BlinkitHomeByVisibleCoordinates) {
         return
     }
 
-    $xml = Dismiss-SystemWaitDialog (Get-UiDump)
+    Close-BlinkitProductSurfaceIfActive
+    $xml = Close-BlinkitReceiverPrompt (Dismiss-SystemWaitDialog (Get-UiDump))
     if ($xml -notmatch 'package="com.grofers.customerapp"') {
         if (Select-BlinkitHomeByVisibleCoordinates) {
             return
         }
         adb shell am force-stop com.google.android.calendar | Out-Null
         Start-BlinkitAndWait 45 | Out-Null
-        $xml = Dismiss-SystemWaitDialog (Get-UiDump)
+        $xml = Close-BlinkitReceiverPrompt (Dismiss-SystemWaitDialog (Get-UiDump))
     }
     if ($xml -match "Something went wrong|Please try again later|Try again") {
         $retryPoint = Get-NodeCenterByTextOrDesc @("Try again") $xml
@@ -1131,7 +1175,7 @@ function Select-BlinkitHomeIfNeeded {
         adb shell am force-stop $BlinkitPackage | Out-Null
         Start-Sleep -Seconds 2
         Start-BlinkitAndWait 45 | Out-Null
-        $xml = Dismiss-SystemWaitDialog (Get-UiDump)
+        $xml = Close-BlinkitReceiverPrompt (Dismiss-SystemWaitDialog (Get-UiDump))
     }
     $xml = Wait-BlinkitLocationUiReady 10
     if (-not $xml -or $xml -notmatch "Unserviceable area|subtitle2|HOME -|Blinkit in|Search for atta|Select delivery location") {
@@ -1144,7 +1188,7 @@ function Select-BlinkitHomeIfNeeded {
         }
         throw "Blinkit home UI was not ready for location selection."
     }
-    if (Test-BlinkitHomeSelected $xml) {
+    if (Test-BlinkitHomeReady $xml) {
         Write-Phase "[home] already on saved Home"
         $script:BlinkitHomeConfirmed = $true
         return
@@ -1194,7 +1238,7 @@ function Select-BlinkitHomeIfNeeded {
         $xml = Close-BlinkitReceiverPrompt
 
         $xml = Wait-BlinkitHomeMainScreen 25
-        if (Test-BlinkitHomeSelected $xml) {
+        if (Test-BlinkitHomeReady $xml) {
             $script:BlinkitHomeConfirmed = $true
             return
         }
@@ -1212,7 +1256,7 @@ function Select-BlinkitHomeIfNeeded {
 }
 
 function Ensure-BlinkitHomeScreen {
-    if ($script:BlinkitHomeConfirmed -and (Test-BlinkitTopNoDump)) {
+    if ($script:BlinkitHomeConfirmed -and (Test-BlinkitHomeReady)) {
         Write-Phase "[home] cached Home screen accepted"
         return
     }
@@ -1232,7 +1276,8 @@ function Ensure-BlinkitHomeScreen {
             Start-Sleep -Seconds 3
             continue
         }
-        $xml = Dismiss-SystemWaitDialog (Get-UiDump)
+        Close-BlinkitProductSurfaceIfActive
+        $xml = Close-BlinkitReceiverPrompt (Dismiss-SystemWaitDialog (Get-UiDump))
         if (-not $xml -or $xml -notmatch "Unserviceable area|subtitle2|HOME -|Blinkit in|Search for atta|Select delivery location") {
             $xml = Wait-BlinkitLocationUiReady 5
         }
@@ -1258,7 +1303,7 @@ function Ensure-BlinkitHomeScreen {
             Start-Sleep -Seconds 3
             continue
         }
-        $onHome = (Test-BlinkitHomeSelected $xml) -and ($xml -match "Search for atta|Search for") -and ($xml -notmatch "Filters|Sort|Search across filters")
+        $onHome = Test-BlinkitHomeReady $xml
         if ($onHome) {
             $script:BlinkitHomeConfirmed = $true
             return
@@ -1270,7 +1315,7 @@ function Ensure-BlinkitHomeScreen {
     adb shell monkey -p $BlinkitPackage -c android.intent.category.LAUNCHER 1 | Out-Null
     Start-Sleep -Seconds 4
     $xml = Wait-BlinkitLocationUiReady 5
-    if ((Test-BlinkitHomeSelected $xml) -and ($xml -match "Search for atta|Search for") -and ($xml -notmatch "Filters|Sort|Search across filters")) {
+    if (Test-BlinkitHomeReady $xml) {
         $script:BlinkitHomeConfirmed = $true
         return
     }
@@ -1282,7 +1327,7 @@ function Ensure-BlinkitHomeScreen {
         throw $_
     }
     $xml = Dismiss-SystemWaitDialog (Get-UiDump)
-    if ((Test-BlinkitHomeSelected $xml) -and ($xml -match "Search for atta|Search for") -and ($xml -notmatch "Filters|Sort|Search across filters")) {
+    if (Test-BlinkitHomeReady $xml) {
         $script:BlinkitHomeConfirmed = $true
         return
     }
@@ -1292,20 +1337,20 @@ function Ensure-BlinkitHomeScreen {
 
 function Ensure-BlinkitHomePrecondition([string]$Stage) {
     Write-Phase "[home] enforcing saved Home precondition before $Stage"
-    if ($script:BlinkitHomeConfirmed -and (Test-BlinkitTopNoDump)) {
+    if ($script:BlinkitHomeConfirmed -and (Test-BlinkitHomeReady)) {
         Write-Phase "[home] cached Home confirmation accepted before $Stage"
         return
     }
     $xml = Dismiss-SystemWaitDialog (Get-UiDump)
     if ($xml -notmatch 'package="com.grofers.customerapp"' -or
             $xml -match "Unserviceable area|Santa Clara|Mountain View|Choose delivery location|Select delivery location|Your saved addresses|Search for area|Use current location|Add new address" -or
-            -not (Test-BlinkitHomeSelected $xml)) {
+            -not (Test-BlinkitHomeReady $xml)) {
         Select-BlinkitHomeIfNeeded
         Ensure-BlinkitHomeScreen
         return
     }
 
-    if (-not (Test-BlinkitHomeSelected (Wait-BlinkitLocationUiReady 5))) {
+    if (-not (Test-BlinkitHomeReady (Wait-BlinkitLocationUiReady 5))) {
         Select-BlinkitHomeIfNeeded
         Ensure-BlinkitHomeScreen
     }
@@ -1316,7 +1361,7 @@ function Ensure-BlinkitForegroundForInstruction {
     $anrDismissed = Dismiss-AnrFromWindowState
     if ($anrDismissed) {
         Start-BlinkitAndWait 90 | Out-Null
-    } elseif ($script:BlinkitHomeConfirmed -and (Test-BlinkitTopNoDump)) {
+    } elseif ($script:BlinkitHomeConfirmed -and (Test-BlinkitHomeReady)) {
         Write-Phase "[home] Blinkit already focused with saved Home confirmed"
         return
     }

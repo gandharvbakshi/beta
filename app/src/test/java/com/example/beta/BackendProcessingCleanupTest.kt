@@ -64,4 +64,54 @@ class BackendProcessingCleanupTest {
             )
         )
     }
+
+    @Test
+    fun checkoutBoundary_ignoresPassiveBlinkitCartReviewTreeForSearchAction() {
+        val cartReviewTree = """
+            package=com.grofers.customerapp
+            Checkout
+            PAY USING
+            Icici Visa Card
+            Rs 240 TOTAL
+            Place Order
+        """.trimIndent()
+        val backendAction = "click search bar open search field"
+
+        assertFalse(
+            BackendProcessing.isCheckoutBoundaryDetected(
+                responseText = backendAction,
+                treeData = cartReviewTree
+            )
+        )
+    }
+
+    @Test
+    fun checkoutBoundary_blocksPaymentExecutionRecommendedAction() {
+        assertTrue(
+            BackendProcessing.isCheckoutBoundaryDetected(
+                responseText = "click Place Order button",
+                treeData = "Blinkit search results"
+            )
+        )
+    }
+
+    @Test
+    fun checkoutBoundary_blocksActivePaymentExecutionSurface() {
+        assertTrue(
+            BackendProcessing.isCheckoutBoundaryDetected(
+                responseText = "wait for screen",
+                treeData = "Enter UPI PIN to complete this payment"
+            )
+        )
+    }
+
+    @Test
+    fun checkoutBoundary_blocksGenericContinueOnCheckoutSurface() {
+        assertTrue(
+            BackendProcessing.isCheckoutBoundaryDetected(
+                responseText = "click Continue button",
+                treeData = "Checkout Order summary To pay Place Order"
+            )
+        )
+    }
 }

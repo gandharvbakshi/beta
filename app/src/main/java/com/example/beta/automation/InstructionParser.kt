@@ -32,7 +32,7 @@ fun ParsedItem.backendInputText(): String {
 }
 
 object InstructionParser {
-    const val PARSER_VERSION = "2026.05.18.1"
+    const val PARSER_VERSION = "2026.07.04.1"
 
     private val leadingCommandRegex = Regex(
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
@@ -49,6 +49,10 @@ object InstructionParser {
     )
     private val trailingNoiseRegex = Regex(
         "(?:\\s*\\b(?:and|then|also|plus|with|some|a|an|the|maybe|perhaps|please|kindly|of|for\\s+me|for|me|\\d+)\\b)+$",
+        RegexOption.IGNORE_CASE
+    )
+    private val trailingCartNoiseRegex = Regex(
+        "\\s+\\b(?:to|into|in)\\s+(?:my\\s+|the\\s+)?cart\\b\\s*$",
         RegexOption.IGNORE_CASE
     )
     private val leadingFillerRegex = Regex(
@@ -171,6 +175,7 @@ object InstructionParser {
             val before = text
             text = text
                 .replace(leadingNoiseRegex, "")
+                .replace(trailingCartNoiseRegex, "")
                 .replace(trailingNoiseRegex, "")
                 .trim()
                 .trim(',', ';', '&')

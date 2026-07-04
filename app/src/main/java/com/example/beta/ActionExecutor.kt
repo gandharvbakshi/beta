@@ -419,6 +419,22 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 return false
             }
 
+            val elementSelector = recommendedAction.optJSONObject("element_selector")
+            if (CommerceActionClassifier.isCheckoutOrPaymentExecutionAction(
+                    actionType,
+                    actionTarget,
+                    recommendedAction.optString("reasoning", ""),
+                    recommendedAction.optString("text_to_type", ""),
+                    recommendedAction.optString("text", ""),
+                    recommendedAction.optString("content_description", ""),
+                    elementSelector?.optString("text", ""),
+                    elementSelector?.optString("content_description", "")
+                )
+            ) {
+                Log.w(TAG, "Refusing checkout/payment execution action: $actionType on $actionTarget")
+                return false
+            }
+
             // Keep system-owned blocker dialogs from trapping the commerce app.
             handleBlockingSystemDialogs()
             handleBlockingCommerceAppDialogs()
@@ -969,6 +985,13 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
 
         val keepSearchOpen = shouldKeepSearchInputOpen(recommendedAction)
+        if (keepSearchOpen) {
+            recoverBlinkitProductSurfaceBeforeSearchTyping()
+            if (isBlinkitProductDetailOrGallerySurfaceActive()) {
+                Log.w(TAG, "Refusing Blinkit search typing while product detail/gallery surface is still active")
+                return false
+            }
+        }
         val searchNodeTyped = typeTextIntoSearchFieldNode(
             textToType,
             submitIme = !keepSearchOpen,
@@ -1211,6 +1234,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
     private fun isZeptoForeground(): Boolean {
         return visibleWindowPackages().any { it == ZEPTO_PACKAGE }
+    }
+
+    private fun isBlinkitForeground(): Boolean {
+        return visibleWindowPackages().any { it == BLINKIT_PACKAGE }
     }
 
     private fun activeRootPackage(): String? {
@@ -2188,6 +2215,57 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             Log.w(TAG, "Coupon/promo surface check failed: ${e.message}")
             false
         }
+    }
+
+    private fun recoverBlinkitProductSurfaceBeforeSearchTyping(): Boolean {
+        if (!isBlinkitProductDetailOrGallerySurfaceActive()) {
+            return false
+        }
+        Log.w(TAG, "Blinkit product detail/gallery active before search typing; pressing back once")
+        if (!accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)) {
+            return false
+        }
+        Thread.sleep(700)
+        if (isBlinkitProductDetailOrGallerySurfaceActive()) {
+            Log.w(TAG, "Blinkit product detail/gallery still active after one back; pressing back once more")
+            accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            Thread.sleep(700)
+        }
+        return true
+    }
+
+    private fun isBlinkitProductDetailOrGallerySurfaceActive(): Boolean {
+        if (!isBlinkitForeground()) {
+            return false
+        }
+        return try {
+            commerceWindowRoots().any { root ->
+                root.packageName?.toString() == BLINKIT_PACKAGE &&
+                    isBlinkitProductDetailOrGalleryText(collectNodeText(root).lowercase())
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Blinkit product surface check failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun isBlinkitProductDetailOrGalleryText(surfaceText: String): Boolean {
+        if (surfaceText.isBlank()) {
+            return false
+        }
+        val hasAddToCart = surfaceText.contains("add to cart")
+        val hasProductDetailChrome = listOf(
+            "select unit",
+            "inclusive of all taxes",
+            "explore all products",
+            "add to wishlist",
+            "navigate up",
+            "view details"
+        ).any { surfaceText.contains(it) }
+        val hasHomeSearch = surfaceText.contains("search for atta") ||
+            surfaceText.contains("search for products")
+        return (hasAddToCart && hasProductDetailChrome) ||
+            (surfaceText.contains("navigate up") && hasProductDetailChrome && !hasHomeSearch)
     }
 
     private fun isSwiggyLocationPickerSurfaceActive(): Boolean {

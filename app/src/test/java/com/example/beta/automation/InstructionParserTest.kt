@@ -6,7 +6,7 @@ import org.junit.Test
 class InstructionParserTest {
     @Test
     fun parserVersion_tracksLearningContract() {
-        assertEquals("2026.05.18.1", InstructionParser.PARSER_VERSION)
+        assertEquals("2026.07.04.1", InstructionParser.PARSER_VERSION)
     }
 
     @Test
@@ -66,5 +66,14 @@ class InstructionParserTest {
 
         assertEquals(listOf("milk", "butter", "pencil"), hindiItems.map { it.query })
         assertEquals(listOf("milk", "butter", "pencil"), kannadaItems.map { it.query })
+    }
+
+    @Test
+    fun parse_stripsTrailingCartDirectionPhrases() {
+        val singleItem = InstructionParser.parse("add vicks to cart")
+        val mixedItems = InstructionParser.parse("please add milk to my cart, butter into the cart")
+
+        assertEquals(listOf("vicks"), singleItem.map { it.query })
+        assertEquals(listOf("milk", "butter"), mixedItems.map { it.query })
     }
 }
