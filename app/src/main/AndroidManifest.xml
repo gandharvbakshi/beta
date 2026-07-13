@@ -63,7 +63,7 @@
         <receiver
             android:name=".AutomationInstructionReceiver"
             android:enabled="true"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="live.betaapp.android.SUBMIT_AUTOMATION_INSTRUCTION" />
                 <action android:name="live.betaapp.android.SEED_PREFERENCE" />

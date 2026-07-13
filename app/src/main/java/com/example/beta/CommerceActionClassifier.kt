@@ -14,6 +14,10 @@ object CommerceActionClassifier {
     )
     private val checkoutOrPaymentExecutionTargets = listOf(
         "checkout",
+        "open cart",
+        "view cart",
+        "go to cart",
+        "cart to verify",
         "go to checkout",
         "proceed to checkout",
         "continue to checkout",

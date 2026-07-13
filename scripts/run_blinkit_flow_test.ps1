@@ -58,7 +58,7 @@ function Wait-BetaAccessibilityConnected([int]$TimeoutSeconds = 15) {
         $runtime = (adb shell dumpsys accessibility) -join "`n"
         if ($enabled -match [regex]::Escape($Service) `
                 -and $accessibility.Trim() -eq "1" `
-                -and $runtime -match "Bound services:\{[^}]*My Accessibility Service" `
+                -and $runtime -match "Bound services:\{Service\[" `
                 -and $runtime -match [regex]::Escape("Enabled services:{{$Service}}")) {
             return $true
         }
@@ -1062,7 +1062,9 @@ function Start-BetaScreenCapture {
     adb shell settings delete secure enabled_accessibility_services | Out-Null
     Start-Sleep -Seconds 1
     Enable-BetaAccessibility
-    Wait-BetaAccessibilityConnected 15 | Out-Null
+    if (-not (Wait-BetaAccessibilityConnected 15)) {
+        throw "Beta AccessibilityService did not bind before screen capture setup."
+    }
     adb shell am start -n $MainActivityComponent | Out-Null
     Start-Sleep -Seconds 9
     if (Dismiss-AnrFromWindowState) {
@@ -1401,18 +1403,28 @@ function Test-BackendCartVerified {
     return ($response.task_completed -eq $true -and $response.verification_status.item_found_in_cart -eq $true)
 }
 
-function Test-FlowFailureLog {
-    $logs = adb logcat -d | Select-String "ORDER_RESULT|FLOW_FAILED|STATE: FAILED|items_failed="
+function Get-FlowTerminalLogText {
+    $logs = adb logcat -d | Select-String "BLINKIT_ADD_TO_CART_CLICKED|FLOW_FAILED|STATE: FAILED|ORDER_RESULT|checkout_boundary|MediaProjection state: null|Cannot trigger screenshot: Service not capturing"
     if (-not $logs) {
+        return ""
+    }
+    return (($logs | ForEach-Object { $_.Line }) -join "`n")
+}
+
+function Test-FlowFailureLog {
+    $text = Get-FlowTerminalLogText
+    if (-not $text) {
         return $false
     }
 
-    $text = ($logs | Select-Object -Last 20) -join "`n"
+    if ($text -match "checkout_boundary|MediaProjection state: null|Cannot trigger screenshot: Service not capturing") {
+        return $true
+    }
     if ($text -match "FLOW_FAILED|STATE: FAILED") {
         return $true
     }
     if ($text -match "ORDER_RESULT" -and $text -match "items_failed=(\d+)") {
-        return [int]$matches[1] -gt 0
+        return ([int]$matches[1] -gt 0)
     }
     return $false
 }
@@ -1503,6 +1515,12 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120) {
     $lastLiveCartCheck = (Get-Date).AddSeconds(-30)
     $addClickedAt = $null
     do {
+        $sawOrderResult = $false
+        $latestOrderResultFailed = $false
+        $latestOrderResultHasItemsFailed = $false
+        $latestItemsTotal = 0
+        $latestItemsSucceeded = 0
+        $addClickCount = 0
         if ($script:BlinkitAddToCartClicked) {
             if (($addClickedAt -ne $null) -and ((Get-Date) -gt $addClickedAt.AddSeconds(25))) {
                 if (Dismiss-AnrFromWindowState) {
@@ -1520,58 +1538,59 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120) {
                 continue
             }
         }
-        $logs = adb logcat -d | Select-String "BLINKIT_ADD_TO_CART_CLICKED|ADDING_TO_CART|AddingToCart|Adding item|BLINKIT_CART_INCREMENT_CONFIRMED|FLOW_SUCCESS|STATE: SUCCESS|cart increment confirmed|Item found in cart: true|FLOW_FAILED|STATE: FAILED|ORDER_RESULT|checkout_boundary|STATE: ORDER_DONE|MediaProjection state: null|Cannot trigger screenshot: Service not capturing"
-        if ($logs) {
-            $text = ($logs | Select-Object -Last 20) -join "`n"
-            if ($text -match "MediaProjection state: null|Cannot trigger screenshot: Service not capturing") {
-                return "capture_lost"
-            }
-            if ($text -match "BLINKIT_ADD_TO_CART_CLICKED|ADDING_TO_CART|AddingToCart|Adding item") {
-                $script:BlinkitAddToCartClicked = $true
-                if ($addClickedAt -eq $null) {
-                    $addClickedAt = Get-Date
-                    Write-Phase "Detected add-to-cart evidence; live cart verification delayed for 25s."
+        $text = Get-FlowTerminalLogText
+        if ($text) {
+            $addClickCount = @($text -split "`n" | Where-Object { $_ -match "BLINKIT_ADD_TO_CART_CLICKED" }).Count
+            foreach ($line in ($text -split "`n")) {
+                if ($line -match "MediaProjection state: null|Cannot trigger screenshot: Service not capturing") {
+                    return "capture_lost"
                 }
-            }
-            if ($text -match "checkout_boundary") {
-                return "failed"
-            }
-            if ($text -match "ORDER_RESULT") {
-                if ($text -match "items_failed=(\d+)") {
-                    if ([int]$matches[1] -gt 0) {
-                        return "failed"
+                if ($line -match "BLINKIT_ADD_TO_CART_CLICKED") {
+                    $script:BlinkitAddToCartClicked = $true
+                    if ($addClickedAt -eq $null) {
+                        $addClickedAt = Get-Date
+                        Write-Phase "Detected add-to-cart evidence; live cart verification delayed for 25s."
                     }
-                    if (-not $script:BlinkitAddToCartClicked) {
-                        Write-Phase "ORDER_RESULT observed before add-click evidence; treating as stale and continuing."
-                        continue
-                    }
-                    return "success"
-                }
-                if (-not $script:BlinkitAddToCartClicked) {
-                    Write-Phase "ORDER_RESULT observed before add-click evidence; treating as stale and continuing."
                     continue
                 }
-                return "success"
-            }
-            if ($text -match "BLINKIT_CART_INCREMENT_CONFIRMED|FLOW_SUCCESS|STATE: SUCCESS|cart increment confirmed|Item found in cart: true") {
-                if (-not $script:BlinkitAddToCartClicked) {
-                    Write-Phase "Cart-success signal observed before add-click evidence; treating as stale and continuing."
-                    continue
+                if ($line -match "checkout_boundary") {
+                    return "failed"
                 }
+                if ($line -match "FLOW_FAILED|STATE: FAILED") {
+                    return "failed"
+                }
+                if ($line -match "ORDER_RESULT") {
+                    $sawOrderResult = $true
+                    $latestOrderResultHasItemsFailed = $false
+                    $latestOrderResultFailed = $false
+                    $latestItemsTotal = 0
+                    $latestItemsSucceeded = 0
+                    if ($line -match "items_total=(\d+)") {
+                        $latestItemsTotal = [int]$matches[1]
+                    }
+                    if ($line -match "items_succeeded=(\d+)") {
+                        $latestItemsSucceeded = [int]$matches[1]
+                    }
+                    if ($line -match "items_failed=(\d+)") {
+                        $latestOrderResultHasItemsFailed = $true
+                        $latestOrderResultFailed = ([int]$matches[1] -gt 0)
+                    }
+                }
+            }
+        }
+        if ($sawOrderResult) {
+            if ($latestOrderResultFailed) {
+                return "failed"
+            }
+            if (
+                $latestOrderResultHasItemsFailed -and
+                $latestItemsTotal -gt 0 -and
+                $latestItemsSucceeded -eq $latestItemsTotal -and
+                $addClickCount -ge $latestItemsSucceeded
+            ) {
                 return "success"
             }
-            if ($text -match "FLOW_FAILED|STATE: FAILED") {
-                return "failed"
-            }
-        }
-        if ($script:BlinkitAddToCartClicked -and (Test-BackendCartVerified)) {
-            if (Test-FlowFailureLog) {
-                return "failed"
-            }
-            return "success"
-        }
-        if (-not $script:BlinkitAddToCartClicked -and (Test-BackendCartVerified)) {
-            Write-Phase "Backend cart-verified signal observed before add-click evidence; treating as stale and continuing."
+            Write-Phase "ORDER_RESULT lacks matching real add-click evidence; continuing instead of false-passing."
         }
         if ($script:BlinkitAddToCartClicked -and $addClickedAt -ne $null -and ((Get-Date) -gt $addClickedAt.AddSeconds(25)) -and ((Get-Date) -gt $lastLiveCartCheck.AddSeconds(8))) {
             $lastLiveCartCheck = Get-Date
@@ -1912,7 +1931,9 @@ try {
         Start-Sleep -Seconds 3
     }
     Enable-BetaAccessibility
-    Wait-BetaAccessibilityConnected 15 | Out-Null
+    if (-not (Wait-BetaAccessibilityConnected 15)) {
+        throw "Beta AccessibilityService did not bind before instruction submission."
+    }
     $escapedInstruction = ConvertTo-AdbShellArg $Instruction
     if ($UseBetaAutoLaunch) {
         adb shell "am broadcast -n $ReceiverComponent -a $Package.SUBMIT_AUTOMATION_INSTRUCTION --ez launch_preferred_commerce_app true --es instruction $escapedInstruction" | Out-Null
@@ -1933,7 +1954,9 @@ try {
         Write-Phase "screen capture was lost; switching to ADB screenshot fallback"
         Ensure-BlinkitForegroundForInstruction
         Enable-BetaAccessibility
-        Wait-BetaAccessibilityConnected 15 | Out-Null
+        if (-not (Wait-BetaAccessibilityConnected 15)) {
+            throw "Beta AccessibilityService did not bind before screenshot fallback."
+        }
         $outcome = Invoke-AdbBackendFlow $Instruction 20
     }
     if ($outcome -ne "success") {

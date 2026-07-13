@@ -10,6 +10,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityWindowInfo
 
 class MyAccessibilityService : AccessibilityService() {
@@ -18,6 +19,8 @@ class MyAccessibilityService : AccessibilityService() {
     private var lastTreeData: String = ""
     private var lastAppName: String = ""
     private var lastNonBlinkitStatusLogMs: Long = 0L
+    @Volatile private var lastCommerceEventElapsedMs: Long = SystemClock.elapsedRealtime()
+    private val quiescenceHandler = Handler(Looper.getMainLooper())
     
     // Get the currently active app package
     val activeAppPackage: String?
@@ -108,14 +111,41 @@ class MyAccessibilityService : AccessibilityService() {
             Log.d("MyAccessibilityService", "ScreenCaptureService status: connected")
         }
 
-        // Check for relevant events to trigger screenshot
+        // Commerce events are timing signals only. Sequence-owned code decides when
+        // to capture so one UI change cannot create overlapping backend requests.
         when (eventType) {
             AccessibilityEvent.TYPE_VIEW_CLICKED,
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,  //handle window state changed.
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> { // Added this condition
-                performScreenshot()
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_FOCUSED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ->
+                lastCommerceEventElapsedMs = SystemClock.elapsedRealtime()
+        }
+    }
+
+    fun runWhenCommerceUiQuiescent(
+        quietMs: Long = 300L,
+        minWaitMs: Long = 180L,
+        maxWaitMs: Long = 1_500L,
+        onReady: () -> Unit
+    ) {
+        val startedAt = SystemClock.elapsedRealtime()
+        lateinit var check: Runnable
+        check = Runnable {
+            val now = SystemClock.elapsedRealtime()
+            val waitedMs = now - startedAt
+            val quietForMs = now - lastCommerceEventElapsedMs
+            if ((waitedMs >= minWaitMs && quietForMs >= quietMs) || waitedMs >= maxWaitMs) {
+                Log.d(
+                    "BetaAgent",
+                    "UI_QUIESCENT waited_ms=$waitedMs quiet_ms=$quietForMs max_wait_ms=$maxWaitMs"
+                )
+                onReady()
+            } else {
+                quiescenceHandler.postDelayed(check, 60L)
             }
         }
+        quiescenceHandler.post(check)
     }
 
     private fun logNonCommerceStatus(packageName: String?, eventType: Int) {

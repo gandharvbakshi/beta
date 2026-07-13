@@ -66,6 +66,7 @@ class ScreenCaptureService : Service() {
     private var overlayLongPressRunnable: Runnable? = null
     private val overlayLongPressHandler = Handler(Looper.getMainLooper())
     private var overlayInteractionMode = OverlayInteractionMode.START_INPUT
+    @Volatile private var terminalStatusActive = false
     
     // Input overlay variables
     private var inputOverlayView: View? = null
@@ -77,6 +78,8 @@ class ScreenCaptureService : Service() {
     private var accessibilityService: MyAccessibilityService? = null
     private var currentInputText: String? = null
     @Volatile private var pendingScreenshot = false
+    @Volatile private var screenshotRequestGeneration = 0L
+    private val screenshotRequestLock = Any()
     private var screenshotEnabled = false // Only take screenshots when explicitly enabled
     private var overlayBounds: android.graphics.Rect? = null
     private var currentTreeData: String? = null
@@ -229,7 +232,50 @@ class ScreenCaptureService : Service() {
                 Log.i("BetaAgent", "CAPTURE_LOST_OVERLAY_CLICKED: opening MainActivity for regrant")
                 openBetaForScreenCaptureRestart()
             }
+            OverlayInteractionMode.RESUME_ORDER -> resumePausedOrder()
         }
+    }
+
+    private fun resumePausedOrder() {
+        val resumed = BackendProcessing.resumeActionSequence(this)
+        if (resumed == null) {
+            Toast.makeText(this, "That paused order can no longer be resumed.", Toast.LENGTH_LONG).show()
+            setOverlayState(OverlayState.READY)
+            return
+        }
+
+        originalInputText = resumed.inputText
+        currentInputText = resumed.inputText
+        currentSequenceGeneration = resumed.generation
+        isActionSequenceActive = true
+        terminalStatusActive = false
+        setOverlayState(OverlayState.WORKING)
+        Log.i("BetaAgent", "RESUMING_ORDER generation=${resumed.generation} input=${resumed.inputText}")
+        triggerNextActionInSequence(
+            resumed.inputText,
+            BackendProcessing.getCurrentActionNumber() + 1,
+            resumed.generation
+        )
+    }
+
+    private fun reconcileInterruptedOrderAfterRestart() {
+        if (!OrderInterruptionCheckpointStore.consumeInterrupted(this)) return
+
+        terminalStatusActive = true
+        automationOverlaySuppressed = false
+        setOverlayStatus(
+            OverlayStatus(
+                label = "Interrupted - check cart",
+                state = OverlayState.READY,
+                interactionMode = OverlayInteractionMode.START_INPUT
+            )
+        )
+        Toast.makeText(
+            this,
+            "The previous order was interrupted. Please check your cart, then start again.",
+            Toast.LENGTH_LONG
+        ).show()
+        Log.w("BetaAgent", "PROCESS_RESTART_RECONCILED: previous_order_interrupted")
     }
 
     private fun openBetaForScreenCaptureRestart() {
@@ -857,6 +903,7 @@ class ScreenCaptureService : Service() {
                 Log.d("ScreenCaptureService", "All validation passed. Starting capture process.")
                 showForegroundNotification()  // Show notification before starting capture
                 startCapture() // Start the capture process
+                Handler(Looper.getMainLooper()).post { reconcileInterruptedOrderAfterRestart() }
             } else {
                 Log.d("ScreenCaptureService", "Service already capturing, ignoring new intent")
             }
@@ -1906,6 +1953,7 @@ class ScreenCaptureService : Service() {
         currentSession = SessionContext()
         retryAttempts = 0
         consecutiveFailures = 0
+        terminalStatusActive = false
         Log.d("ScreenCaptureService", "🚀 Starting new session: ${currentSession?.sessionId}")
     }
 
@@ -1915,12 +1963,17 @@ class ScreenCaptureService : Service() {
     
     // End current session (can be called from BackendProcessing)
     fun endSession(reason: String = "Session ended") {
+        if (terminalStatusActive) {
+            Log.d("ScreenCaptureService", "Ignoring duplicate terminal session end: $reason")
+            return
+        }
         currentSession?.let { session ->
             Log.d("ScreenCaptureService", "🏁 Ending session: ${session.sessionId} - Reason: $reason")
         }
         currentSession = null
         retryAttempts = 0
         consecutiveFailures = 0
+        terminalStatusActive = true
         
         // Overlay views must be touched from the main thread. Keep the block visible
         // briefly so the user can see whether the flow completed, stopped, or failed.
@@ -1944,20 +1997,15 @@ class ScreenCaptureService : Service() {
                 } else {
                     updateOverlayText(terminalText)
                 }
-                Handler(Looper.getMainLooper()).postDelayed({
-                    if (::overlayView.isInitialized) {
-                        if (isEmulator()) {
-                            setOverlayState(OverlayState.READY)
-                        } else {
-                            setOverlayState(OverlayState.READY)
-                        }
-                    }
-                }, 4000)
             }
         }
     }
 
     fun updateSessionStatus(status: String) {
+        if (terminalStatusActive) {
+            Log.d("ScreenCaptureService", "Ignoring status after terminal result: $status")
+            return
+        }
         Handler(Looper.getMainLooper()).post {
             if (::overlayView.isInitialized) {
                 overlayView.visibility = View.VISIBLE
@@ -1972,13 +2020,20 @@ class ScreenCaptureService : Service() {
 
     fun showPausedInterruptionStatus(status: String) {
         isActionSequenceActive = false
-        originalInputText = null
-        currentSequenceGeneration = -1L
-        currentInputText = null
+        terminalStatusActive = false
+        invalidatePendingScreenshot("user interruption")
+        automationOverlaySuppressed = false
 
         Handler(Looper.getMainLooper()).post {
             hideInputOverlay()
-            applyOverlayTextOrState(status)
+            setOverlayStatus(
+                OverlayStatus(
+                    label = "Tap to resume",
+                    state = OverlayState.READY,
+                    interactionMode = OverlayInteractionMode.RESUME_ORDER
+                )
+            )
+            Log.i("BetaAgent", "PAUSED_ORDER_VISIBLE: $status")
         }
     }
     
@@ -2331,7 +2386,6 @@ class ScreenCaptureService : Service() {
     }
     
     private fun triggerNextActionInSequence(originalInput: String, actionNumber: Int, sequenceGeneration: Long) {
-        // Log.d("ScreenCaptureService", "Triggering next action #$actionNumber in sequence for: '$originalInput'")
         if (!BackendProcessing.isCurrentSequenceTrigger(originalInput, sequenceGeneration)) {
             Log.w(
                 "ScreenCaptureService",
@@ -2344,87 +2398,53 @@ class ScreenCaptureService : Service() {
             return
         }
         
-        // Store the original input for this sequence
         originalInputText = originalInput
         currentInputText = originalInput
         currentSequenceGeneration = sequenceGeneration
         isActionSequenceActive = true
-        
-        // Update overlay to show current action
-        if (isEmulator()) {
-            setOverlayState(OverlayState.CAPTURING)
-        } else {
-            setOverlayState(OverlayState.CAPTURING)
-        }
-        
-        // Trigger the same sequence as submitInstruction but for the next action
-        Handler(Looper.getMainLooper()).postDelayed(outerTrigger@{
+        setOverlayState(OverlayState.CAPTURING)
+
+        val accessibility = (application as? MyApplication)?.getAccessibilityService()
+        val capture = capture@{
             try {
                 if (!BackendProcessing.isCurrentSequenceTrigger(originalInput, sequenceGeneration)) {
                     Log.w(
                         "ScreenCaptureService",
-                        "Ignoring stale delayed sequence trigger for '$originalInput' generation=$sequenceGeneration"
+                        "Ignoring stale quiescent capture for '$originalInput' generation=$sequenceGeneration"
                     )
-                    return@outerTrigger
+                    return@capture
                 }
-                val myApp = application as? MyApplication
-                val accessibilityService = myApp?.getAccessibilityService()
-                
-                if (accessibilityService != null) {
-                    accessibilityService.showBlinkitTree()
-                    
-                    // Wait for tree data to be captured, then trigger screenshot
-                    Handler(Looper.getMainLooper()).postDelayed(treeCapture@{
-                        if (!BackendProcessing.isCurrentSequenceTrigger(originalInput, sequenceGeneration)) {
-                            Log.w(
-                                "ScreenCaptureService",
-                                "Ignoring stale tree capture for '$originalInput' generation=$sequenceGeneration"
-                            )
-                            return@treeCapture
-                        }
-                        // Get the captured tree data and app name
-                        val treeData = accessibilityService.getLastTreeData()
-                        val appName = accessibilityService.getLastAppName()
-                        
-                        // Log.d("ScreenCaptureService", "Next action tree data captured - length: ${treeData.length}, app: $appName")
-                        
-                        // Store the data for backend processing
-                        currentTreeData = treeData
-                        currentAppName = appName
-                        
-                        // Now trigger screenshot with tree data ready
-                        if (!ensureCaptureReadyForAutomation("next action screenshot")) {
-                            return@treeCapture
-                        }
-                        enableScreenshots()
-                        pendingScreenshot = true
-                        triggerScreenshot()
-                        
-                    }, 800) // Wait 800ms for tree data to be captured
-                    
-                } else {
-                    // Log.w("ScreenCaptureService", "Accessibility service not available for next action")
-                    // Fallback: trigger screenshot without tree data
-                    if (!ensureCaptureReadyForAutomation("next action without accessibility")) {
-                        return@outerTrigger
-                    }
-                    enableScreenshots()
-                    pendingScreenshot = true
-                    triggerScreenshot()
+
+                if (accessibility != null) {
+                    accessibility.showBlinkitTree()
+                    currentTreeData = accessibility.getLastTreeData()
+                    currentAppName = accessibility.getLastAppName()
                 }
+
+                if (!ensureCaptureReadyForAutomation("next action screenshot")) return@capture
+                Log.i(
+                    "BetaAgent",
+                    "OBSERVATION_CAPTURE action=$actionNumber generation=$sequenceGeneration tree_chars=${currentTreeData?.length ?: 0}"
+                )
+                enableScreenshots()
+                pendingScreenshot = true
+                triggerScreenshot()
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error triggering next action tree view: ${e.message}", e)
-                e.printStackTrace()
-                // Fallback: trigger screenshot without tree data
                 if (!ensureCaptureReadyForAutomation("next action fallback after error")) {
-                    return@outerTrigger
+                    return@capture
                 }
                 enableScreenshots()
                 pendingScreenshot = true
                 triggerScreenshot()
             }
-            
-        }, 500) // 500ms delay to ensure UI is ready
+        }
+
+        if (accessibility != null) {
+            accessibility.runWhenCommerceUiQuiescent(onReady = capture)
+        } else {
+            Handler(Looper.getMainLooper()).postDelayed({ capture() }, 250L)
+        }
     }
     
     fun stopActionSequence() {
@@ -2445,6 +2465,24 @@ class ScreenCaptureService : Service() {
         screenshotEnabled = false
         Log.d("ScreenCaptureService", "🔍 DEBUG: Screenshots disabled")
     }
+
+    private fun beginScreenshotRequest(): Long = synchronized(screenshotRequestLock) {
+        screenshotRequestGeneration += 1L
+        pendingScreenshot = true
+        screenshotRequestGeneration
+    }
+
+    private fun invalidatePendingScreenshot(reason: String) {
+        synchronized(screenshotRequestLock) {
+            screenshotRequestGeneration += 1L
+            pendingScreenshot = false
+        }
+        disableScreenshots()
+        Log.d("ScreenCaptureService", "Screenshot request invalidated: $reason")
+    }
+
+    private fun isScreenshotRequestPending(generation: Long): Boolean =
+        pendingScreenshot && screenshotRequestGeneration == generation
     
     fun isScreenshotEnabled(): Boolean {
         return screenshotEnabled
@@ -2492,7 +2530,8 @@ class ScreenCaptureService : Service() {
 
     private enum class OverlayInteractionMode {
         START_INPUT,
-        CAPTURE_LOST
+        CAPTURE_LOST,
+        RESUME_ORDER
     }
 
     private data class OverlayStatus(
@@ -2734,6 +2773,11 @@ class ScreenCaptureService : Service() {
                         overlayView.visibility = if (automationOverlaySuppressed) View.GONE else View.VISIBLE
                         Log.d("ScreenCaptureService", "Emulator overlay visibility restored to ${overlayView.visibility}")
 
+                        if (BackendProcessing.isSequencePaused()) {
+                            Log.d("ScreenCaptureService", "Sequence paused; preserving paused emulator overlay status")
+                            return@post
+                        }
+
                         if (sequenceActive) {
                             Log.d("ScreenCaptureService", "Sequence active; preserving current emulator overlay status")
                             return@post
@@ -2777,6 +2821,11 @@ class ScreenCaptureService : Service() {
                     )
                     overlayView.visibility = if (automationOverlaySuppressed) View.GONE else View.VISIBLE
                     Log.d("ScreenCaptureService", "Overlay visibility restored to ${overlayView.visibility}")
+
+                    if (BackendProcessing.isSequencePaused()) {
+                        Log.d("ScreenCaptureService", "Sequence paused; preserving paused overlay status")
+                        return@post
+                    }
 
                     if (sequenceActive) {
                         Log.d("ScreenCaptureService", "Sequence active; preserving current overlay status")
@@ -3212,7 +3261,7 @@ class ScreenCaptureService : Service() {
         Log.d("ScreenCaptureService", "Setting pending screenshot flag")
         Log.d("ScreenCaptureService", "Current input text: $currentInputText")
         drainStaleScreenshotFrame("trigger")
-        pendingScreenshot = true
+        val requestGeneration = beginScreenshotRequest()
         
         // ENHANCED: Temporarily hide the overlay during screenshot capture
         try {
@@ -3232,6 +3281,11 @@ class ScreenCaptureService : Service() {
         
         // Add delay to ensure overlay is hidden before capturing
         Handler(Looper.getMainLooper()).postDelayed({
+            if (!isScreenshotRequestPending(requestGeneration)) {
+                Log.d("ScreenCaptureService", "Ignoring stale screenshot hide callback generation=$requestGeneration")
+                return@postDelayed
+            }
+
             // ENHANCED: Verify overlay is actually hidden before proceeding
             if (::overlayView.isInitialized) {
                 if (overlayView.visibility != View.INVISIBLE) {
@@ -3246,7 +3300,7 @@ class ScreenCaptureService : Service() {
             
             handler?.post {
                 try {
-                    if (!pendingScreenshot) {
+                    if (!isScreenshotRequestPending(requestGeneration)) {
                         Log.d("ScreenCaptureService", "Screenshot frame arrived after overlay hide")
                         return@post
                     }
@@ -3258,7 +3312,7 @@ class ScreenCaptureService : Service() {
                     }
 
                     handler?.postDelayed({
-                        if (pendingScreenshot) {
+                        if (isScreenshotRequestPending(requestGeneration)) {
                             Log.w("ScreenCaptureService", "Screenshot timeout - attempting manual image acquisition")
                             pendingScreenshot = false
 

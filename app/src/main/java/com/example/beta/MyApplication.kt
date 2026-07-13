@@ -53,6 +53,12 @@ class MyApplication : Application() {
 
     // Saves the provided bitmap to the MediaStore
     fun saveScreenshot(bitmap: Bitmap?) {
+        val debugScreenshotSavingEnabled = BuildConfig.DEBUG &&
+            getSharedPreferences("debug_options", MODE_PRIVATE)
+                .getBoolean("save_screenshots_to_gallery", false)
+        if (!debugScreenshotSavingEnabled) {
+            return
+        }
         if (bitmap == null) {
             Log.e("MyApplication", "saveScreenshot: Bitmap is null, cannot save.")
             return

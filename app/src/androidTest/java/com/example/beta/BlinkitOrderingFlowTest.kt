@@ -12,6 +12,7 @@ import androidx.test.uiautomator.Until
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -25,6 +26,7 @@ class BlinkitOrderingFlowTest {
     private val blinkitPackage = "com.grofers.customerapp"
     private val accessibilityService = "live.betaapp.android/com.example.beta.MyAccessibilityService"
     private val targetInstruction = "order butter"
+    private var lastAccessibilityDump = ""
 
     @Before
     fun setup() {
@@ -41,13 +43,18 @@ class BlinkitOrderingFlowTest {
         device.pressHome()
     }
 
+    @Ignore("Run via scripts/run_blinkit_flow_test.ps1 so Beta AccessibilityService is outside its target instrumentation process")
     @Test
     fun orderButterStopsAtCartVerification() {
         assertTrue("Blinkit package is not installed: $blinkitPackage", isPackageInstalled(blinkitPackage))
         assertTrue("Beta AccessibilityService is not enabled", isAccessibilityServiceEnabled())
 
         launchApp(betaPackage)
-        assertTrue("Beta AccessibilityService did not bind", waitForAccessibilityServiceBound())
+        val accessibilityBound = waitForAccessibilityServiceBound()
+        assertTrue(
+            "Beta AccessibilityService did not bind. ${lastAccessibilityDump.take(2_000)}",
+            accessibilityBound
+        )
         startScreenCaptureIfNeeded()
         launchApp(blinkitPackage)
         submitInstructionFromOverlay(targetInstruction)
@@ -73,7 +80,13 @@ class BlinkitOrderingFlowTest {
     }
 
     private fun startScreenCaptureIfNeeded() {
-        val button = waitAny(7_000, "Start Capture", "Start screen capture", "button_start_screen_capture")
+        val button = waitAny(
+            7_000,
+            "Get started",
+            "Start Capture",
+            "Start screen capture",
+            "button_start_screen_capture"
+        )
             ?: return
         button.click()
 
@@ -108,16 +121,10 @@ class BlinkitOrderingFlowTest {
     private fun waitForSafeCartSignal(timeoutMs: Long): Boolean {
         val start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < timeoutMs) {
-            if (hasAnyVisibleText("STATE: SUCCESS", "FLOW_SUCCESS", "CART_INCREMENT_CONFIRMED")) {
-                return true
-            }
-            if (hasAnyVisibleText("View cart", "View Cart", "Cart", "added to cart")) {
-                return true
-            }
             if (logcatContainsSuccess()) {
                 return true
             }
-            if (hasAnyVisibleText("STATE: FAILED", "FLOW_FAILED")) {
+            if (hasAnyVisibleText("STATE: FAILED", "FLOW_FAILED") || logcatContainsFailure()) {
                 return false
             }
             Thread.sleep(1_000)
@@ -127,23 +134,24 @@ class BlinkitOrderingFlowTest {
 
     private fun enableAccessibilityService() {
         val current = runShell("settings get secure enabled_accessibility_services").trim()
-        if (current.contains(accessibilityService)) {
-            return
-        }
         val next = when {
             current == "null" || current.isBlank() -> accessibilityService
+            current.contains(accessibilityService) -> current
             else -> "$current:$accessibilityService"
         }
+        runShell("settings put secure accessibility_enabled 0")
         runShell("settings put secure enabled_accessibility_services $next")
+        Thread.sleep(500)
         runShell("settings put secure accessibility_enabled 1")
     }
 
-    private fun waitForAccessibilityServiceBound(timeoutMs: Long = 10_000): Boolean {
+    private fun waitForAccessibilityServiceBound(timeoutMs: Long = 20_000): Boolean {
         val start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < timeoutMs) {
             val dump = runShell("dumpsys accessibility")
-            if (!dump.contains("Bound services:{}") &&
-                !dump.contains("Bound services: {}") &&
+            lastAccessibilityDump = dump
+            if ((dump.contains("Bound services:{Service[") ||
+                    dump.contains("Bound services: {Service[")) &&
                 dump.contains("live.betaapp.android/com.example.beta.MyAccessibilityService") &&
                 !dump.contains("Crashed services:{{live.betaapp.android/com.example.beta.MyAccessibilityService}}")
             ) {
@@ -169,8 +177,21 @@ class BlinkitOrderingFlowTest {
 
     private fun logcatContainsSuccess(): Boolean {
         val logs = runShell("logcat -d -s BetaAgent:I BetaAgent:E")
-        return logs.contains("FLOW_SUCCESS") ||
-            logs.contains("BLINKIT_CART_INCREMENT_CONFIRMED")
+        val terminal = logs.lineSequence().lastOrNull { it.contains("ORDER_RESULT") } ?: return false
+        val addClickCount = logs.lineSequence().count { it.contains("BLINKIT_ADD_TO_CART_CLICKED") }
+        return terminal.contains("items_total=1") &&
+            terminal.contains("items_succeeded=1") &&
+            terminal.contains("items_failed=0") &&
+            addClickCount == 1
+    }
+
+    private fun logcatContainsFailure(): Boolean {
+        val logs = runShell("logcat -d -s BetaAgent:I BetaAgent:E")
+        return logs.contains("FLOW_FAILED") ||
+            logs.contains("checkout_boundary") ||
+            logs.lineSequence().any {
+                it.contains("ORDER_RESULT") && !it.contains("items_failed=0")
+            }
     }
 
     private fun waitAny(timeoutMs: Long, vararg textParts: String): UiObject2? {

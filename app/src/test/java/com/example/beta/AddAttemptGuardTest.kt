@@ -1,0 +1,29 @@
+package com.example.beta
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class AddAttemptGuardTest {
+    @Test
+    fun reserve_allowsOnlyOneAttemptUntilNewItemReset() {
+        val guard = AddAttemptGuard()
+
+        assertTrue(guard.reserve())
+        assertTrue(guard.isConsumed())
+        assertFalse(guard.reserve())
+    }
+
+    @Test
+    fun reset_allowsTheNextItemAttempt() {
+        val guard = AddAttemptGuard()
+
+        assertTrue(guard.reserve())
+        assertFalse(guard.reserve())
+
+        guard.reset()
+
+        assertTrue(guard.reserve())
+        assertTrue(guard.isConsumed())
+    }
+}

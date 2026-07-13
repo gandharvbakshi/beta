@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
 import android.view.accessibility.AccessibilityWindowInfo
 import android.view.accessibility.AccessibilityNodeInfo
@@ -30,6 +32,12 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         private val COMMERCE_SEARCH_FIELD_VIEW_IDS = listOf(
             "in.swiggy.android.instamart:id/et_search_query_v2",
         )
+        private val gestureCallbackThread by lazy {
+            HandlerThread("BetaGestureCallbacks").apply { start() }
+        }
+        private val gestureCallbackHandler by lazy {
+            Handler(gestureCallbackThread.looper)
+        }
     }
 
     private data class TapAdjustment(
@@ -48,6 +56,13 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     private enum class QuantityStepDirection {
         INCREMENT,
         DECREMENT
+    }
+
+    private enum class GestureAwaitOutcome {
+        COMPLETED,
+        CANCELLED,
+        TIMEOUT,
+        DISPATCH_REJECTED
     }
 
     private var lastSwiggyTopSearchFocusTapAtMs: Long = 0L
@@ -72,6 +87,47 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
     private fun newQuickNodeScanBudget() = NodeScanBudget(maxNodes = 90, maxDurationMs = 250)
     private fun newDefaultNodeScanBudget() = NodeScanBudget(maxNodes = 450, maxDurationMs = 800)
+
+    private fun dispatchGestureAndAwaitOutcome(
+        gesture: android.accessibilityservice.GestureDescription,
+        gestureName: String,
+        timeoutMs: Long = GestureCompletionPolicy.DEFAULT_COMPLETION_TIMEOUT_MS
+    ): GestureAwaitOutcome {
+        val completionLatch = CountDownLatch(1)
+        var outcome = GestureAwaitOutcome.TIMEOUT
+
+        return run {
+            val dispatched = accessibilityService.dispatchGesture(
+                gesture,
+                object : AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(
+                        gestureDescription: android.accessibilityservice.GestureDescription?
+                    ) {
+                        outcome = GestureAwaitOutcome.COMPLETED
+                        DebugLogger.logGestureResult(gestureName, completed = true, cancelled = false)
+                        completionLatch.countDown()
+                    }
+
+                    override fun onCancelled(
+                        gestureDescription: android.accessibilityservice.GestureDescription?
+                    ) {
+                        outcome = GestureAwaitOutcome.CANCELLED
+                        DebugLogger.logGestureResult(gestureName, completed = false, cancelled = true)
+                        completionLatch.countDown()
+                    }
+                },
+                gestureCallbackHandler
+            )
+
+            if (!dispatched) {
+                GestureAwaitOutcome.DISPATCH_REJECTED
+            } else if (!completionLatch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+                GestureAwaitOutcome.TIMEOUT
+            } else {
+                outcome
+            }
+        }
+    }
     
     private fun hasRequiredPermissions(): Boolean {
         val serviceInfo = accessibilityService.serviceInfo
@@ -439,9 +495,6 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             handleBlockingSystemDialogs()
             handleBlockingCommerceAppDialogs()
 
-            // Add a small delay to ensure UI is stable
-            Thread.sleep(500)
-
             if (!actionTarget.contains("search", ignoreCase = true) &&
                 requiresCommerceForegroundForAction(actionType, recommendedAction) &&
                 !isCommerceForeground() &&
@@ -454,10 +507,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 "click" -> performClick(recommendedAction)
                 "scroll" -> performScroll(recommendedAction)
                 "type" -> performType(recommendedAction)
-                "wait" -> {
-                    Thread.sleep(1500)
-                    true
-                }
+                "wait" -> true
                 "back", "press_back" -> accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
                 "swipe" -> performSwipe(recommendedAction)
                 "long_press" -> performLongPress(recommendedAction)
@@ -479,10 +529,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 "click" -> performClick(recommendedAction)
                 "scroll" -> performScroll(recommendedAction)
                 "type" -> performType(recommendedAction)
-                "wait" -> {
-                    Thread.sleep(1500)
-                    true
-                }
+                "wait" -> true
                 "back", "press_back" -> accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
                 "swipe" -> performSwipe(recommendedAction)
                 "long_press" -> performLongPress(recommendedAction)
@@ -572,44 +619,26 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             }
         }
         
-        // For ADD buttons, use coordinate validation with retry logic
+        // For ADD buttons, use a single attempt only
         if (isAddButton) {
-            Log.d(TAG, "ADD button detected - using coordinate validation approach")
-            val rootNode = accessibilityService.rootInActiveWindow
+            Log.d(TAG, "ADD button detected - using single-attempt path")
             val hasCoordinates = recommendedAction.optJSONObject("coordinates") != null ||
                 recommendedAction.optJSONObject("fallback_coordinates") != null
+
             if (hasCoordinates) {
-                val coordinateSuccess = performAddButtonClickWithValidation(recommendedAction)
-                if (coordinateSuccess) {
-                    return true
-                }
-                Log.w(TAG, "ADD coordinate validation failed; trying accessibility fallback")
-                if (rootNode != null && isVariantAddAction(recommendedAction)) {
-                    val modalAdd = findModalAddButtonElement(rootNode, recommendedAction)
-                    if (modalAdd != null) {
-                        Log.d(TAG, "Found modal ADD button via accessibility tree; clicking nearest match")
-                        val clicked = modalAdd.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        if (clicked) {
-                            return true
-                        }
-                        Log.w(TAG, "Modal ADD ACTION_CLICK failed; giving up after coordinate validation")
-                    }
-                }
-                return false
+                return performAddButtonClickWithValidation(recommendedAction)
             }
 
+            val rootNode = accessibilityService.rootInActiveWindow
             if (rootNode != null && isVariantAddAction(recommendedAction)) {
                 val modalAdd = findModalAddButtonElement(rootNode, recommendedAction)
                 if (modalAdd != null) {
-                    Log.d(TAG, "Found modal ADD button via accessibility tree; clicking nearest match")
-                    val clicked = modalAdd.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    if (clicked) {
-                        return true
-                    }
-                    Log.w(TAG, "Modal ADD ACTION_CLICK failed; falling back to coordinate validation")
+                    Log.d(TAG, "Found modal ADD button via accessibility tree; clicking once")
+                    return modalAdd.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 }
             }
-            return performAddButtonClickWithValidation(recommendedAction)
+
+            return false
         }
         
         // Try to find element using multiple methods
@@ -984,8 +1013,12 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             return false
         }
 
-        val keepSearchOpen = shouldKeepSearchInputOpen(recommendedAction)
-        if (keepSearchOpen) {
+        val isSearchInputAction = shouldKeepSearchInputOpen(recommendedAction)
+        val keepSearchOpen = SearchSubmissionPolicy.keepSearchInputOpen(
+            isSearchInputAction = isSearchInputAction,
+            isBlinkitForeground = isBlinkitForeground()
+        )
+        if (isSearchInputAction) {
             recoverBlinkitProductSurfaceBeforeSearchTyping()
             if (isBlinkitProductDetailOrGallerySurfaceActive()) {
                 Log.w(TAG, "Refusing Blinkit search typing while product detail/gallery surface is still active")
@@ -1653,30 +1686,27 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             return performRawCoordinateClick(action)
         }
 
-        val completionLatch = CountDownLatch(1)
-        val resultHolder = BooleanArray(1)
-        val success = performRawCoordinateClick(action, object : AccessibilityService.GestureResultCallback() {
-            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                resultHolder[0] = true
-                completionLatch.countDown()
-            }
+        val path = android.graphics.Path().apply {
+            moveTo(x.toFloat(), y.toFloat())
+        }
+        val gesture = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(
+                android.accessibilityservice.GestureDescription.StrokeDescription(
+                    path,
+                    0,
+                    100
+                )
+            )
+            .build()
 
-            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                resultHolder[0] = false
-                completionLatch.countDown()
-            }
-        })
-
-        if (!success) {
+        val outcome = dispatchGestureAndAwaitOutcome(gesture, "raw_coordinate_click")
+        if (outcome == GestureAwaitOutcome.DISPATCH_REJECTED) {
             return false
         }
-
-        if (!completionLatch.await(900, TimeUnit.MILLISECONDS)) {
-            Log.w(TAG, "Timed out waiting for raw keyboard tap to finish at ($x, $y)")
-            return true
+        if (outcome == GestureAwaitOutcome.TIMEOUT) {
+            Log.w(TAG, "Timed out waiting for raw coordinate click to finish at ($x, $y)")
         }
-
-        return resultHolder[0]
+        return outcome == GestureAwaitOutcome.COMPLETED
     }
 
     private fun keyboardKeyCenters(screenWidth: Int, screenHeight: Int): Map<Char, Pair<Int, Int>> {
@@ -3620,6 +3650,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
         
         val coordinates = recommendedAction.optJSONObject("coordinates")
+            ?: recommendedAction.optJSONObject("fallback_coordinates")
         if (coordinates == null) {
             Log.w(TAG, "No coordinates provided for ADD button")
             return false
@@ -3629,47 +3660,8 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         val originalY = coordinates.optInt("y", 0)
         
         Log.d(TAG, "Original ADD button coordinates: ($originalX, $originalY)")
-        
-        // Strategy 1: Try original coordinates with validation
-        val success1 = performClickByCoordinatesWithValidation(recommendedAction, "Original coordinates")
-        if (success1) {
-            Log.d(TAG, "ADD button click attempt 1: SUCCESS")
-            return true
-        }
-        if (isSwiggyAdd && closeSwiggyFullscreenProductPreviewIfActive("after ADD coordinate click")) {
-            return false
-        }
-        
-        // Strategy 2: Try multiple coordinate adjustments for typical product card layouts
-        val coordinateStrategies = listOf(
-            "Move right (avoid heart icon)" to Pair(originalX + 50, originalY),
-            "Move down (avoid heart icon)" to Pair(originalX, originalY + 30),
-            "Move right+down" to Pair(originalX + 30, originalY + 20),
-            "Move left (if heart was on right)" to Pair(originalX - 30, originalY),
-            "Move up (if ADD button is above)" to Pair(originalX, originalY - 20),
-            "Move right+up" to Pair(originalX + 40, originalY - 10),
-            "Move left+down" to Pair(originalX - 20, originalY + 25)
-        )
-        
-        for ((strategyName, coords) in coordinateStrategies) {
-            Log.d(TAG, "ADD button click attempt: $strategyName at (${coords.first}, ${coords.second})")
-            
-            val adjustedAction = JSONObject(recommendedAction.toString()).apply {
-                put("coordinates", JSONObject().apply {
-                    put("x", coords.first)
-                    put("y", coords.second)
-                })
-            }
-            
-            val success = performClickByCoordinatesWithValidation(adjustedAction, strategyName)
-            if (success) {
-                Log.d(TAG, "ADD button click SUCCESS with strategy: $strategyName")
-                return true
-            }
-        }
-        
-        Log.d(TAG, "All ADD button click strategies failed")
-        return false
+
+        return performClickByCoordinatesWithValidation(recommendedAction, "ADD button")
     }
     
     private fun performClickByCoordinatesWithValidation(recommendedAction: JSONObject, strategyName: String): Boolean {
@@ -3770,19 +3762,6 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 targetDescription = "$strategyName - $actionTarget"
             )
             
-            // Create a gesture for clicking at specific coordinates
-            val gestureBuilder = object : AccessibilityService.GestureResultCallback() {
-                override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                    Log.d(TAG, "Coordinate click gesture completed: $strategyName")
-                    DebugLogger.logGestureResult(strategyName, completed = true, cancelled = false)
-                }
-                
-                override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                    Log.w(TAG, "Coordinate click gesture cancelled: $strategyName")
-                    DebugLogger.logGestureResult(strategyName, completed = false, cancelled = true)
-                }
-            }
-            
             // Create a tap gesture (press and release)
             val path = android.graphics.Path().apply { 
                 moveTo(x.toFloat(), y.toFloat())
@@ -3794,10 +3773,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 ))
                 .build()
             
-            val dispatchResult = accessibilityService.dispatchGesture(gesture, gestureBuilder, null)
-            Log.d(TAG, "Coordinate click dispatch result: $dispatchResult")
-            
-            if (dispatchResult) {
+            val dispatchOutcome = dispatchGestureAndAwaitOutcome(gesture, strategyName)
+            Log.d(TAG, "Coordinate click dispatch result: $dispatchOutcome")
+
+            if (dispatchOutcome == GestureAwaitOutcome.COMPLETED) {
                 // Add a small delay to allow UI to respond
                 Thread.sleep(200)
                 
@@ -3849,8 +3828,14 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                     buttonCenterAdjustment = buttonCenterAdjustment,
                     success = false
                 )
-                
-                Log.w(TAG, "Click dispatch failed: $strategyName")
+
+                if (dispatchOutcome == GestureAwaitOutcome.TIMEOUT) {
+                    Log.w(TAG, "Click gesture timed out before completion: $strategyName")
+                } else if (dispatchOutcome == GestureAwaitOutcome.CANCELLED) {
+                    Log.w(TAG, "Click gesture cancelled before completion: $strategyName")
+                } else {
+                    Log.w(TAG, "Click dispatch failed: $strategyName")
+                }
                 return false
             }
         }
@@ -4045,19 +4030,6 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 targetDescription = "coordinate_click - $actionTarget"
             )
             
-            // Create a gesture for clicking at specific coordinates
-            val gestureBuilder = object : AccessibilityService.GestureResultCallback() {
-                override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                    Log.d(TAG, "Coordinate click gesture completed: coordinate_click")
-                    DebugLogger.logGestureResult("coordinate_click", completed = true, cancelled = false)
-                }
-                
-                override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                    Log.w(TAG, "Coordinate click gesture cancelled: coordinate_click")
-                    DebugLogger.logGestureResult("coordinate_click", completed = false, cancelled = true)
-                }
-            }
-            
             // Create a tap gesture (press and release)
             val path = android.graphics.Path().apply { 
                 moveTo(x.toFloat(), y.toFloat())
@@ -4069,9 +4041,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 ))
                 .build()
             
-            val success = accessibilityService.dispatchGesture(gesture, gestureBuilder, null)
-            Log.d(TAG, "Coordinate click dispatch result: $success")
-            
+            val dispatchOutcome = dispatchGestureAndAwaitOutcome(gesture, "coordinate_click")
+            Log.d(TAG, "Coordinate click dispatch result: $dispatchOutcome")
+
             // Log the actual result AFTER dispatch
             DebugLogger.logClickExecution(
                 strategy = "coordinate_click",
@@ -4082,7 +4054,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 statusBarAdjustment = statusBarAdjustment,
                 overlayDeflection = overlayDeflection,
                 buttonCenterAdjustment = buttonCenterAdjustment,
-                success = success
+                success = dispatchOutcome == GestureAwaitOutcome.COMPLETED
             )
             
             // Log comprehensive scaling analysis for hypothesis verification
@@ -4100,7 +4072,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             // TODO: Add verification for "ADD" button clicks to detect wishlist misclicks
             // Could monitor for "Added to wishlist" toasts or check cart badge changes
             
-            return success
+            return dispatchOutcome == GestureAwaitOutcome.COMPLETED
         }
         
         Log.w(TAG, "No fallback coordinates available")

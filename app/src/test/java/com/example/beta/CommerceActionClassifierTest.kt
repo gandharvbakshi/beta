@@ -6,6 +6,24 @@ import org.junit.Test
 
 class CommerceActionClassifierTest {
     @Test
+    fun productAddButtonAction_doesNotTreatVariantOptionsAsCartMutation() {
+        assertFalse(
+            CommerceActionClassifier.isProductAddButtonAction(
+                "Open variant options for butter",
+                "2 options",
+                ""
+            )
+        )
+        assertTrue(
+            CommerceActionClassifier.isProductAddButtonAction(
+                "ADD button for smallest variant of butter",
+                "ADD",
+                ""
+            )
+        )
+    }
+
+    @Test
     fun checkoutOrPaymentExecutionAction_blocksPaymentActions() {
         assertTrue(
             CommerceActionClassifier.isCheckoutOrPaymentExecutionAction(
@@ -41,11 +59,17 @@ class CommerceActionClassifierTest {
     }
 
     @Test
-    fun checkoutOrPaymentExecutionAction_allowsCartReviewLanguage() {
-        assertFalse(
+    fun checkoutOrPaymentExecutionAction_blocksOpeningCartForVerification() {
+        assertTrue(
             CommerceActionClassifier.isCheckoutOrPaymentExecutionAction(
                 "click",
                 "open cart to verify items"
+            )
+        )
+        assertTrue(
+            CommerceActionClassifier.isCheckoutOrPaymentExecutionAction(
+                "click",
+                "View cart"
             )
         )
         assertFalse(
