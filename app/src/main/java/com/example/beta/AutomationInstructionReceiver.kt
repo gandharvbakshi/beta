@@ -55,7 +55,7 @@ class AutomationInstructionReceiver : BroadcastReceiver() {
 
         Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
         if (intent.getBooleanExtra(CommerceAppLauncher.EXTRA_LAUNCH_PREFERRED_COMMERCE_APP, false)) {
-            val launchResult = CommerceAppLauncher.launchPreferred(context)
+            val launchResult = CommerceAppLauncher.launchPreferred(context, instruction)
             if (!launchResult.launched) {
                 Toast.makeText(context, launchResult.message, Toast.LENGTH_LONG).show()
                 Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_COMMERCE_APP: $instruction")

@@ -754,7 +754,7 @@ class ScreenCaptureService : Service() {
 
         Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
         if (intent.getBooleanExtra(CommerceAppLauncher.EXTRA_LAUNCH_PREFERRED_COMMERCE_APP, false)) {
-            val launchResult = CommerceAppLauncher.launchPreferred(this)
+            val launchResult = CommerceAppLauncher.launchPreferred(this, instruction)
             if (!launchResult.launched) {
                 Toast.makeText(this, launchResult.message, Toast.LENGTH_LONG).show()
                 Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_COMMERCE_APP: $instruction")
@@ -2182,7 +2182,7 @@ class ScreenCaptureService : Service() {
     }
     
     fun submitAutomationInstruction(inputText: String) {
-        val instruction = inputText.trim()
+        val instruction = CommerceProviderRouter.sanitizeOrderInstruction(inputText)
         Log.i("BetaAgent", "SUBMIT_AUTOMATION_INSTRUCTION_CALLED: $instruction")
         submitInstruction(instruction)
     }
@@ -2203,7 +2203,7 @@ class ScreenCaptureService : Service() {
         }
         hideInputOverlay()
 
-        val launchResult = CommerceAppLauncher.launchPreferred(this)
+        val launchResult = CommerceAppLauncher.launchPreferred(this, instruction)
         if (!launchResult.launched) {
             Toast.makeText(this, launchResult.message, Toast.LENGTH_LONG).show()
             Log.w("BetaAgent", "USER_INSTRUCTION_NO_COMMERCE_APP: $instruction")

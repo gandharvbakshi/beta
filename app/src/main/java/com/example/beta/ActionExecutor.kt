@@ -21,15 +21,18 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     companion object {
         private const val TAG = "ActionExecutor"
         private const val BLINKIT_PACKAGE = "com.grofers.customerapp"
+        private const val SWIGGY_MAIN_PACKAGE = "in.swiggy.android"
         private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
         private const val ZEPTO_PACKAGE = "com.zeptoconsumerapp"
         private const val SWIGGY_SEARCH_FOCUS_MARK_MAX_AGE_MS = 120000L
         private val SUPPORTED_COMMERCE_PACKAGES = setOf(
             BLINKIT_PACKAGE,
+            SWIGGY_MAIN_PACKAGE,
             SWIGGY_INSTAMART_PACKAGE,
             ZEPTO_PACKAGE,
         )
         private val COMMERCE_SEARCH_FIELD_VIEW_IDS = listOf(
+            "in.swiggy.android:id/et_search_query_v2",
             "in.swiggy.android.instamart:id/et_search_query_v2",
         )
         private val gestureCallbackThread by lazy {
@@ -1262,7 +1265,11 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     }
 
     private fun isSwiggyForeground(): Boolean {
-        return visibleWindowPackages().any { it == SWIGGY_INSTAMART_PACKAGE }
+        return visibleWindowPackages().any(::isSwiggyPackage)
+    }
+
+    private fun isSwiggyPackage(packageName: String?): Boolean {
+        return packageName == SWIGGY_MAIN_PACKAGE || packageName == SWIGGY_INSTAMART_PACKAGE
     }
 
     private fun isZeptoForeground(): Boolean {
@@ -1361,7 +1368,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             recommendedAction.optString("app_name", "")
         ).joinToString(" ").lowercase()
         return when {
-            "swiggy" in actionText || "instamart" in actionText -> SWIGGY_INSTAMART_PACKAGE
+            "swiggy" in actionText || "instamart" in actionText -> SWIGGY_MAIN_PACKAGE
             "zepto" in actionText -> ZEPTO_PACKAGE
             "blinkit" in actionText || "grofers" in actionText -> BLINKIT_PACKAGE
             else -> null
@@ -1576,7 +1583,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             findFocusedSearchEditableNode(root)?.text?.toString()?.let { return it }
             findFocusedEditable(root, NodeScanBudget(maxNodes = 260, maxDurationMs = 550))?.text?.toString()?.let { return it }
             findSearchEditableNode(root, NodeScanBudget(maxNodes = 240, maxDurationMs = 550))?.text?.toString()?.let { return it }
-            if (root.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE && hasVisibleProductSearchSurface(root)) {
+            if (isSwiggyPackage(root.packageName?.toString()) && hasVisibleProductSearchSurface(root)) {
                 findFirstEditable(root, NodeScanBudget(maxNodes = 260, maxDurationMs = 550))?.text?.toString()?.let { return it }
             }
         }
@@ -1863,7 +1870,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             val rootPackage = root.packageName?.toString()
             findSearchEditableNodeByKnownId(root)?.let { return it }
             findFocusedSearchEditableNode(root)?.let { return it }
-            if (rootPackage != SWIGGY_INSTAMART_PACKAGE || allowSwiggyTopScan) {
+            if (!isSwiggyPackage(rootPackage) || allowSwiggyTopScan) {
                 findSearchEditableNode(root, newQuickNodeScanBudget())?.let { return it }
             }
         }
@@ -2149,7 +2156,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         findSearchEditableNodeByKnownId(node)?.let { return it }
         findFocusedSearchEditableNode(node)?.let { return it }
 
-        if (node.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE) {
+        if (isSwiggyPackage(node.packageName?.toString())) {
             return null
         }
 
@@ -2305,7 +2312,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
         return try {
             commerceWindowRoots().any { root ->
-                root.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE &&
+                isSwiggyPackage(root.packageName?.toString()) &&
                     isSwiggyLocationPickerText(collectNodeText(root).lowercase())
             }
         } catch (e: Exception) {
@@ -2321,7 +2328,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
         return try {
             commerceWindowRoots().any { root ->
-                root.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE &&
+                isSwiggyPackage(root.packageName?.toString()) &&
                     isSwiggyCheckoutOrPaymentText(collectNodeText(root).lowercase())
             }
         } catch (e: Exception) {
@@ -2337,7 +2344,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
         return try {
             commerceWindowRoots().any { root ->
-                root.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE &&
+                isSwiggyPackage(root.packageName?.toString()) &&
                     collectNodeText(root).lowercase().let { surfaceText ->
                         surfaceText.contains("full_screen_preview_recycler_view") ||
                             surfaceText.contains("full_screen_product_thumbnail_card") ||
@@ -2568,7 +2575,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
 
         return commerceWindowRoots().any { root ->
-            root.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE && hasVisibleProductSearchSurface(root)
+            isSwiggyPackage(root.packageName?.toString()) && hasVisibleProductSearchSurface(root)
         }
     }
 
@@ -2581,7 +2588,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
 
         return commerceWindowRoots().any { root ->
-            root.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE && hasVisibleProductSearchSurface(root)
+            isSwiggyPackage(root.packageName?.toString()) && hasVisibleProductSearchSurface(root)
         }
     }
 
@@ -2929,7 +2936,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                     Log.d(TAG, "Found clickable search element")
                     return searchElement
                 }
-                if (rootNode.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE) {
+                if (isSwiggyPackage(rootNode.packageName?.toString())) {
                     Log.w(TAG, "Swiggy search target not found via known fields; skipping broad target lookup")
                     return null
                 }
@@ -3123,10 +3130,14 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     ): AccessibilityNodeInfo? {
         val resourceIds = when (direction) {
             QuantityStepDirection.INCREMENT -> listOf(
+                "in.swiggy.android:id/increment_button_touch_target",
+                "in.swiggy.android:id/increment_button",
                 "in.swiggy.android.instamart:id/increment_button_touch_target",
                 "in.swiggy.android.instamart:id/increment_button"
             )
             QuantityStepDirection.DECREMENT -> listOf(
+                "in.swiggy.android:id/decrement_button_touch_target",
+                "in.swiggy.android:id/decrement_button",
                 "in.swiggy.android.instamart:id/decrement_button_touch_target",
                 "in.swiggy.android.instamart:id/decrement_button"
             )
@@ -3379,7 +3390,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         findSearchEditableNodeByKnownId(rootNode)?.let { return it }
         findFocusedSearchEditableNode(rootNode)?.let { return it }
 
-        if (rootNode.packageName?.toString() == SWIGGY_INSTAMART_PACKAGE) {
+        if (isSwiggyPackage(rootNode.packageName?.toString())) {
             Log.d(TAG, "No known Swiggy search field found; skipping broad clickable search scan")
             return null
         }

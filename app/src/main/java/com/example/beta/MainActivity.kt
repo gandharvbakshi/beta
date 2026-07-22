@@ -17,6 +17,7 @@ import android.util.Log
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -42,6 +43,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var setupOverlayStep: TextView
     private lateinit var setupScreenCaptureStep: TextView
     private lateinit var setupMicrophoneStep: TextView
+    private lateinit var providerChoiceGroup: RadioGroup
+    private lateinit var providerChoiceNote: TextView
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private val screenCaptureRequestCode = 100
     private var isCapturing = false // Track capture state
@@ -51,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var voiceInputResult: ActivityResultLauncher<Intent>
     private lateinit var microphonePermissionResult: ActivityResultLauncher<String>
     private var textToSpeech: TextToSpeech? = null
+    private var isBindingProviderChoice = false
 
     /*// Activity result launcher for screen capture
     private var screenCaptureResult =
@@ -93,6 +97,9 @@ class MainActivity : ComponentActivity() {
         setupOverlayStep = findViewById(R.id.setupOverlayStep)
         setupScreenCaptureStep = findViewById(R.id.setupScreenCaptureStep)
         setupMicrophoneStep = findViewById(R.id.setupMicrophoneStep)
+        providerChoiceGroup = findViewById(R.id.providerChoiceGroup)
+        providerChoiceNote = findViewById(R.id.providerChoiceNote)
+        configureProviderChoice()
 
         // Get MediaProjectionManager
         mediaProjectionManager =
@@ -227,6 +234,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        syncProviderChoiceFromSession()
         refreshSetupChecklist()
     }
 
@@ -287,8 +295,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleVoiceInstruction(instruction: String) {
-        if (isOpenCommerceAppInstruction(instruction)) {
-            val launchResult = CommerceAppLauncher.launchPreferred(this)
+        CommerceProviderRouter.selectProviderFromInstruction(instruction)
+        syncProviderChoiceFromSession()
+
+        if (CommerceProviderRouter.isOpenCommerceAppInstruction(instruction)) {
+            val launchResult = CommerceAppLauncher.launchPreferred(this, instruction)
             speak(launchResult.message)
             Toast.makeText(
                 this,
@@ -305,7 +316,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         Log.i("BetaAgent", "VOICE_INSTRUCTION_RECOGNIZED: $instruction")
-        val launchResult = CommerceAppLauncher.launchPreferred(this)
+        val launchResult = CommerceAppLauncher.launchPreferred(this, instruction)
         if (!launchResult.launched) {
             speak(launchResult.message)
             Toast.makeText(this, launchResult.message, Toast.LENGTH_LONG).show()
@@ -318,27 +329,37 @@ class MainActivity : ComponentActivity() {
         }, CommerceAppLauncher.LAUNCH_SETTLE_DELAY_MS)
     }
 
-    private fun isOpenCommerceAppInstruction(instruction: String): Boolean {
-        val normalized = instruction
-            .lowercase(Locale.US)
-            .replace(Regex("[^a-z0-9 ]+"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-        if (normalized.isBlank()) {
-            return false
+    private fun configureProviderChoice() {
+        syncProviderChoiceFromSession()
+        providerChoiceGroup.setOnCheckedChangeListener { _, checkedId ->
+            if (isBindingProviderChoice) return@setOnCheckedChangeListener
+            val provider = when (checkedId) {
+                R.id.providerSwiggy -> CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
+                R.id.providerBlinkit -> CommerceProviderRouter.CommerceProvider.BLINKIT
+                R.id.providerZepto -> CommerceProviderRouter.CommerceProvider.ZEPTO
+                else -> return@setOnCheckedChangeListener
+            }
+            CommerceProviderRouter.selectProviderFromUi(provider)
+            val message = getString(R.string.provider_selected_for_session, provider.appName)
+            providerChoiceNote.text = getString(R.string.provider_choice_current, provider.appName)
+            providerChoiceGroup.announceForAccessibility(message)
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            Log.i("BetaAgent", "PROVIDER_SESSION_SELECTED source=UI provider=${provider.name}")
         }
-        return normalized in setOf(
-            "open blinkit",
-            "launch blinkit",
-            "start blinkit",
-            "open blinkit app",
-            "open zepto",
-            "launch zepto",
-            "start zepto",
-            "open zepto app",
-            "open grocery app",
-            "launch grocery app",
-        )
+    }
+
+    private fun syncProviderChoiceFromSession() {
+        if (!::providerChoiceGroup.isInitialized) return
+        val provider = CommerceProviderRouter.currentSessionProvider()
+        val checkedId = when (provider) {
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART -> R.id.providerSwiggy
+            CommerceProviderRouter.CommerceProvider.BLINKIT -> R.id.providerBlinkit
+            CommerceProviderRouter.CommerceProvider.ZEPTO -> R.id.providerZepto
+        }
+        isBindingProviderChoice = true
+        providerChoiceGroup.check(checkedId)
+        isBindingProviderChoice = false
+        providerChoiceNote.text = getString(R.string.provider_choice_current, provider.appName)
     }
 
     private fun checkPermissionsAndStartCapture() {

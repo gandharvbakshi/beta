@@ -46,6 +46,7 @@ object BackendProcessing {
     private const val SCREENSHOT_UPLOAD_MAX_WIDTH = 1080
     private const val ITEM_DEADLINE_MS = 120_000L
     private const val BLINKIT_PACKAGE = "com.grofers.customerapp"
+    private const val SWIGGY_MAIN_PACKAGE = "in.swiggy.android"
     private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
     private const val ZEPTO_PACKAGE = "com.zeptoconsumerapp"
     private val client = provideOkHttpClient()
@@ -61,6 +62,7 @@ object BackendProcessing {
         return when (appName?.trim()) {
             null, "" -> ""
             "com.grofers.customerapp" -> "Blinkit"
+            "in.swiggy.android" -> "Swiggy Instamart"
             "in.swiggy.android.instamart" -> "Swiggy Instamart"
             "com.zeptoconsumerapp" -> "Zepto"
             else -> appName.trim()
@@ -604,11 +606,11 @@ object BackendProcessing {
         val service = multiItemSequenceAccessibilityService ?: return
         val activePackage = service.activeAppPackage
         val lastCapturedPackage = service.getLastAppName()
-        if (activePackage == SWIGGY_INSTAMART_PACKAGE) {
+        if (isSwiggyPackage(activePackage)) {
             Log.i(TAG, "Skipping global back cleanup for Swiggy multi-item continuation")
             return
         }
-        if (lastCapturedPackage == SWIGGY_INSTAMART_PACKAGE) {
+        if (isSwiggyPackage(lastCapturedPackage)) {
             Log.i(TAG, "Swiggy continuation is no longer foreground (active=$activePackage); backing out of external surface")
         }
         try {
@@ -638,6 +640,10 @@ object BackendProcessing {
         } catch (e: Exception) {
             Log.w(TAG, "Multi-item cleanup back navigation failed: ${e.message}")
         }
+    }
+
+    private fun isSwiggyPackage(packageName: String?): Boolean {
+        return packageName == SWIGGY_MAIN_PACKAGE || packageName == SWIGGY_INSTAMART_PACKAGE
     }
 
     internal fun shouldPressSecondMultiItemCleanupBack(

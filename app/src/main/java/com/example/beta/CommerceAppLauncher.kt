@@ -9,59 +9,73 @@ object CommerceAppLauncher {
     const val LAUNCH_SETTLE_DELAY_MS = 5000L
 
     private const val TAG = "CommerceAppLauncher"
-    private const val BLINKIT_PACKAGE = "com.grofers.customerapp"
-    private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
-    private const val ZEPTO_PACKAGE = "com.zeptoconsumerapp"
-
-    private val candidates = listOf(
-        CommerceApp("Blinkit", BLINKIT_PACKAGE),
-        CommerceApp("Swiggy Instamart", SWIGGY_INSTAMART_PACKAGE),
-        CommerceApp("Zepto", ZEPTO_PACKAGE),
-    )
 
     data class LaunchResult(
         val launched: Boolean,
+        val selectedProvider: CommerceProviderRouter.CommerceProvider? = null,
         val appName: String? = null,
         val packageName: String? = null,
         val message: String,
+        val fallbackUsed: Boolean = false,
+        val preferenceSource: CommerceProviderRouter.PreferenceSource? = null,
     )
 
-    private data class CommerceApp(
-        val name: String,
-        val packageName: String,
-    )
+    @JvmStatic
+    @JvmOverloads
+    fun launchPreferred(context: Context, instruction: String? = null): LaunchResult {
+        val installedApps = discoverInstalledApps(context)
+        val decision = CommerceProviderRouter.routeLaunch(instruction, installedApps)
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(decision.packageName)
 
-    fun launchPreferred(context: Context): LaunchResult {
-        val packageManager = context.packageManager
-        for (candidate in candidates) {
-            val launchIntent = packageManager.getLaunchIntentForPackage(candidate.packageName)
-                ?: continue
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-            return try {
-                context.startActivity(launchIntent)
-                Log.i(TAG, "Launched ${candidate.name} (${candidate.packageName})")
-                LaunchResult(
-                    launched = true,
-                    appName = candidate.name,
-                    packageName = candidate.packageName,
-                    message = context.getString(R.string.commerce_app_opening, candidate.name),
-                )
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not launch ${candidate.name}: ${e.message}", e)
-                LaunchResult(
-                    launched = false,
-                    appName = candidate.name,
-                    packageName = candidate.packageName,
-                    message = context.getString(R.string.commerce_app_launch_failed, candidate.name),
-                )
-            }
+        if (launchIntent == null) {
+            Log.w(TAG, "No launch intent for ${decision.appName} (${decision.packageName})")
+            return LaunchResult(
+                launched = false,
+                selectedProvider = decision.selectedProvider,
+                appName = decision.appName,
+                packageName = decision.packageName,
+                message = decision.message,
+                fallbackUsed = decision.fallbackUsed,
+                preferenceSource = decision.preferenceSource,
+            )
         }
 
-        Log.w(TAG, "No supported grocery app is installed")
-        return LaunchResult(
-            launched = false,
-            message = context.getString(R.string.commerce_app_not_installed),
-        )
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        return try {
+            context.startActivity(launchIntent)
+            Log.i(TAG, "Launched ${decision.appName} (${decision.packageName})")
+            LaunchResult(
+                launched = true,
+                selectedProvider = decision.selectedProvider,
+                appName = decision.appName,
+                packageName = decision.packageName,
+                message = decision.message,
+                fallbackUsed = decision.fallbackUsed,
+                preferenceSource = decision.preferenceSource,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not launch ${decision.appName}: ${e.message}", e)
+            LaunchResult(
+                launched = false,
+                selectedProvider = decision.selectedProvider,
+                appName = decision.appName,
+                packageName = decision.packageName,
+                message = context.getString(R.string.commerce_app_launch_failed, decision.appName),
+                fallbackUsed = decision.fallbackUsed,
+                preferenceSource = decision.preferenceSource,
+            )
+        }
+    }
+
+    private fun discoverInstalledApps(context: Context): Set<CommerceProviderRouter.InstalledCommerceApp> {
+        val packageManager = context.packageManager
+        return CommerceProviderRouter.supportedProviders().mapNotNullTo(mutableSetOf()) { provider ->
+            provider.packageAliases.firstOrNull { packageName ->
+                packageManager.getLaunchIntentForPackage(packageName) != null
+            }?.let { packageName ->
+                CommerceProviderRouter.InstalledCommerceApp(provider = provider, packageName = packageName)
+            }
+        }
     }
 }

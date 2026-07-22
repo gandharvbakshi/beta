@@ -110,64 +110,74 @@
                 style="@style/Beta.Eyebrow"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/works_with_label" />
+                android:accessibilityHeading="true"
+                android:labelFor="@id/providerChoiceGroup"
+                android:text="@string/provider_choice_label" />
 
-                <LinearLayout
+                <RadioGroup
+                    android:id="@+id/providerChoiceGroup"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
+                    android:checkedButton="@id/providerSwiggy"
                     android:orientation="vertical">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <RadioButton
+                    android:id="@+id/providerSwiggy"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/beta_app_chip"
-                    android:drawableStart="@drawable/beta_dot_blinkit"
-                    android:drawablePadding="8dp"
+                    android:background="@drawable/beta_provider_choice"
+                    android:buttonTint="@color/beta_primary"
                     android:gravity="center_vertical"
-                    android:paddingStart="14dp"
-                    android:paddingTop="10dp"
+                    android:minHeight="56dp"
+                    android:paddingStart="12dp"
                     android:paddingEnd="14dp"
-                    android:paddingBottom="10dp"
-                    android:text="@string/works_with_blinkit"
-                    android:textColor="@color/beta_text_primary"
-                    android:textSize="15sp"
-                    android:fontFamily="sans-serif-medium" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:background="@drawable/beta_app_chip"
-                    android:drawableStart="@drawable/beta_dot_instamart"
-                    android:drawablePadding="8dp"
-                    android:gravity="center_vertical"
-                    android:paddingStart="14dp"
-                    android:paddingTop="10dp"
-                    android:paddingEnd="14dp"
-                    android:paddingBottom="10dp"
                     android:text="@string/works_with_instamart"
                     android:textColor="@color/beta_text_primary"
-                    android:textSize="15sp"
+                    android:textSize="18sp"
                     android:fontFamily="sans-serif-medium" />
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <RadioButton
+                    android:id="@+id/providerBlinkit"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:background="@drawable/beta_app_chip"
-                    android:drawableStart="@drawable/beta_dot_zepto"
-                    android:drawablePadding="8dp"
+                    android:background="@drawable/beta_provider_choice"
+                    android:buttonTint="@color/beta_primary"
                     android:gravity="center_vertical"
-                    android:paddingStart="14dp"
-                    android:paddingTop="10dp"
+                    android:minHeight="56dp"
+                    android:paddingStart="12dp"
                     android:paddingEnd="14dp"
-                    android:paddingBottom="10dp"
+                    android:text="@string/works_with_blinkit"
+                    android:textColor="@color/beta_text_primary"
+                    android:textSize="18sp"
+                    android:fontFamily="sans-serif-medium" />
+
+                <RadioButton
+                    android:id="@+id/providerZepto"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/beta_provider_choice"
+                    android:buttonTint="@color/beta_primary"
+                    android:gravity="center_vertical"
+                    android:minHeight="56dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="14dp"
                     android:text="@string/works_with_zepto"
                     android:textColor="@color/beta_text_primary"
-                    android:textSize="15sp"
+                    android:textSize="18sp"
                     android:fontFamily="sans-serif-medium" />
-            </LinearLayout>
+            </RadioGroup>
+
+            <TextView
+                android:id="@+id/providerChoiceNote"
+                style="@style/Beta.BodySoft"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/provider_choice_note"
+                android:textSize="16sp" />
         </LinearLayout>
 
         <TextView
