@@ -21,7 +21,8 @@ This is the current owner-only checklist for getting `Beta` live on Google Play 
 - The Play listing drafts for `en-US` and default locale `en-GB` were updated through the Android Publisher API to name Blinkit, Swiggy Instamart, and Zepto.
 - The in-app prominent disclosure was updated.
 - The public privacy policy asset was updated.
-- The AccessibilityService review video was regenerated.
+- The existing AccessibilityService review video predates the Swiggy MCP flow;
+  replace it with a two-path video before the next Play release.
 - A signed local `0.2.6` release AAB was built at `app/build/outputs/bundle/release/app-release.aab`.
 - Open testing / API track `beta` now has version code `8` assigned with status `completed`, release name `0.2.6 open testing`, and pause / overlay reliability release notes.
 - The 2026-06-06 Android pause / overlay hardening patch was uploaded to Play open testing in Play edit `02021199645127430828`.
@@ -91,12 +92,12 @@ Do not use the old SMS Classifier URLs for Beta. Do not use the Beta GitHub Page
 
 ### 1. Confirm The Draft Store Listing
 
-Check that the long description explicitly says `AccessibilityService`, names Blinkit, Swiggy Instamart, and Zepto, and matches the current app behavior:
+Check that the long description explicitly says `AccessibilityService`, names Blinkit, Swiggy Instamart, and Zepto, and distinguishes the Swiggy connection from Blinkit/Zepto screen automation:
 
 ```text
-Beta helps testers build grocery carts in supported grocery apps, currently Blinkit, Swiggy Instamart, and Zepto, from a typed or spoken instruction. After the user starts a flow, Beta uses screen capture and AccessibilityService to read the visible supported grocery app screen, search for the requested items, add matching products to the cart, and stop before checkout or payment so the user can review everything manually.
+Beta helps testers build grocery carts in Swiggy Instamart, Blinkit, and Zepto from a typed or spoken instruction. Swiggy is selected first. After the user securely connects Swiggy, Beta can use saved addresses, recent Instamart choices, product results, and the current cart to recommend matching products. Beta shows the exact cart changes and asks for confirmation before updating the cart once. It then verifies the result and stops before checkout or payment.
 
-Beta is an early testing app. It requires explicit user consent for screen capture and AccessibilityService access. While the user-started cart-building flow is running, Beta may read visible grocery app screen data such as product names, prices, cart contents, buttons, and delivery details including name, precise delivery location, delivery address, locality, or delivery-area header text if shown by the grocery app. Beta sends this screen context to the Beta backend only to build the requested cart. It does not place orders, make payments, complete checkout, sell personal data, or use this data for advertising.
+The Swiggy connection does not use screen capture or AccessibilityService, and the Android app never stores the user's Swiggy token or OTP. For Blinkit and Zepto, Beta requires explicit consent for screen capture and AccessibilityService. During a user-started flow, it may read visible screen data such as product names, prices, cart contents, buttons, and delivery details including name, precise delivery location, delivery address, locality, or delivery-area header text if shown. Beta uses this data only to build the requested cart. It does not place orders, make payments, complete checkout, sell personal data, or use this data for advertising.
 ```
 
 ### 2. Set Privacy Policy And Deletion Details
@@ -123,18 +124,19 @@ Data types to declare:
 
 - App activity -> App interactions: typed/spoken grocery instruction, cart-building interaction state, and supported grocery app screen context used for app functionality.
 - App activity -> Other user-generated content: user order instruction text, if Play offers this option.
+- App activity -> Purchase history: Swiggy Instamart order history and order details from the last 15 days used to infer a user's usual product choices.
 - Photos and videos -> Photos or other visual content: screen capture from supported grocery apps during an active user-started cart-building flow.
-- Location -> Approximate location and Precise location: visible grocery app delivery area, locality, map pin, or precise delivery location text if shown.
-- Personal info -> Name: visible name in supported grocery app account, delivery, or address UI if shown.
-- Personal info -> Physical address: visible delivery address, apartment/building details, or home header text if shown.
+- Location -> Approximate location and Precise location: Swiggy saved-address choices plus visible Blinkit/Zepto delivery area, locality, map pin, or precise delivery location text if shown.
+- Personal info -> Name: visible name in Blinkit/Zepto account, delivery, or address UI if shown.
+- Personal info -> Physical address: Swiggy saved addresses plus visible Blinkit/Zepto delivery address, apartment/building details, or home header text if shown.
 - App info and performance -> Diagnostics: optional feedback logs, app version, device model, Android version, and order result when the tester submits feedback.
+- Device or other IDs: a random installation identifier used to bind and protect the user's Swiggy connection. The app encrypts it at rest and the backend stores only an opaque derived identifier.
 
 Data types to mark `No` unless code changes:
 
 - Financial info: Beta stops before payment and does not process payment details.
 - Messages: Beta does not read SMS or email.
 - Audio files: Android speech recognition may produce order text, but Beta does not store or upload raw audio in the current release.
-- Device or other IDs: `No` unless Firebase Installations, advertising ID, or another persistent identifier is added.
 
 API note: `applications.dataSafety` expects an exact `safetyLabels` CSV payload. It does not export or generate the form. Export/download the current Data Safety CSV/template first if you want me to upload it by API.
 
@@ -149,25 +151,25 @@ Answers:
 Core purpose:
 
 ```text
-Beta uses AccessibilityService only after the user starts an order. It reads visible text, content descriptions, buttons, window structure, and delivery details such as name, precise delivery location, and address if shown by supported grocery apps so it can tap the controls needed to add the user-requested items to the cart. It stops before checkout/payment and never places an order or pays.
+For Blinkit and Zepto only, Beta uses AccessibilityService after the user starts a cart-building flow. It reads visible text, content descriptions, buttons, window structure, and delivery details such as name, precise delivery location, and address if shown so it can tap the controls needed to add user-requested items to the cart. Swiggy uses a separate secure server connection and does not use AccessibilityService. Beta stops before checkout/payment and never places an order or pays.
 ```
 
 Data accessed:
 
 ```text
-Visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text from supported grocery app screens during an active user-started flow.
+Visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text from Blinkit or Zepto screens during an active user-started flow.
 ```
 
 Collection/sharing explanation:
 
 ```text
-During an active user-started cart-building flow, Beta accesses visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text if shown by supported grocery app screens. Beta sends this screen context to the Beta backend only to build the grocery cart requested by the user. Beta does not start this flow until the user accepts the prominent disclosure and grants Android permissions. Beta stops before checkout/payment and does not place orders or make payments.
+During an active user-started Blinkit or Zepto cart-building flow, Beta accesses visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text if shown. Beta sends this screen context to the Beta backend only to build the grocery cart requested by the user. Beta does not start this flow until the user accepts the prominent disclosure and grants Android permissions. Swiggy uses a separate secure server connection and does not use AccessibilityService. Beta stops before checkout/payment and does not place orders or make payments.
 ```
 
 Why AccessibilityService is needed:
 
 ```text
-Supported grocery apps do not expose a public cart/search API for this prototype. AccessibilityService lets Beta understand and interact with the same visible controls the user sees, after explicit consent, so it can build a cart and stop for manual review before checkout.
+Blinkit and Zepto do not expose an approved cart/search integration used by this prototype. AccessibilityService lets Beta understand and interact with the same visible controls the user sees, after explicit consent, so it can build a cart and stop for manual review before checkout. Swiggy is handled through its separate approved MCP connection and does not use AccessibilityService.
 ```
 
 Video URL: use the AccessibilityService review video URL above.
@@ -179,7 +181,7 @@ Select the closest task option for media/content projection or screen capture.
 Use this explanation:
 
 ```text
-Beta uses Android screen capture only after user consent during an active cart-building flow. Screen capture lets Beta understand the supported grocery app screen so it can help add requested items to the cart and stop before checkout/payment. The user can stop the flow, and Beta does not capture screens in the background for unrelated purposes.
+For Blinkit and Zepto only, Beta uses Android screen capture after user consent during an active cart-building flow. Screen capture lets Beta understand the visible grocery app screen so it can help add requested items to the cart and stop before checkout/payment. Swiggy does not use screen capture. The user can stop the flow, and Beta does not capture screens in the background for unrelated purposes.
 ```
 
 Video URL: use the foreground service / media projection review video URL above.
@@ -219,8 +221,9 @@ Then use Play Console Publishing overview to send the changes for review. This f
 For open testing:
 
 1. Install from the Play testing link.
-2. Run one Blinkit cart-only smoke test.
-3. Run one Swiggy Instamart cart-only smoke test.
+2. Connect Swiggy without granting Accessibility or screen-capture access, then
+   run one confirmed-and-verified Swiggy Instamart cart-only smoke test.
+3. Grant the disclosed screen permissions and run one Blinkit cart-only smoke test.
 4. Run one Zepto cart-only smoke test.
 5. Submit one worked feedback item.
 6. Submit one issue feedback item with logs enabled.

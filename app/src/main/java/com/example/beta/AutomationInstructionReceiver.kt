@@ -54,6 +54,15 @@ class AutomationInstructionReceiver : BroadcastReceiver() {
         }
 
         Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
+        CommerceProviderRouter.selectProviderFromInstruction(instruction)
+        if (
+            CommerceProviderRouter.currentSessionProvider() ==
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
+            !CommerceProviderRouter.isOpenCommerceAppInstruction(instruction)
+        ) {
+            service.submitAutomationInstruction(instruction)
+            return
+        }
         if (intent.getBooleanExtra(CommerceAppLauncher.EXTRA_LAUNCH_PREFERRED_COMMERCE_APP, false)) {
             val launchResult = CommerceAppLauncher.launchPreferred(context, instruction)
             if (!launchResult.launched) {

@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -14,6 +15,7 @@ import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.util.DisplayMetrics
 import android.util.Log
+import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -26,6 +28,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.example.beta.SwiggyMcpClient.SwiggyMcpResult
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -43,8 +46,14 @@ class MainActivity : ComponentActivity() {
     private lateinit var setupOverlayStep: TextView
     private lateinit var setupScreenCaptureStep: TextView
     private lateinit var setupMicrophoneStep: TextView
+    private lateinit var setupHeading: View
+    private lateinit var setupPermissionsCard: View
     private lateinit var providerChoiceGroup: RadioGroup
     private lateinit var providerChoiceNote: TextView
+    private lateinit var swiggyConnectionPanel: View
+    private lateinit var swiggyConnectionStatus: TextView
+    private lateinit var swiggyConnectionDetail: TextView
+    private lateinit var swiggyConnectionAction: Button
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private val screenCaptureRequestCode = 100
     private var isCapturing = false // Track capture state
@@ -55,6 +64,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var microphonePermissionResult: ActivityResultLauncher<String>
     private var textToSpeech: TextToSpeech? = null
     private var isBindingProviderChoice = false
+    private var swiggyConnectionState = SwiggyMcpClient.ConnectionState.DISCONNECTED
+    private var swiggyStatusRequestInFlight = false
+    private var resumeSwiggyOrderAfterStatus = false
+    private var pendingSwiggyInstruction: String? = null
+    private var swiggyConnectPromptShowing = false
+    private lateinit var swiggyOrderCoordinator: SwiggyVoiceOrderCoordinator
 
     /*// Activity result launcher for screen capture
     private var screenCaptureResult =
@@ -97,8 +112,14 @@ class MainActivity : ComponentActivity() {
         setupOverlayStep = findViewById(R.id.setupOverlayStep)
         setupScreenCaptureStep = findViewById(R.id.setupScreenCaptureStep)
         setupMicrophoneStep = findViewById(R.id.setupMicrophoneStep)
+        setupHeading = findViewById(R.id.setupHeading)
+        setupPermissionsCard = findViewById(R.id.setupPermissionsCard)
         providerChoiceGroup = findViewById(R.id.providerChoiceGroup)
         providerChoiceNote = findViewById(R.id.providerChoiceNote)
+        swiggyConnectionPanel = findViewById(R.id.swiggyConnectionPanel)
+        swiggyConnectionStatus = findViewById(R.id.swiggyConnectionStatus)
+        swiggyConnectionDetail = findViewById(R.id.swiggyConnectionDetail)
+        swiggyConnectionAction = findViewById(R.id.swiggyConnectionAction)
         configureProviderChoice()
 
         // Get MediaProjectionManager
@@ -110,6 +131,13 @@ class MainActivity : ComponentActivity() {
                 textToSpeech?.language = Locale("en", "IN")
             }
         }
+        swiggyOrderCoordinator = SwiggyVoiceOrderCoordinator(
+            activity = this,
+            announce = ::announceSwiggy,
+            onReconnectRequired = {
+                updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED)
+            },
+        )
 
         // Initialize ActivityResultLauncher
         screenCaptureResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -204,7 +232,17 @@ class MainActivity : ComponentActivity() {
 
         // Set click listener for the capture screen button
         captureScreenButton.setOnClickListener {
-            checkPermissionsAndStartCapture()
+            if (CommerceProviderRouter.currentSessionProvider() ==
+                CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
+            ) {
+                if (swiggyConnectionState == SwiggyMcpClient.ConnectionState.READY) {
+                    checkMicrophoneAndStartVoice()
+                } else {
+                    startSwiggyConnection()
+                }
+            } else {
+                checkPermissionsAndStartCapture()
+            }
         }
 
         // Set click listener for the text recognition button
@@ -215,6 +253,14 @@ class MainActivity : ComponentActivity() {
 
         voiceOrderButton.setOnClickListener {
             checkMicrophoneAndStartVoice()
+        }
+
+        swiggyConnectionAction.setOnClickListener {
+            when (swiggyConnectionState) {
+                SwiggyMcpClient.ConnectionState.READY -> confirmSwiggyDisconnect()
+                SwiggyMcpClient.ConnectionState.DISCONNECTED,
+                SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED -> startSwiggyConnection()
+            }
         }
 
         feedbackWorkedButton.setOnClickListener {
@@ -230,18 +276,23 @@ class MainActivity : ComponentActivity() {
         (application as MyApplication).registerActivity(this)
         refreshSetupChecklist()
         handleStartCaptureIntent(intent)
+        handleSwiggyOAuthIntent(intent)
+        handleSwiggyOrderIntent(intent)
     }
 
     override fun onResume() {
         super.onResume()
         syncProviderChoiceFromSession()
         refreshSetupChecklist()
+        refreshSwiggyConnectionStatus(resumePendingOrder = true)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleStartCaptureIntent(intent)
+        handleSwiggyOAuthIntent(intent)
+        handleSwiggyOrderIntent(intent)
     }
 
     override fun onDestroy() {
@@ -309,6 +360,13 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        if (CommerceProviderRouter.currentSessionProvider() ==
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
+        ) {
+            handleSwiggyVoiceInstruction(instruction)
+            return
+        }
+
         val service = (application as MyApplication).getScreenCaptureService()
         if (service == null) {
             speak(getString(R.string.voice_start_capture_first))
@@ -345,6 +403,11 @@ class MainActivity : ComponentActivity() {
             providerChoiceGroup.announceForAccessibility(message)
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             Log.i("BetaAgent", "PROVIDER_SESSION_SELECTED source=UI provider=${provider.name}")
+            updateSwiggyPanelVisibility()
+            configurePrimaryExperience()
+            if (provider == CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART) {
+                refreshSwiggyConnectionStatus()
+            }
         }
     }
 
@@ -360,6 +423,241 @@ class MainActivity : ComponentActivity() {
         providerChoiceGroup.check(checkedId)
         isBindingProviderChoice = false
         providerChoiceNote.text = getString(R.string.provider_choice_current, provider.appName)
+        updateSwiggyPanelVisibility()
+        configurePrimaryExperience()
+    }
+
+    private fun updateSwiggyPanelVisibility() {
+        if (!::swiggyConnectionPanel.isInitialized) return
+        swiggyConnectionPanel.visibility = if (
+            CommerceProviderRouter.currentSessionProvider() ==
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
+        ) View.VISIBLE else View.GONE
+    }
+
+    private fun configurePrimaryExperience() {
+        if (!::setupHeading.isInitialized) return
+        val usesSwiggyMcp = CommerceProviderRouter.currentSessionProvider() ==
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
+        setupHeading.visibility = if (usesSwiggyMcp) View.GONE else View.VISIBLE
+        setupPermissionsCard.visibility = if (usesSwiggyMcp) View.GONE else View.VISIBLE
+        if (!usesSwiggyMcp) {
+            refreshSetupChecklist()
+            return
+        }
+
+        when (swiggyConnectionState) {
+            SwiggyMcpClient.ConnectionState.READY -> updateSetupStatus(
+                statusRes = R.string.swiggy_connection_ready,
+                noteRes = R.string.swiggy_primary_note_ready,
+                actionRes = R.string.swiggy_primary_action_ready,
+            )
+            SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED -> updateSetupStatus(
+                statusRes = R.string.swiggy_connection_reconnect,
+                noteRes = R.string.swiggy_primary_note_disconnected,
+                actionRes = R.string.swiggy_connection_reconnect_action,
+            )
+            SwiggyMcpClient.ConnectionState.DISCONNECTED -> updateSetupStatus(
+                statusRes = R.string.swiggy_connection_status,
+                noteRes = R.string.swiggy_primary_note_disconnected,
+                actionRes = R.string.swiggy_connection_action,
+            )
+        }
+    }
+
+    private fun handleSwiggyVoiceInstruction(instruction: String) {
+        pendingSwiggyInstruction = instruction
+        Log.i("BetaAgent", "SWIGGY_MCP_VOICE_INSTRUCTION_RECEIVED")
+        refreshSwiggyConnectionStatus(resumePendingOrder = true)
+    }
+
+    private fun refreshSwiggyConnectionStatus(resumePendingOrder: Boolean = false) {
+        if (!::swiggyConnectionStatus.isInitialized) return
+        if (resumePendingOrder) resumeSwiggyOrderAfterStatus = true
+        if (swiggyStatusRequestInFlight) return
+        swiggyStatusRequestInFlight = true
+        swiggyConnectionStatus.setText(R.string.swiggy_connection_checking)
+        swiggyConnectionAction.isEnabled = false
+        SwiggyMcpClient.fetchStatus(this) { result ->
+            runOnUiThread {
+                swiggyStatusRequestInFlight = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val shouldResumePendingOrder = resumeSwiggyOrderAfterStatus
+                resumeSwiggyOrderAfterStatus = false
+                when (result) {
+                    is SwiggyMcpResult.Success -> {
+                        updateSwiggyConnectionUi(result.value.state)
+                        if (shouldResumePendingOrder && result.value.state == SwiggyMcpClient.ConnectionState.READY) {
+                            startPendingSwiggyOrder()
+                        } else if (shouldResumePendingOrder) {
+                            promptToConnectSwiggy()
+                        }
+                    }
+                    is SwiggyMcpResult.Failure -> {
+                        val state = if (result.reconnectRequired) {
+                            SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED
+                        } else {
+                            SwiggyMcpClient.ConnectionState.DISCONNECTED
+                        }
+                        updateSwiggyConnectionUi(state, result.userMessage)
+                        if (shouldResumePendingOrder) promptToConnectSwiggy()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun updateSwiggyConnectionUi(
+        state: SwiggyMcpClient.ConnectionState,
+        detailOverride: String? = null,
+    ) {
+        swiggyConnectionState = state
+        when (state) {
+            SwiggyMcpClient.ConnectionState.READY -> {
+                swiggyConnectionStatus.setText(R.string.swiggy_connection_ready)
+                swiggyConnectionDetail.text = detailOverride
+                    ?: getString(R.string.swiggy_connection_ready_detail)
+                swiggyConnectionAction.setText(R.string.swiggy_connection_disconnect)
+            }
+            SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED -> {
+                swiggyConnectionStatus.setText(R.string.swiggy_connection_reconnect)
+                swiggyConnectionDetail.text = detailOverride
+                    ?: getString(R.string.swiggy_connection_reconnect_detail)
+                swiggyConnectionAction.setText(R.string.swiggy_connection_reconnect_action)
+            }
+            SwiggyMcpClient.ConnectionState.DISCONNECTED -> {
+                swiggyConnectionStatus.setText(R.string.swiggy_connection_status)
+                swiggyConnectionDetail.text = detailOverride
+                    ?: getString(R.string.swiggy_connection_detail)
+                swiggyConnectionAction.setText(R.string.swiggy_connection_action)
+            }
+        }
+        swiggyConnectionAction.isEnabled = true
+        swiggyConnectionStatus.announceForAccessibility(swiggyConnectionStatus.text)
+        configurePrimaryExperience()
+    }
+
+    private fun startSwiggyConnection() {
+        swiggyConnectionAction.isEnabled = false
+        swiggyConnectionStatus.setText(R.string.swiggy_connection_connecting)
+        swiggyConnectionDetail.setText(R.string.swiggy_connection_browser_detail)
+        SwiggyMcpClient.connect(this) { result ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                when (result) {
+                    is SwiggyMcpResult.Success -> {
+                        val authUrl = result.value.authorizationUrl
+                        if (authUrl.isNullOrBlank() || !openTrustedSwiggyAuthorization(authUrl)) {
+                            updateSwiggyConnectionUi(
+                                SwiggyMcpClient.ConnectionState.DISCONNECTED,
+                                getString(R.string.swiggy_connection_invalid_link),
+                            )
+                        }
+                    }
+                    is SwiggyMcpResult.Failure -> {
+                        updateSwiggyConnectionUi(
+                            if (result.reconnectRequired) SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED
+                            else SwiggyMcpClient.ConnectionState.DISCONNECTED,
+                            result.userMessage,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun openTrustedSwiggyAuthorization(url: String): Boolean {
+        return runCatching {
+            val uri = Uri.parse(url)
+            val trustedHost = uri.host == "mcp.swiggy.com" || uri.host == "mcp-staging.swiggy.com"
+            if (uri.scheme != "https" || !trustedHost || uri.path != "/auth/authorize") return false
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun handleSwiggyOAuthIntent(sourceIntent: Intent?) {
+        val data = sourceIntent?.data ?: return
+        if (data.scheme != "beta" || data.host != "swiggy" || data.path != "/oauth") return
+        sourceIntent.data = null
+        if (data.getQueryParameter("status") == "connected") {
+            swiggyConnectionStatus.setText(R.string.swiggy_connection_checking)
+            swiggyConnectionDetail.setText(R.string.swiggy_connection_finishing)
+            refreshSwiggyConnectionStatus(resumePendingOrder = true)
+        } else {
+            updateSwiggyConnectionUi(
+                SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED,
+                getString(R.string.swiggy_connection_failed),
+            )
+            announceSwiggy(getString(R.string.swiggy_connection_failed))
+        }
+    }
+
+    private fun handleSwiggyOrderIntent(sourceIntent: Intent?) {
+        val instruction = sourceIntent?.getStringExtra(EXTRA_SWIGGY_ORDER_INSTRUCTION)?.trim().orEmpty()
+        if (instruction.isBlank()) return
+        sourceIntent?.removeExtra(EXTRA_SWIGGY_ORDER_INSTRUCTION)
+        CommerceProviderRouter.selectProviderFromUi(CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART)
+        syncProviderChoiceFromSession()
+        Handler(Looper.getMainLooper()).post { handleSwiggyVoiceInstruction(instruction) }
+    }
+
+    private fun promptToConnectSwiggy() {
+        if (pendingSwiggyInstruction.isNullOrBlank() || swiggyConnectPromptShowing) return
+        swiggyConnectPromptShowing = true
+        val reconnect = swiggyConnectionState == SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED
+        AlertDialog.Builder(this)
+            .setTitle(if (reconnect) R.string.swiggy_connection_reconnect else R.string.swiggy_connect_dialog_title)
+            .setMessage(R.string.swiggy_connect_dialog_message)
+            .setPositiveButton(if (reconnect) R.string.swiggy_connection_reconnect_action else R.string.swiggy_connection_action) { _, _ ->
+                swiggyConnectPromptShowing = false
+                startSwiggyConnection()
+            }
+            .setNegativeButton(R.string.automation_disclosure_cancel) { _, _ ->
+                swiggyConnectPromptShowing = false
+                pendingSwiggyInstruction = null
+            }
+            .setOnCancelListener {
+                swiggyConnectPromptShowing = false
+                pendingSwiggyInstruction = null
+            }
+            .show()
+    }
+
+    private fun startPendingSwiggyOrder() {
+        val instruction = pendingSwiggyInstruction?.takeIf { it.isNotBlank() } ?: return
+        pendingSwiggyInstruction = null
+        swiggyOrderCoordinator.start(instruction)
+    }
+
+    private fun confirmSwiggyDisconnect() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.swiggy_disconnect_dialog_title)
+            .setMessage(R.string.swiggy_disconnect_dialog_message)
+            .setPositiveButton(R.string.swiggy_connection_disconnect) { _, _ ->
+                swiggyConnectionAction.isEnabled = false
+                SwiggyMcpClient.disconnect(this) { result ->
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        when (result) {
+                            is SwiggyMcpResult.Success -> updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.DISCONNECTED)
+                            is SwiggyMcpResult.Failure -> updateSwiggyConnectionUi(
+                                if (result.reconnectRequired) SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED
+                                else SwiggyMcpClient.ConnectionState.DISCONNECTED,
+                                result.userMessage,
+                            )
+                        }
+                    }
+                }
+            }
+            .setNegativeButton(R.string.automation_disclosure_cancel, null)
+            .show()
+    }
+
+    private fun announceSwiggy(message: String) {
+        if (::swiggyConnectionDetail.isInitialized) swiggyConnectionDetail.text = message
+        speak(message)
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun checkPermissionsAndStartCapture() {
@@ -528,6 +826,13 @@ class MainActivity : ComponentActivity() {
     private fun refreshSetupChecklist() {
         if (!::setupAccessibilityStep.isInitialized) return
 
+        if (CommerceProviderRouter.currentSessionProvider() ==
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
+        ) {
+            configurePrimaryExperience()
+            return
+        }
+
         val accessibilityReady = isBetaAccessibilityEnabled()
         val overlayReady = Settings.canDrawOverlays(this)
         val screenCaptureService = (application as? MyApplication)?.getScreenCaptureService()
@@ -634,6 +939,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_START_CAPTURE_ON_OPEN = "com.example.beta.extra.START_CAPTURE_ON_OPEN"
         const val EXTRA_CAPTURE_RESTART_REASON = "com.example.beta.extra.CAPTURE_RESTART_REASON"
+        const val EXTRA_SWIGGY_ORDER_INSTRUCTION = "com.example.beta.extra.SWIGGY_ORDER_INSTRUCTION"
         private const val STORAGE_PERMISSION_CODE = 101
     }
 }

@@ -5,7 +5,9 @@ import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isChecked
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility
 import androidx.test.espresso.matcher.ViewMatchers.withId
+import androidx.test.espresso.matcher.ViewMatchers.Visibility
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.ActivityTestRule
 import org.junit.After
@@ -51,5 +53,16 @@ class CommerceProviderSelectionTest {
             CommerceProviderRouter.CommerceProvider.BLINKIT,
             CommerceProviderRouter.currentSessionProvider()
         )
+    }
+
+    @Test
+    fun swiggyConnectionPanelOnlyShowsForSwiggy() {
+        onView(withId(R.id.swiggyConnectionPanel)).check(matches(isDisplayed()))
+        onView(withId(R.id.providerBlinkit)).perform(click())
+        onView(withId(R.id.swiggyConnectionPanel)).check(
+            matches(withEffectiveVisibility(Visibility.GONE))
+        )
+        onView(withId(R.id.providerSwiggy)).perform(click())
+        onView(withId(R.id.swiggyConnectionPanel)).check(matches(isDisplayed()))
     }
 }

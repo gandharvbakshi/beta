@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
+import android.graphics.ImageFormat
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.media.Image
@@ -1250,7 +1251,7 @@ class ScreenCaptureService : Service() {
             try {
                 // Fallback to RGB_565 format which is more widely supported
                 imageReader = ImageReader.newInstance(
-                    width, height, PixelFormat.RGB_565, 1 // Reduced buffer for compatibility
+                    width, height, ImageFormat.RGB_565, 1 // Reduced buffer for compatibility
                 )
                 imageReader?.setOnImageAvailableListener(imageAvailableListener, handler)
                 Log.i("ScreenCaptureService", "ImageReader created with RGB_565 format, dimensions: $width x $height")
@@ -2182,6 +2183,7 @@ class ScreenCaptureService : Service() {
     }
     
     fun submitAutomationInstruction(inputText: String) {
+        if (routeToSwiggyMcp(inputText)) return
         val instruction = CommerceProviderRouter.sanitizeOrderInstruction(inputText)
         Log.i("BetaAgent", "SUBMIT_AUTOMATION_INSTRUCTION_CALLED: $instruction")
         submitInstruction(instruction)
@@ -2195,6 +2197,10 @@ class ScreenCaptureService : Service() {
         }
 
         Log.i("BetaAgent", "USER_INSTRUCTION_RECEIVED: $instruction")
+        if (routeToSwiggyMcp(instruction)) {
+            hideInputOverlay()
+            return
+        }
         BackendProcessing.stopActionSequence()
         isActionSequenceActive = false
         currentSequenceGeneration = -1L
@@ -2227,6 +2233,40 @@ class ScreenCaptureService : Service() {
                 Toast.makeText(this, "Beta could not start that order. Please try again.", Toast.LENGTH_LONG).show()
             }
         }, CommerceAppLauncher.LAUNCH_SETTLE_DELAY_MS)
+    }
+
+    private fun routeToSwiggyMcp(inputText: String): Boolean {
+        val instruction = inputText.trim()
+        if (instruction.isBlank() || CommerceProviderRouter.isOpenCommerceAppInstruction(instruction)) {
+            return false
+        }
+        CommerceProviderRouter.selectProviderFromInstruction(instruction)
+        if (CommerceProviderRouter.currentSessionProvider() !=
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
+        ) {
+            return false
+        }
+
+        BackendProcessing.stopActionSequence()
+        isActionSequenceActive = false
+        currentSequenceGeneration = -1L
+        Log.i("BetaAgent", "SWIGGY_MCP_ROUTE_SELECTED")
+        return runCatching {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .putExtra(MainActivity.EXTRA_SWIGGY_ORDER_INSTRUCTION, instruction)
+                    .addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+            )
+            true
+        }.getOrElse { error ->
+            Log.e("BetaAgent", "SWIGGY_MCP_ROUTE_FAILED: ${error.javaClass.simpleName}")
+            Toast.makeText(this, "Beta could not open the Swiggy assistant. Please try again.", Toast.LENGTH_LONG).show()
+            true
+        }
     }
 
     private fun submitInstruction(inputText: String) {
