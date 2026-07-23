@@ -32,7 +32,7 @@ fun ParsedItem.backendInputText(): String {
 }
 
 object InstructionParser {
-    const val PARSER_VERSION = "2026.07.04.1"
+    const val PARSER_VERSION = "2026.07.23.1"
 
     private val leadingCommandRegex = Regex(
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
@@ -74,6 +74,10 @@ object InstructionParser {
     private val leadingCountRegex = Regex("^([1-9]\\d?)\\s+(.+)$")
     private val leadingWeightRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(g|gm|gms|gram|grams|kg|kgs)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
     private val leadingVolumeRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(ml|l|ltr|liter|litre|liters|litres)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
+    private val trailingMeasureRegex = Regex(
+        "^(.+?)\\s+(\\d+(?:\\.\\d+)?)\\s*(g|gm|gms|gram|grams|kg|kgs|ml|l|ltr|liter|litre|liters|litres)\\s*$",
+        RegexOption.IGNORE_CASE
+    )
     private val quantityBoundaryRegex = Regex(
         "\\s+(?=\\d+(?:\\.\\d+)?\\s*(?:g|gm|gms|gram|grams|kg|kgs|ml|l|ltr|liter|litre|liters|litres)\\b|[1-9]\\d?\\s+\\w)",
         RegexOption.IGNORE_CASE
@@ -93,8 +97,12 @@ object InstructionParser {
         val hasNoisySplitters = noisySplitterRegex.containsMatchIn(withoutPrefix)
         val parsedItems = mutableListOf<ParsedItem>()
 
-        val splitReady = withoutPrefix.replace(quantityBoundaryRegex, ",")
-        splitterRegex.split(splitReady)
+        splitterRegex.split(withoutPrefix)
+            .flatMap { explicitSegment ->
+                splitterRegex.split(
+                    normalizeTrailingMeasure(explicitSegment).replace(quantityBoundaryRegex, ",")
+                )
+            }
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .forEach { segment ->
@@ -130,6 +138,14 @@ object InstructionParser {
             }
 
         return parsedItems
+    }
+
+    private fun normalizeTrailingMeasure(segment: String): String {
+        val match = trailingMeasureRegex.matchEntire(segment.trim()) ?: return segment
+        val product = match.groupValues[1].trim()
+        val amount = match.groupValues[2]
+        val unit = match.groupValues[3]
+        return "$amount $unit $product"
     }
 
     fun applyPreferences(

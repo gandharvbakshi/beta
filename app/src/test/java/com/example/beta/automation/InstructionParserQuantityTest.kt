@@ -34,4 +34,21 @@ class InstructionParserQuantityTest {
         assertEquals(Quantity.Count(2), items[1].quantity)
         assertEquals(Quantity.Count(6), items[2].quantity)
     }
+
+    @Test
+    fun parse_trailingWeightStaysWithSingleProduct() {
+        val item = InstructionParser.parse("Order Amul salted butter 100 grams").single()
+
+        assertEquals("amul salted butter", item.query)
+        assertEquals(Quantity.Weight(100), item.quantity)
+    }
+
+    @Test
+    fun parse_trailingMeasuresStayWithExplicitlySeparatedProducts() {
+        val items = InstructionParser.parse("Amul salted butter 100 grams and Coke 2 litres")
+
+        assertEquals(listOf("amul salted butter", "coke"), items.map { it.query })
+        assertEquals(Quantity.Weight(100), items[0].quantity)
+        assertEquals(Quantity.Volume(2000), items[1].quantity)
+    }
 }

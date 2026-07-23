@@ -82,6 +82,8 @@ class ScreenCaptureService : Service() {
     @Volatile private var screenshotRequestGeneration = 0L
     private val screenshotRequestLock = Any()
     private var screenshotEnabled = false // Only take screenshots when explicitly enabled
+    @Volatile private var lastObservationActionNumber = -1
+    @Volatile private var lastObservationSequenceGeneration = -1L
     private var overlayBounds: android.graphics.Rect? = null
     private var currentTreeData: String? = null
     private var currentAppName: String? = null
@@ -2451,6 +2453,14 @@ class ScreenCaptureService : Service() {
         currentSequenceGeneration = sequenceGeneration
         isActionSequenceActive = true
         setOverlayState(OverlayState.CAPTURING)
+        scheduleObservationDispatchWatchdog(
+            originalInput = originalInput,
+            actionNumber = actionNumber,
+            sequenceGeneration = sequenceGeneration,
+            screenshotGenerationAtSchedule = synchronized(screenshotRequestLock) {
+                screenshotRequestGeneration
+            }
+        )
 
         val accessibility = (application as? MyApplication)?.getAccessibilityService()
         val capture = capture@{
@@ -2470,6 +2480,8 @@ class ScreenCaptureService : Service() {
                 }
 
                 if (!ensureCaptureReadyForAutomation("next action screenshot")) return@capture
+                lastObservationActionNumber = actionNumber
+                lastObservationSequenceGeneration = sequenceGeneration
                 Log.i(
                     "BetaAgent",
                     "OBSERVATION_CAPTURE action=$actionNumber generation=$sequenceGeneration tree_chars=${currentTreeData?.length ?: 0}"
@@ -2492,6 +2504,59 @@ class ScreenCaptureService : Service() {
             accessibility.runWhenCommerceUiQuiescent(onReady = capture)
         } else {
             Handler(Looper.getMainLooper()).postDelayed({ capture() }, 250L)
+        }
+    }
+
+    private fun scheduleObservationDispatchWatchdog(
+        originalInput: String,
+        actionNumber: Int,
+        sequenceGeneration: Long,
+        screenshotGenerationAtSchedule: Long
+    ) {
+        val watchdog = Runnable {
+            Handler(Looper.getMainLooper()).post {
+                if (
+                    !isActionSequenceActive ||
+                    currentSequenceGeneration != sequenceGeneration ||
+                    !BackendProcessing.isCurrentSequenceTrigger(originalInput, sequenceGeneration)
+                ) {
+                    return@post
+                }
+
+                val screenshotDispatchStarted = synchronized(screenshotRequestLock) {
+                    screenshotRequestGeneration != screenshotGenerationAtSchedule
+                }
+                val observationCaptured =
+                    lastObservationActionNumber == actionNumber &&
+                        lastObservationSequenceGeneration == sequenceGeneration
+
+                if (screenshotDispatchStarted || !observationCaptured) {
+                    return@post
+                }
+
+                Log.w(
+                    "BetaAgent",
+                    "OBSERVATION_DISPATCH_WATCHDOG_RECOVERY action=$actionNumber " +
+                        "generation=$sequenceGeneration tree_chars=${currentTreeData?.length ?: 0}"
+                )
+                if (!processTreeOnlyScreenshotFallback("observation dispatch watchdog")) {
+                    Log.e(
+                        "BetaAgent",
+                        "FLOW_FAILED: reason=observation_dispatch_watchdog_no_tree " +
+                            "action=$actionNumber generation=$sequenceGeneration"
+                    )
+                }
+            }
+        }
+
+        val captureHandler = handler
+        if (captureHandler != null) {
+            captureHandler.postDelayed(watchdog, OBSERVATION_DISPATCH_WATCHDOG_MS)
+        } else {
+            Handler(Looper.getMainLooper()).postDelayed(
+                watchdog,
+                OBSERVATION_DISPATCH_WATCHDOG_MS
+            )
         }
     }
     
@@ -3251,6 +3316,7 @@ class ScreenCaptureService : Service() {
         private const val OVERLAY_PREF_X = "overlay_right_inset_px"
         private const val OVERLAY_PREF_Y = "overlay_top_px"
         private const val DEFAULT_OVERLAY_RIGHT_INSET_PX = 50
+        private const val OBSERVATION_DISPATCH_WATCHDOG_MS = 4_000L
         // Consider adding actions for START if needed, though currently handled by intent extras
     }
 
