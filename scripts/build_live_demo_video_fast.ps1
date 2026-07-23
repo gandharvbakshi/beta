@@ -1,6 +1,7 @@
 param(
     [string]$Voiceover = "logs\demo\beta_voiceover_ruhaan_normalized.wav",
-    [string]$Output = "logs\demo\Beta_live_Blinkit_Swiggy_demo_with_Ruhaan.mp4"
+    [string]$Output = "logs\demo\Beta_live_Blinkit_Swiggy_demo_with_Ruhaan.mp4",
+    [switch]$ShowFullHeader
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,12 +22,17 @@ if (-not $ffmpeg) {
     throw "Unable to locate FFmpeg through imageio_ffmpeg."
 }
 
+$headerStage = if ($ShowFullHeader) {
+    "[base]null[private];"
+} else {
+    "color=c=0xf7faf6:s=573x205[privacy];[base][privacy]overlay=(W-w)/2:0[private];"
+}
+
 $phoneFilter = @"
 [0:v]scale=573:1280:flags=lanczos[phone];
 color=c=0x0d1814:s=720x1280[bg];
 [bg][phone]overlay=(W-w)/2:0[base];
-color=c=0xf7faf6:s=573x205[privacy];
-[base][privacy]overlay=(W-w)/2:0[private];
+$headerStage
 [1:v]scale=720:-1[label];
 [private][label]overlay=0:H-h-12:shortest=1,format=yuv420p[out]
 "@ -replace "`r`n", ""
