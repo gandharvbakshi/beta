@@ -92,13 +92,14 @@ function Write-CardSegment {
 
 $segments = @(
     (Join-Path $work "00_intro.mp4"),
-    (Join-Path $work "01_butter_start.mp4"),
-    (Join-Path $work "02_butter_results.mp4"),
-    (Join-Path $work "03_butter_result.mp4"),
-    (Join-Path $work "04_vicks.mp4"),
-    (Join-Path $work "05_coffee.mp4"),
-    (Join-Path $work "06_swiggy.mp4"),
-    (Join-Path $work "07_outro.mp4")
+    (Join-Path $work "01_item_entry.mp4"),
+    (Join-Path $work "02_butter_start.mp4"),
+    (Join-Path $work "03_butter_results.mp4"),
+    (Join-Path $work "04_butter_result.mp4"),
+    (Join-Path $work "05_vicks.mp4"),
+    (Join-Path $work "06_coffee.mp4"),
+    (Join-Path $work "07_swiggy.mp4"),
+    (Join-Path $work "08_outro.mp4")
 )
 
 Write-CardSegment `
@@ -106,44 +107,50 @@ Write-CardSegment `
     -Duration 5 `
     -Destination $segments[0]
 Write-VideoSegment `
+    -Source (Join-Path $repo "demo\Beta_emulator_item_entry_clip.mp4") `
+    -Start 0 `
+    -Duration 7.8 `
+    -Label (Join-Path $cards "type_or_speak_label.png") `
+    -Destination $segments[1]
+Write-VideoSegment `
     -Source (Join-Path $demo "recovered_01_butter.mp4") `
     -Start 0 `
     -Duration 2 `
     -Label (Join-Path $cards "butter_label.png") `
-    -Destination $segments[1]
+    -Destination $segments[2]
 Write-VideoSegment `
     -Source (Join-Path $demo "recovered_01_butter.mp4") `
     -Start 8 `
     -Duration 8 `
     -Label (Join-Path $cards "butter_label.png") `
-    -Destination $segments[2]
+    -Destination $segments[3]
 Write-ImageSegment `
     -Source (Join-Path $demo "live_01_butter_final.png") `
     -Duration 4 `
     -Label (Join-Path $cards "butter_result_label.png") `
-    -Destination $segments[3]
+    -Destination $segments[4]
 Write-VideoSegment `
     -Source (Join-Path $demo "recovered_02_vicks.mp4") `
     -Start 8 `
     -Duration 29 `
     -Label (Join-Path $cards "vicks_label.png") `
-    -Destination $segments[4]
+    -Destination $segments[5]
 Write-VideoSegment `
     -Source (Join-Path $demo "recovered_03_coffee.mp4") `
     -Start 0 `
     -Duration 12 `
     -Label (Join-Path $cards "coffee_label.png") `
-    -Destination $segments[5]
+    -Destination $segments[6]
 Write-VideoSegment `
     -Source (Join-Path $demo "recovered_04_swiggy.mp4") `
     -Start 12 `
     -Duration 22 `
     -Label (Join-Path $cards "swiggy_label.png") `
-    -Destination $segments[6]
+    -Destination $segments[7]
 Write-CardSegment `
     -Source (Join-Path $cards "outro.png") `
-    -Duration 15 `
-    -Destination $segments[7]
+    -Duration 20 `
+    -Destination $segments[8]
 
 $concatList = Join-Path $work "segments.txt"
 $segments | ForEach-Object {

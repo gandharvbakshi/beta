@@ -1,16 +1,19 @@
 # Beta grocery demo narration
 
-Current voiced cut: about 96 seconds.
+Current voiced cut: about 104 seconds.
 
 ## Script
 
 [Beta home screen]
 
-This is Beta, a voice-first Android grocery assistant built to make online ordering easier for older people and anyone who finds shopping apps difficult to navigate.
+This is Beta, an Android grocery assistant built to make online ordering easier for older people and anyone who finds shopping apps difficult to navigate.
 
-[Show the large provider choices and voice action]
+[Show the Beta entry card and type “Butter, Vicks and coffee”]
 
-The interaction is intentionally simple: the user speaks or types what they need, chooses a grocery provider for the session, and Beta builds the cart. The user remains in control and decides what happens next.
+Today, the interaction can start in either of two simple ways: the user types
+what they need into Beta, as shown here, or says the same request by voice.
+Beta then guides the cart-building flow. The user remains in control and
+decides what happens next.
 
 [Blinkit: butter flow]
 
@@ -41,4 +44,6 @@ Beta is already approved and available on Google Play. Broader device testing an
 - Stop at verified cart state; never enter checkout or payment.
 - Keep each exact quantity visible long enough to read.
 - End immediately after Swiggy Instamart opens.
-- Do not show delivery addresses, notifications, credentials, or private account details.
+- This full-header cut intentionally keeps the grocery-app header visible under
+  the owner's explicit approval. Mask delivery/location text in any other
+  external cut; never show credentials, private notifications, or payment data.

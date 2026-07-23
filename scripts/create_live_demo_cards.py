@@ -106,8 +106,8 @@ def main() -> int:
     title_card(
         cards / "intro.png",
         "Live Android proof of concept",
-        "Beta helps older adults build a grocery cart by voice",
-        "A real phone capture using Blinkit today, with Swiggy Instamart opening for the next integration step.",
+        "Beta helps older adults build a grocery cart with voice or text",
+        "A live Android demonstration using Beta and Blinkit today, with Swiggy Instamart opening for the next integration step.",
     )
     title_card(
         cards / "outro.png",
@@ -115,6 +115,11 @@ def main() -> int:
         "Swiggy MCP will make the flow safer and more personal",
         "Server-side authentication, preference-aware choices, spoken cart diffs, and read-back verification.",
         closing=True,
+    )
+    label_image(
+        cards / "type_or_speak_label.png",
+        "Type or speak to Beta",
+        "Today, grocery requests can be typed or spoken",
     )
     label_image(cards / "butter_label.png", "Live Blinkit flow", "Searching for Amul salted butter • 100 g")
     label_image(
