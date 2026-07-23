@@ -1,6 +1,6 @@
 # Beta grocery demo narration
 
-Target length: about 2 minutes.
+Current voiced cut: about 96 seconds.
 
 ## Script
 
@@ -20,7 +20,7 @@ On the phone, Beta handles the large, readable interface, voice and text input, 
 
 The hosted staging backend receives the screenshot, accessibility tree, and order intent. It combines Google Cloud Vision OCR with deterministic state and safety rules. Limited model reasoning is available only as a fallback. The backend returns one constrained action at a time, and Beta verifies that the intended product and quantity actually reached the cart.
 
-Here, Beta adds three exact products on Blinkit: Amul salted butter, 100 grams; Vicks VapoRub, 25 millilitres; and Nescafe Classic instant coffee, 200 grams.
+In the recorded take, Beta clearly shows a live butter success at Amul salted butter, 100 grams. It also reaches the exact Vicks VapoRub 25 millilitre product and increments the cart, then stops safely while the keyboard remains open. The coffee attempt is shown as a safe stall, not as a completed cart action. Separate earlier live rehearsals did pass all three exact items.
 
 [Show each exact product and quantity, then its cart increment]
 

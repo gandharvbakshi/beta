@@ -1,0 +1,11 @@
+Beta is a voice-first grocery assistant for older adults, and for anyone who finds busy shopping apps difficult to navigate.
+
+The user simply says what they need. On Android, Beta uses screen capture to understand the visible page, and Accessibility Service to work with the app's structured controls. A hosted Cloud Run backend reads the screen with Google Cloud Vision, applies deterministic product and quantity rules, and uses limited AI reasoning only when a layout is ambiguous.
+
+In this live Blinkit take, Beta searches for Amul salted butter and adds the exact one-hundred-gram pack. It reaches the exact twenty-five-millilitre Vicks item and increments the cart, then stops safely when the keyboard remains open. The coffee attempt also stalls safely instead of making a risky choice.
+
+Finally, Beta opens Swiggy Instamart and stops.
+
+Once Swiggy MCP access arrives, authentication and tokens will remain on the backend. Order history can help resolve preferences, and every cart change will be calculated, spoken back, updated once, and verified.
+
+Beta is already approved and available on Google Play. Broader testing and the full Swiggy integration are still ahead. Checkout and payment always remain with the user.
