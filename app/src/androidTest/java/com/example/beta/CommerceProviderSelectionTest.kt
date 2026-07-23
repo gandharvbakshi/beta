@@ -7,6 +7,7 @@ import androidx.test.espresso.matcher.ViewMatchers.isChecked
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility
 import androidx.test.espresso.matcher.ViewMatchers.withId
+import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.espresso.matcher.ViewMatchers.Visibility
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.ActivityTestRule
@@ -56,13 +57,22 @@ class CommerceProviderSelectionTest {
     }
 
     @Test
-    fun swiggyConnectionPanelOnlyShowsForSwiggy() {
-        onView(withId(R.id.swiggyConnectionPanel)).check(matches(isDisplayed()))
+    fun swiggyUsesSharedScreenAssistedSetupByDefault() {
+        onView(withId(R.id.providerChoiceNote)).check(
+            matches(withText(R.string.provider_choice_swiggy_screen_assisted))
+        )
+        onView(withId(R.id.swiggyConnectionPanel)).check(
+            matches(withEffectiveVisibility(Visibility.GONE))
+        )
+        onView(withId(R.id.setupPermissionsCard)).check(matches(isDisplayed()))
         onView(withId(R.id.providerBlinkit)).perform(click())
         onView(withId(R.id.swiggyConnectionPanel)).check(
             matches(withEffectiveVisibility(Visibility.GONE))
         )
         onView(withId(R.id.providerSwiggy)).perform(click())
-        onView(withId(R.id.swiggyConnectionPanel)).check(matches(isDisplayed()))
+        onView(withId(R.id.swiggyConnectionPanel)).check(
+            matches(withEffectiveVisibility(Visibility.GONE))
+        )
+        onView(withId(R.id.setupPermissionsCard)).check(matches(isDisplayed()))
     }
 }

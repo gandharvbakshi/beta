@@ -12,7 +12,6 @@ $ErrorActionPreference = "Stop"
 $Package = "live.betaapp.android"
 $MainActivityComponent = "$Package/com.example.beta.MainActivity"
 $Service = "$Package/com.example.beta.MyAccessibilityService"
-$SwiggyPackage = "in.swiggy.android.instamart"
 $ProjectDir = Split-Path -Parent $PSScriptRoot
 $LogsDir = Join-Path $ProjectDir "logs"
 $ScenarioName = ($Instruction -replace '[^A-Za-z0-9_-]+', '_').Trim('_').ToLowerInvariant()
@@ -45,6 +44,22 @@ function Require-Package([string]$Name) {
     }
 }
 
+function Resolve-SwiggyPackage {
+    $candidates = @(
+        "in.swiggy.android",
+        "in.swiggy.android.instamart"
+    )
+
+    foreach ($candidate in $candidates) {
+        $installed = adb shell pm list packages $candidate
+        if ($installed -contains "package:$candidate") {
+            return $candidate
+        }
+    }
+
+    throw "Neither Swiggy package is installed on the device: $($candidates -join ', ')"
+}
+
 function Enable-BetaAccessibility {
     adb shell settings put secure enabled_accessibility_services "$Service" | Out-Null
     adb shell settings put secure accessibility_enabled 1 | Out-Null
@@ -71,7 +86,7 @@ function Wait-BetaAccessibilityConnected([int]$TimeoutSeconds = 15) {
 
 function Dismiss-AnrFromWindowState {
     $focusedAnr = adb shell dumpsys window |
-        Select-String "mCurrentFocus=.*Application Not Responding|mFocusedApp=.*Application Not Responding"
+        Select-String "mCurrentFocus=.*Application Not Responding|mFocusedApp=.*Application Not Responding|ANR in in\.swiggy\.android|ANR in in\.swiggy\.android\.instamart|Application Not Responding: in\.swiggy\.android|Application Not Responding: in\.swiggy\.android\.instamart"
     if (-not $focusedAnr) {
         return $false
     }
@@ -297,6 +312,7 @@ function Ensure-SwiggyHomeReady([switch]$NoForceStop) {
     Write-Phase "ensuring Swiggy Instamart is on saved Home"
     $preflightArgs = @{
         HomeReadyTimeoutSeconds = 60
+        SwiggyPackage = $SwiggyPackage
     }
     if ($NoForceStop) {
         $preflightArgs.NoForceStop = $true
@@ -305,6 +321,8 @@ function Ensure-SwiggyHomeReady([switch]$NoForceStop) {
 }
 
 Require-Device
+$SwiggyPackage = Resolve-SwiggyPackage
+Write-Phase "using Swiggy package: $SwiggyPackage"
 Require-Package $SwiggyPackage
 
 if (-not $SkipBuild) {

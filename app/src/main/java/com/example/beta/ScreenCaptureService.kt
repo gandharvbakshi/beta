@@ -2241,6 +2241,14 @@ class ScreenCaptureService : Service() {
             return false
         }
         CommerceProviderRouter.selectProviderFromInstruction(instruction)
+        if (
+            CommerceProviderRouter.currentSessionProvider() ==
+                CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
+            !SwiggyExecutionMode.usesMcpExperience()
+        ) {
+            Log.i("BetaAgent", "SWIGGY_SCREEN_ASSISTED_ROUTE_SELECTED")
+            return false
+        }
         if (CommerceProviderRouter.currentSessionProvider() !=
             CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
         ) {

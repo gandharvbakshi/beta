@@ -235,10 +235,14 @@ class MainActivity : ComponentActivity() {
             if (CommerceProviderRouter.currentSessionProvider() ==
                 CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
             ) {
-                if (swiggyConnectionState == SwiggyMcpClient.ConnectionState.READY) {
-                    checkMicrophoneAndStartVoice()
+                if (SwiggyExecutionMode.usesMcpExperience()) {
+                    if (swiggyConnectionState == SwiggyMcpClient.ConnectionState.READY) {
+                        checkMicrophoneAndStartVoice()
+                    } else {
+                        startSwiggyConnection()
+                    }
                 } else {
-                    startSwiggyConnection()
+                    checkPermissionsAndStartCapture()
                 }
             } else {
                 checkPermissionsAndStartCapture()
@@ -284,7 +288,9 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         syncProviderChoiceFromSession()
         refreshSetupChecklist()
-        refreshSwiggyConnectionStatus(resumePendingOrder = true)
+        if (SwiggyExecutionMode.usesMcpExperience()) {
+            refreshSwiggyConnectionStatus(resumePendingOrder = true)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -360,11 +366,16 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        if (CommerceProviderRouter.currentSessionProvider() ==
-            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
+        val selectedProvider = CommerceProviderRouter.currentSessionProvider()
+        if (
+            selectedProvider == CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
+            SwiggyExecutionMode.usesMcpExperience()
         ) {
             handleSwiggyVoiceInstruction(instruction)
             return
+        }
+        if (selectedProvider == CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART) {
+            Log.i("BetaAgent", "SWIGGY_SCREEN_ASSISTED_VOICE_INSTRUCTION_RECEIVED")
         }
 
         val service = (application as MyApplication).getScreenCaptureService()
@@ -399,13 +410,16 @@ class MainActivity : ComponentActivity() {
             }
             CommerceProviderRouter.selectProviderFromUi(provider)
             val message = getString(R.string.provider_selected_for_session, provider.appName)
-            providerChoiceNote.text = getString(R.string.provider_choice_current, provider.appName)
+            providerChoiceNote.text = providerChoiceNoteFor(provider)
             providerChoiceGroup.announceForAccessibility(message)
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             Log.i("BetaAgent", "PROVIDER_SESSION_SELECTED source=UI provider=${provider.name}")
             updateSwiggyPanelVisibility()
             configurePrimaryExperience()
-            if (provider == CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART) {
+            if (
+                provider == CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
+                SwiggyExecutionMode.usesMcpExperience()
+            ) {
                 refreshSwiggyConnectionStatus()
             }
         }
@@ -422,23 +436,36 @@ class MainActivity : ComponentActivity() {
         isBindingProviderChoice = true
         providerChoiceGroup.check(checkedId)
         isBindingProviderChoice = false
-        providerChoiceNote.text = getString(R.string.provider_choice_current, provider.appName)
+        providerChoiceNote.text = providerChoiceNoteFor(provider)
         updateSwiggyPanelVisibility()
         configurePrimaryExperience()
+    }
+
+    private fun providerChoiceNoteFor(provider: CommerceProviderRouter.CommerceProvider): String {
+        return if (
+            provider == CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
+            !SwiggyExecutionMode.usesMcpExperience()
+        ) {
+            getString(R.string.provider_choice_swiggy_screen_assisted)
+        } else {
+            getString(R.string.provider_choice_current, provider.appName)
+        }
     }
 
     private fun updateSwiggyPanelVisibility() {
         if (!::swiggyConnectionPanel.isInitialized) return
         swiggyConnectionPanel.visibility = if (
             CommerceProviderRouter.currentSessionProvider() ==
-            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
+            SwiggyExecutionMode.usesMcpExperience()
         ) View.VISIBLE else View.GONE
     }
 
     private fun configurePrimaryExperience() {
         if (!::setupHeading.isInitialized) return
         val usesSwiggyMcp = CommerceProviderRouter.currentSessionProvider() ==
-            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
+            SwiggyExecutionMode.usesMcpExperience()
         setupHeading.visibility = if (usesSwiggyMcp) View.GONE else View.VISIBLE
         setupPermissionsCard.visibility = if (usesSwiggyMcp) View.GONE else View.VISIBLE
         if (!usesSwiggyMcp) {
@@ -472,6 +499,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshSwiggyConnectionStatus(resumePendingOrder: Boolean = false) {
+        if (!SwiggyExecutionMode.usesMcpExperience()) return
         if (!::swiggyConnectionStatus.isInitialized) return
         if (resumePendingOrder) resumeSwiggyOrderAfterStatus = true
         if (swiggyStatusRequestInFlight) return
@@ -580,6 +608,10 @@ class MainActivity : ComponentActivity() {
         val data = sourceIntent?.data ?: return
         if (data.scheme != "beta" || data.host != "swiggy" || data.path != "/oauth") return
         sourceIntent.data = null
+        if (!SwiggyExecutionMode.usesMcpExperience()) {
+            Log.i("BetaAgent", "SWIGGY_MCP_CALLBACK_IGNORED_SCREEN_ASSISTED_MODE")
+            return
+        }
         if (data.getQueryParameter("status") == "connected") {
             swiggyConnectionStatus.setText(R.string.swiggy_connection_checking)
             swiggyConnectionDetail.setText(R.string.swiggy_connection_finishing)
@@ -599,7 +631,14 @@ class MainActivity : ComponentActivity() {
         sourceIntent?.removeExtra(EXTRA_SWIGGY_ORDER_INSTRUCTION)
         CommerceProviderRouter.selectProviderFromUi(CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART)
         syncProviderChoiceFromSession()
-        Handler(Looper.getMainLooper()).post { handleSwiggyVoiceInstruction(instruction) }
+        Handler(Looper.getMainLooper()).post {
+            if (SwiggyExecutionMode.usesMcpExperience()) {
+                handleSwiggyVoiceInstruction(instruction)
+            } else {
+                Log.i("BetaAgent", "STALE_SWIGGY_MCP_INTENT_ROUTED_TO_SCREEN_ASSISTED")
+                handleVoiceInstruction(instruction)
+            }
+        }
     }
 
     private fun promptToConnectSwiggy() {
@@ -826,8 +865,10 @@ class MainActivity : ComponentActivity() {
     private fun refreshSetupChecklist() {
         if (!::setupAccessibilityStep.isInitialized) return
 
-        if (CommerceProviderRouter.currentSessionProvider() ==
-            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
+        if (
+            CommerceProviderRouter.currentSessionProvider() ==
+                CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
+            SwiggyExecutionMode.usesMcpExperience()
         ) {
             configurePrimaryExperience()
             return

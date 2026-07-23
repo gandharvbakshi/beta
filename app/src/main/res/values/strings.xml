@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Beta</string>
     <string name="accessibility_service_name">Beta ordering assistant</string>
-    <string name="accessibility_service_description">For Blinkit and Zepto, Beta uses AccessibilityService only with your permission after you start a cart-building flow. It may read visible grocery app screen data, including product details, cart contents, buttons, prices, and delivery details such as name, precise delivery location, and address if shown, so it can build the cart you requested and stop before payment. Swiggy does not use this access.</string>
+    <string name="accessibility_service_description">For Blinkit, Swiggy Instamart, and Zepto, Beta uses AccessibilityService only with your permission after you start a cart-building flow. It may read visible grocery app screen data, including product details, cart contents, buttons, prices, and delivery details such as name, precise delivery location, and address if shown, so it can build the cart you requested and stop before payment.</string>
     <string name="main_title">Hi. Let\'s make grocery ordering easier.</string>
     <string name="main_subtitle">Tell Beta what you need. It can help you build the cart, and you decide when to pay.</string>
     <string name="main_primary_action">Get started</string>
@@ -39,7 +39,8 @@
     <string name="works_with_instamart">Swiggy Instamart</string>
     <string name="works_with_zepto">Zepto</string>
     <string name="provider_choice_label">Grocery app for this session</string>
-    <string name="provider_choice_note">Swiggy Instamart is selected first. Change it anytime during this session.</string>
+    <string name="provider_choice_note">Swiggy Instamart is selected first and uses the screen-assisted path for now. Change it anytime during this session.</string>
+    <string name="provider_choice_swiggy_screen_assisted">Swiggy Instamart is selected. For now, Beta will use the screen you see to help build your cart.</string>
     <string name="provider_selected_for_session">%1$s selected for this session</string>
     <string name="provider_choice_current">%1$s is selected for this session. You can change it anytime.</string>
     <string name="status_ready_pill">Ready</string>
@@ -71,11 +72,11 @@
     <string name="setup_screen_capture_body">Beta only looks when you ask it to.</string>
     <string name="setup_microphone_body">Optional — needed only for voice orders.</string>
     <string name="automation_disclosure_title">Before Beta helps in another app</string>
-    <string name="automation_disclosure_message">This permission is only for Blinkit and Zepto. After you choose to start, Beta uses screen capture and AccessibilityService to read their visible screens, including text, buttons, product names, prices, cart contents, and delivery details such as your name, precise delivery location, delivery address, and locality if shown. Beta sends this screen context to its backend only to build the cart you request. Swiggy uses a separate secure connection and does not use screen access. Beta always stops before checkout and payment. It does not place orders or pay. You can stop whenever you want. Diagnostic feedback is optional.</string>
+    <string name="automation_disclosure_message">After you choose to start, Beta uses screen capture and AccessibilityService to read visible grocery app screens, including text, buttons, product names, prices, cart contents, and delivery details such as your name, precise delivery location, delivery address, and locality if shown. Beta sends this screen context to its backend only to build the cart you request. Beta always stops before checkout and payment. It does not place orders or pay. You can stop whenever you want. Diagnostic feedback is optional.</string>
     <string name="automation_disclosure_accept">Continue</string>
     <string name="automation_disclosure_cancel">Not now</string>
     <string name="accessibility_setup_title">Turn on Beta in Accessibility</string>
-    <string name="accessibility_setup_message">Beta needs Accessibility permission before it can help in Blinkit or Zepto. Swiggy does not need this permission. On the next screen, tap Beta ordering assistant and turn it on. Then come back to Beta.</string>
+    <string name="accessibility_setup_message">Beta needs Accessibility permission before it can help in Blinkit, Swiggy Instamart, or Zepto. On the next screen, tap Beta ordering assistant and turn it on. Then come back to Beta.</string>
     <string name="accessibility_setup_open_settings">Open Settings</string>
     <string name="overlay_status_ready">Tap to tell Beta</string>
     <string name="overlay_status_listening">Beta is listening…</string>

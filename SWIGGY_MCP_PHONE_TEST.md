@@ -1,5 +1,10 @@
 # Swiggy MCP phone test
 
+This is a future MCP-only test plan. The current default is screen-assisted
+Swiggy automation; do not use this checklist for the July demo build. Flip
+`SwiggyExecutionMode` to `MCP` only after approved staging capabilities and
+credentials are available.
+
 Use a debug build and an approved staging backend. Keep checkout and payment out of scope.
 
 1. Open Beta. Swiggy Instamart should be selected first. The accessibility and screen-capture setup card should be hidden for Swiggy.

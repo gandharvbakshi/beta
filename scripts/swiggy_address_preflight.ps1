@@ -3,6 +3,7 @@ param(
     [int]$MaxScrolls = 4,
     [int]$LaunchTimeoutSeconds = 45,
     [int]$HomeReadyTimeoutSeconds = 45,
+    [string]$SwiggyPackage = "in.swiggy.android",
     [switch]$NoForceStop
 )
 
@@ -11,13 +12,17 @@ $ErrorActionPreference = "Stop"
 $ProjectDir = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectDir
 
-$SwiggyPackage = "in.swiggy.android.instamart"
 $SwiggyLaunchComponents = @(
     "$SwiggyPackage/in.swiggy.android.activities.HomeActivity",
     "$SwiggyPackage/in.swiggy.android.HomeIcon",
     "$SwiggyPackage/in.swiggy.android.FestiveIcon",
     "$SwiggyPackage/in.swiggy.android.HomeIconClone"
 )
+$SwiggyResourcePackages = @(
+    $SwiggyPackage,
+    "in.swiggy.android",
+    "in.swiggy.android.instamart"
+) | Select-Object -Unique
 $SavedHomeAddressPatterns = @(
     '(?i)\b602\b',
     '(?i)\b2974\b',
@@ -187,11 +192,12 @@ function Get-NodeCenterByResourceId([string]$Xml, [string[]]$ResourceIds) {
 }
 
 function Tap-SwiggyAddressSelector([string]$Xml) {
-    $addressPoint = Get-NodeCenterByResourceId $Xml @(
-        "in.swiggy.android.instamart:id/address_selector_area",
-        "in.swiggy.android.instamart:id/im_address_bar",
-        "in.swiggy.android.instamart:id/location_header"
-    )
+    $addressResourceIds = foreach ($resourcePackage in $SwiggyResourcePackages) {
+        "${resourcePackage}:id/address_selector_area"
+        "${resourcePackage}:id/im_address_bar"
+        "${resourcePackage}:id/location_header"
+    }
+    $addressPoint = Get-NodeCenterByResourceId $Xml $addressResourceIds
     if (-not $addressPoint) {
         $addressPoint = Get-NodeCenterByPattern $Xml @("address_selector_area", "Selected address", "location_header", "im_address_bar", "(?i)\bUkiah\b", "(?i)\bCA\s*95482\b", "(?i)Vista\s+Del\s+Lago", "(?i)Mountain\s+View", "(?i)\bCA\s*94043\b")
     }
@@ -240,7 +246,7 @@ function Resolve-AppUnresponsiveDialog([string]$Xml) {
         return $false
     }
 
-    if ($title -match '(?i)instamart|swiggy|in\.swiggy\.android\.instamart') {
+    if ($title -match '(?i)instamart|swiggy|in\.swiggy\.android(?:\.instamart)?') {
         throw "Swiggy Instamart is not responding; cannot continue preflight until the app recovers or the emulator is restarted."
     }
 
@@ -255,7 +261,7 @@ function Resolve-AppUnresponsiveDialog([string]$Xml) {
 }
 
 function Test-SwiggyForeground([string]$Xml) {
-    return $Xml -match 'package="in\.swiggy\.android\.instamart"'
+    return $Xml -match 'package="in\.swiggy\.android(?:\.instamart)?"'
 }
 
 function Test-SwiggySplashSurface([string]$Xml) {
@@ -475,8 +481,8 @@ function Test-CouponlessSuccessModal([string]$Xml) {
 
 function Test-SwiggyMoneyWalletModal([string]$Xml) {
     return (Test-SwiggyForeground $Xml) -and
-        ($Xml -match "in\.swiggy\.android\.instamart:id/close") -and
-        ($Xml -match "in\.swiggy\.android\.instamart:id/widget_lottie|content-desc=`"Cancel`"")
+        ($Xml -match "in\.swiggy\.android(?:\.instamart)?:id/close") -and
+        ($Xml -match "in\.swiggy\.android(?:\.instamart)?:id/widget_lottie|content-desc=`"Cancel`"")
 }
 
 function Test-PreviousOrderRatingPrompt([string]$Xml) {
@@ -745,7 +751,10 @@ function Exit-SwiggyProductSearchToHome([string]$Xml) {
 
     Write-Phase "leaving Swiggy product-search surface for Home/search surface"
     for ($attempt = 0; $attempt -lt 4; $attempt++) {
-        $backPoint = Get-NodeCenterByResourceId $Xml @("in.swiggy.android.instamart:id/back_button")
+        $backResourceIds = foreach ($resourcePackage in $SwiggyResourcePackages) {
+            "${resourcePackage}:id/back_button"
+        }
+        $backPoint = Get-NodeCenterByResourceId $Xml $backResourceIds
         if ($backPoint) {
             adb shell input tap $backPoint.X $backPoint.Y | Out-Null
         } else {

@@ -9,17 +9,15 @@
   <main style="max-width:860px;margin:0 auto;padding:32px 20px 48px;">
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:28px;">
       <h1 style="margin:0 0 8px;font-size:30px;line-height:1.2;color:#111827;">Beta Privacy Policy</h1>
-      <p style="margin:0 0 20px;color:#6b7280;"><strong>Last updated:</strong> July 22, 2026</p>
+      <p style="margin:0 0 20px;color:#6b7280;"><strong>Last updated:</strong> July 23, 2026</p>
 
       <p style="margin:0 0 16px;">Beta is a cart-only grocery assistant. It helps you add requested items to a supported grocery app cart, currently Blinkit, Swiggy Instamart, or Zepto. It stops before checkout and payment so you can review the cart yourself.</p>
 
       <h2 style="margin:24px 0 10px;font-size:20px;color:#111827;">Information we use</h2>
       <ul style="margin:0 0 16px;padding-left:20px;">
         <li>Your item requests and order instructions.</li>
-        <li>For Swiggy Instamart: your saved-address choices, product search results, go-to items, order history and order details from the last 15 days, and current cart contents, accessed through your secure Swiggy connection only when needed for a flow you start.</li>
-        <li>For Blinkit and Zepto: screen text, screen capture, and AccessibilityService data only after you start a cart-building flow.</li>
-        <li>Visible Blinkit or Zepto screen details that may include product names, prices, cart contents, buttons, and delivery details such as your name, precise delivery location, delivery address, locality, or delivery-area header text if those details are shown by the grocery app.</li>
-        <li>A random installation identifier used to protect your Swiggy connection. It is encrypted on your phone; the backend stores only an opaque derived identifier.</li>
+        <li>For Blinkit, Swiggy Instamart, and Zepto: screen text, screen capture, and AccessibilityService data only after you start a cart-building flow.</li>
+        <li>Visible supported grocery app screen details that may include product names, prices, cart contents, buttons, and delivery details such as your name, precise delivery location, delivery address, locality, or delivery-area header text if those details are shown by the grocery app.</li>
         <li>Basic device and app info such as app version, build type, device model, Android version, and order result.</li>
         <li>Optional feedback and optional diagnostic logs if you choose to send them.</li>
       </ul>
@@ -27,16 +25,15 @@
       <h2 style="margin:24px 0 10px;font-size:20px;color:#111827;">How we use it</h2>
       <ul style="margin:0 0 16px;padding-left:20px;">
         <li>To understand what you want added to the cart.</li>
-        <li>To learn what you usually mean by an item, recommend matching products, show exact cart changes, add only after your confirmation, and verify the resulting cart.</li>
-        <li>For Blinkit and Zepto, to tap visible grocery app controls and confirm that the cart-building flow is using the delivery context visible on screen.</li>
+        <li>To find matching products, tap visible grocery app controls, and verify the resulting cart.</li>
+        <li>To confirm that the cart-building flow is using the delivery context visible on screen.</li>
         <li>To improve reliability and fix problems reported through feedback or logs.</li>
         <li>To run the Beta service through our backend on Google Cloud.</li>
       </ul>
 
       <h2 style="margin:24px 0 10px;font-size:20px;color:#111827;">What Beta does not do</h2>
       <ul style="margin:0 0 16px;padding-left:20px;">
-        <li>The Swiggy connection does not use screen capture or AccessibilityService.</li>
-        <li>For Blinkit and Zepto, it does not start screen capture or AccessibilityService access until you begin an order flow.</li>
+        <li>It does not start screen capture or AccessibilityService access until you begin a cart-building flow.</li>
         <li>It does not complete checkout or payment.</li>
         <li>It does not place orders on your behalf.</li>
         <li>It does not sell personal or sensitive user data or use grocery screen data for advertising.</li>
@@ -46,7 +43,6 @@
       <ul style="margin:0 0 16px;padding-left:20px;">
         <li>You control when a flow starts and can stop it at any time.</li>
         <li>Feedback and logs are optional.</li>
-        <li>You can disconnect Swiggy in the app, which removes Beta's stored Swiggy connection, and reconnect later.</li>
         <li>You can clear saved preferences in the app.</li>
         <li>You can request deletion of your data by emailing <a href="mailto:gandharv@musicaigeneration.com" style="color:#2563eb;">gandharv@musicaigeneration.com</a>.</li>
       </ul>
@@ -55,7 +51,7 @@
       <p style="margin:0 0 16px;">To request deletion of Beta data, email <a href="mailto:gandharv@musicaigeneration.com" style="color:#2563eb;">gandharv@musicaigeneration.com</a> with the subject line <strong>Delete my Beta data</strong>. Please include any tester email address you used and a short note that the request is for the Beta app. We will review and action deletion requests within 14 days.</p>
 
       <h2 style="margin:24px 0 10px;font-size:20px;color:#111827;">Sharing and storage</h2>
-      <p style="margin:0 0 16px;">We send data to Beta's backend on Google Cloud so the app can work. The Android app never stores your Swiggy access token or OTP. The backend stores the per-user Swiggy access token encrypted and removes that connection when you disconnect. We store optional feedback separately from order-related telemetry.</p>
+      <p style="margin:0 0 16px;">We send data to Beta's backend on Google Cloud so the app can work. We store optional feedback separately from order-related telemetry.</p>
 
       <h2 style="margin:24px 0 10px;font-size:20px;color:#111827;">Contact</h2>
       <p style="margin:0;">Questions or deletion requests: <a href="mailto:gandharv@musicaigeneration.com" style="color:#2563eb;">gandharv@musicaigeneration.com</a></p>
