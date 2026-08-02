@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:minHeight="44dp"
+    android:minHeight="48dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
     android:paddingStart="10dp"
@@ -31,9 +31,9 @@
         android:text="@string/overlay_status_ready"
         android:textColor="@color/beta_text_primary"
         android:textSize="14sp"
-        android:maxLines="1"
+        android:maxLines="2"
         android:ellipsize="end"
-        android:maxWidth="180dp" />
+        android:maxWidth="240dp" />
 
     <View
         android:id="@+id/overlay_dot"

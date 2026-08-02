@@ -1,6 +1,32 @@
 package com.example.beta
 
 object CommerceActionClassifier {
+    data class ExecutableActionContext(
+        val actionType: String? = null,
+        val actionTarget: String? = null,
+        val textToType: String? = null,
+        val text: String? = null,
+        val contentDescription: String? = null,
+        val selectorText: String? = null,
+        val selectorContentDescription: String? = null,
+        val resourceId: String? = null,
+        val className: String? = null,
+        val hierarchyPath: String? = null
+    ) {
+        internal fun parts(): Array<String?> = arrayOf(
+            actionType,
+            actionTarget,
+            textToType,
+            text,
+            contentDescription,
+            selectorText,
+            selectorContentDescription,
+            resourceId,
+            className,
+            hierarchyPath
+        )
+    }
+
     private val nonProductAddTargets = listOf(
         "add more items",
         "add address",
@@ -90,6 +116,9 @@ object CommerceActionClassifier {
 
     private fun containsNonProductAddTarget(normalizedContext: String): Boolean =
         nonProductAddTargets.any { normalizedContext.contains(it) }
+
+    fun isCheckoutOrPaymentExecutionAction(context: ExecutableActionContext): Boolean =
+        isCheckoutOrPaymentExecutionAction(*context.parts())
 
     fun isCheckoutOrPaymentExecutionAction(vararg contextParts: String?): Boolean {
         val normalizedContext = contextParts

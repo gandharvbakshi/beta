@@ -322,13 +322,30 @@ object BackendProcessing {
     }
 
     internal fun isCheckoutBoundaryDetected(responseText: String?, treeData: String?): Boolean {
-        if (CommerceActionClassifier.isCheckoutOrPaymentExecutionAction(responseText)) {
+        return isCheckoutBoundaryDetected(
+            CommerceActionClassifier.ExecutableActionContext(actionTarget = responseText),
+            treeData
+        )
+    }
+
+    internal fun isCheckoutBoundaryDetected(
+        actionContext: CommerceActionClassifier.ExecutableActionContext,
+        treeData: String?
+    ): Boolean {
+        if (CommerceActionClassifier.isCheckoutOrPaymentExecutionAction(actionContext)) {
             return true
         }
-        if (isGenericCheckoutContinuationAction(responseText) && isCheckoutOrPaymentSurface(treeData)) {
+        if (
+            isGenericCheckoutContinuationAction(actionContext.parts().joinToString(" ")) &&
+            isCheckoutOrPaymentSurface(treeData)
+        ) {
             return true
         }
         return isPaymentExecutionSurface(treeData)
+    }
+
+    internal fun quantityProvenByCartPresence(itemFoundInCart: Boolean?): Int {
+        return if (itemFoundInCart == true) 1 else 0
     }
 
     private fun isGenericCheckoutContinuationAction(responseText: String?): Boolean {
@@ -1769,22 +1786,21 @@ object BackendProcessing {
                                         context,
                                         statusForAction(actionType, actionTarget, currentActionNumber, maxActions)
                                     )
-                                    val responseBoundaryText = listOf(
-                                        actionType,
-                                        actionTarget,
-                                        reasoning,
-                                        text,
-                                        resourceId,
-                                        className,
-                                        contentDescription,
-                                        hierarchyPath,
-                                        actionTextToType,
-                                        stateStr,
-                                        debugNotes,
-                                        jsonObject.optString("failure_reason", "")
-                                    ).joinToString(" ")
+                                    val executableActionContext =
+                                        CommerceActionClassifier.ExecutableActionContext(
+                                            actionType = actionType,
+                                            actionTarget = actionTarget,
+                                            textToType = actionTextToType,
+                                            text = recommendedAction.optString("text", ""),
+                                            contentDescription = recommendedAction.optString("content_description", ""),
+                                            selectorText = text,
+                                            selectorContentDescription = contentDescription,
+                                            resourceId = resourceId,
+                                            className = className,
+                                            hierarchyPath = hierarchyPath
+                                        )
                                     val isCheckoutBoundary = isCheckoutBoundaryDetected(
-                                        responseBoundaryText,
+                                        executableActionContext,
                                         requestTreeData
                                     )
                                     if (isSupportedCommerceApp(backendAppName) && isCheckoutBoundary) {
@@ -1797,7 +1813,7 @@ object BackendProcessing {
                                             } else {
                                                 ItemOutcomeStatus.MISCLICK
                                             },
-                                            qtyAdded = if (verificationStatus?.itemFoundInCart == true) currentQtyRequested else 0,
+                                            qtyAdded = quantityProvenByCartPresence(verificationStatus?.itemFoundInCart),
                                             notes = "checkout_boundary"
                                         )
                                         clearRequestInFlight(requestGeneration, requestToken)

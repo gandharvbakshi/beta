@@ -1000,7 +1000,7 @@ function Tap-MediaProjectionPermissionDialog([int]$TimeoutSeconds = 12) {
         }
 
         $xml = Get-UiDump
-        $startNowPoint = Get-NodeCenterByTextOrDesc @("Start now", "Start Now") $xml
+        $startNowPoint = Get-NodeCenterByTextOrDesc @("Start now", "Start Now", "Start") $xml
         if ($startNowPoint) {
             adb shell input tap $startNowPoint.X $startNowPoint.Y | Out-Null
         } else {
@@ -1012,7 +1012,7 @@ function Tap-MediaProjectionPermissionDialog([int]$TimeoutSeconds = 12) {
         }
 
         $xml = Get-UiDump
-        $startNowPoint = Get-NodeCenterByTextOrDesc @("Start now", "Start Now") $xml
+        $startNowPoint = Get-NodeCenterByTextOrDesc @("Start now", "Start Now", "Start") $xml
         if ($startNowPoint) {
             adb shell input tap $startNowPoint.X $startNowPoint.Y | Out-Null
         } else {

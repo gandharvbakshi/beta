@@ -480,14 +480,18 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
             val elementSelector = recommendedAction.optJSONObject("element_selector")
             if (CommerceActionClassifier.isCheckoutOrPaymentExecutionAction(
-                    actionType,
-                    actionTarget,
-                    recommendedAction.optString("reasoning", ""),
-                    recommendedAction.optString("text_to_type", ""),
-                    recommendedAction.optString("text", ""),
-                    recommendedAction.optString("content_description", ""),
-                    elementSelector?.optString("text", ""),
-                    elementSelector?.optString("content_description", "")
+                    CommerceActionClassifier.ExecutableActionContext(
+                        actionType = actionType,
+                        actionTarget = actionTarget,
+                        textToType = recommendedAction.optString("text_to_type", ""),
+                        text = recommendedAction.optString("text", ""),
+                        contentDescription = recommendedAction.optString("content_description", ""),
+                        selectorText = elementSelector?.optString("text", ""),
+                        selectorContentDescription = elementSelector?.optString("content_description", ""),
+                        resourceId = elementSelector?.optString("resource_id", ""),
+                        className = elementSelector?.optString("class_name", ""),
+                        hierarchyPath = elementSelector?.optString("hierarchy_path", "")
+                    )
                 )
             ) {
                 Log.w(TAG, "Refusing checkout/payment execution action: $actionType on $actionTarget")
@@ -2271,7 +2275,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return true
     }
 
-    private fun isBlinkitProductDetailOrGallerySurfaceActive(): Boolean {
+    internal fun isBlinkitProductDetailOrGallerySurfaceActive(): Boolean {
         if (!isBlinkitForeground()) {
             return false
         }
