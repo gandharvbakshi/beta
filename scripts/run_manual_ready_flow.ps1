@@ -4,7 +4,8 @@ param(
     [string]$Package = "live.betaapp.android",
     [switch]$AllowFailedItems,
     [switch]$AllowStoreUnavailable,
-    [switch]$AllowExternalAppUnresponsive
+    [switch]$AllowExternalAppUnresponsive,
+    [switch]$LaunchPreferredCommerceApp
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,16 +19,40 @@ if (-not $ScenarioName) {
 }
 $RunStamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $ArtifactPrefix = "manual_${ScenarioName}_$RunStamp"
+$LiveLogPath = Join-Path $LogsDir "$ArtifactPrefix`_live_logcat.txt"
 $FullLogPath = Join-Path $LogsDir "$ArtifactPrefix`_full_log.txt"
 $CrashLogPath = Join-Path $LogsDir "$ArtifactPrefix`_crash_log.txt"
 $FinalScreenPath = Join-Path $LogsDir "$ArtifactPrefix`_final_screen.png"
 $SummaryPath = Join-Path $LogsDir "$ArtifactPrefix`_summary.json"
+$script:LogcatCaptureProcess = $null
 
 Set-Location $ProjectDir
 New-Item -ItemType Directory -Force -Path $LogsDir | Out-Null
 
 function Write-Phase([string]$Message) {
     Write-Host "[$ScenarioName] $Message"
+}
+
+function Start-LogcatCapture {
+    if (Test-Path $LiveLogPath) {
+        Remove-Item -Path $LiveLogPath -Force
+    }
+    Write-Phase "starting continuous logcat capture: $LiveLogPath"
+    $script:LogcatCaptureProcess = Start-Process -FilePath adb -ArgumentList @("logcat", "-v", "time") -PassThru -WindowStyle Hidden -RedirectStandardOutput $LiveLogPath
+}
+
+function Stop-LogcatCapture {
+    if ($null -eq $script:LogcatCaptureProcess) {
+        return
+    }
+    try {
+        if (-not $script:LogcatCaptureProcess.HasExited) {
+            Stop-Process -Id $script:LogcatCaptureProcess.Id -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id $script:LogcatCaptureProcess.Id -ErrorAction SilentlyContinue
+        }
+    } finally {
+        $script:LogcatCaptureProcess = $null
+    }
 }
 
 function Require-Device {
@@ -41,9 +66,15 @@ function ConvertTo-AdbShellArg([string]$Value) {
     return ($Value -replace "\\", "\\\\" -replace "'", "\'" -replace " ", "\ " -replace "&", "\&" -replace ";", "\;")
 }
 
-function Get-FilteredLogText {
+function Get-FilteredLogText([string]$SourcePath) {
     $pattern = "AUTOMATION_INSTRUCTION_RECEIVED|AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE|INSTRUCTION_RECEIVED|MULTI_ORDER_STARTED|BLINKIT_SEARCH_STARTED|PARSED:|ITEM_RESULT|ORDER_RESULT|FLOW_FAILED|STATE: FAILED|checkout_boundary|store_unavailable|Stopped - backend error|Unexpected response|CAPTURE_LOST|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|SecurityException creating VirtualDisplay|MediaProjection stopped externally|ANR in live\.betaapp\.android|ANR in com\.grofers\.customerapp|ANR in in\.swiggy\.android(?:\.instamart)?|ANR in com\.zeptoconsumerapp|Application Not Responding: in\.swiggy\.android(?:\.instamart)?|Application Not Responding: com\.zeptoconsumerapp|in\.swiggy\.android(?:\.instamart)? isn't responding|com\.zeptoconsumerapp isn't responding|DeadSystemException"
-    $matches = adb logcat -d -v time | Select-String $pattern
+    $sourceLines = @()
+    if ($SourcePath -and (Test-Path $SourcePath)) {
+        $sourceLines = Get-Content -Path $SourcePath -ErrorAction SilentlyContinue
+    } else {
+        $sourceLines = adb logcat -d -v time
+    }
+    $matches = $sourceLines | Select-String $pattern
     if (-not $matches) {
         return ""
     }
@@ -166,13 +197,19 @@ function Resolve-ManualReadyOutcome([string]$LogText, [bool]$InstructionReceived
 }
 
 function Save-Artifacts([string]$Outcome) {
-    adb logcat -d > $FullLogPath
+    Stop-LogcatCapture
+    if (Test-Path $LiveLogPath) {
+        Copy-Item -Path $LiveLogPath -Destination $FullLogPath -Force
+    } else {
+        adb logcat -d -v time > $FullLogPath
+    }
     adb logcat -d AndroidRuntime:E "*:S" > $CrashLogPath
     adb exec-out screencap -p > $FinalScreenPath
     [pscustomobject]@{
         instruction = $Instruction
         outcome = $Outcome
         timeout_seconds = $TimeoutSeconds
+        live_logcat = $LiveLogPath
         full_log = $FullLogPath
         crash_log = $CrashLogPath
         final_screen = $FinalScreenPath
@@ -185,10 +222,20 @@ Write-Phase "manual-ready mode: not launching apps, resetting cart, selecting ad
 Write-Phase "clearing logcat"
 adb logcat -c
 Start-Sleep -Milliseconds 300
+Start-LogcatCapture
+Start-Sleep -Milliseconds 300
 
 $escapedInstruction = ConvertTo-AdbShellArg $Instruction
 Write-Phase "submitting instruction: $Instruction"
-$broadcastOutput = adb shell "am broadcast -n $ReceiverComponent -a $Package.SUBMIT_AUTOMATION_INSTRUCTION --es instruction $escapedInstruction" 2>&1
+$broadcastArgs = @(
+    "shell",
+    "am broadcast -n $ReceiverComponent -a $Package.SUBMIT_AUTOMATION_INSTRUCTION --es instruction $escapedInstruction"
+)
+if ($LaunchPreferredCommerceApp) {
+    Write-Phase "including launch_preferred_commerce_app=true in broadcast"
+    $broadcastArgs[-1] += " --ez launch_preferred_commerce_app true"
+}
+$broadcastOutput = adb @broadcastArgs 2>&1
 $broadcastText = ($broadcastOutput | Out-String).Trim()
 if ($broadcastText) {
     Write-Phase $broadcastText
@@ -203,7 +250,7 @@ $instructionReceived = $false
 $outcome = ""
 
 do {
-    $logText = Get-FilteredLogText
+    $logText = Get-FilteredLogText $LiveLogPath
     if ($logText) {
         $lines = $logText -split "`n"
         if ($lines.Count -gt $printedLineCount) {
@@ -226,21 +273,25 @@ do {
     Start-Sleep -Seconds 2
 } while ((Get-Date) -lt $deadline)
 
-if (-not $outcome) {
-    if ($instructionReceived) {
-        $outcome = "timeout"
-    } else {
-        $outcome = "not_received"
+try {
+    if (-not $outcome) {
+        if ($instructionReceived) {
+            $outcome = "timeout"
+        } else {
+            $outcome = "not_received"
+        }
     }
+
+    Save-Artifacts $outcome
+
+    if ($outcome -notin @("success", "success_with_failed_items", "store_unavailable", "external_app_unresponsive")) {
+        throw "Manual-ready flow failed for '$Instruction': $outcome. See $FullLogPath and $FinalScreenPath."
+    }
+
+    Write-Host "Manual-ready flow passed for '$Instruction' with outcome '$outcome'."
+    Write-Host "Artifacts:"
+    Write-Host "  $FullLogPath"
+    Write-Host "  $FinalScreenPath"
+} finally {
+    Stop-LogcatCapture
 }
-
-Save-Artifacts $outcome
-
-if ($outcome -notin @("success", "success_with_failed_items", "store_unavailable", "external_app_unresponsive")) {
-    throw "Manual-ready flow failed for '$Instruction': $outcome. See $FullLogPath and $FinalScreenPath."
-}
-
-Write-Host "Manual-ready flow passed for '$Instruction' with outcome '$outcome'."
-Write-Host "Artifacts:"
-Write-Host "  $FullLogPath"
-Write-Host "  $FinalScreenPath"

@@ -1,10 +1,17 @@
 package com.example.beta
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BackendProcessingCleanupTest {
+    @Test
+    fun checkoutBoundary_presenceOnlyEvidenceNeverClaimsRequestedQuantity() {
+        assertEquals(1, BackendProcessing.quantityProvenByCartPresence(itemFoundInCart = true))
+        assertEquals(0, BackendProcessing.quantityProvenByCartPresence(itemFoundInCart = false))
+    }
+
     @Test
     fun secondCleanupBack_isSkippedAfterBlinkitReturnsToHome() {
         val homeTree = """

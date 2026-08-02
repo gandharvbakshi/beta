@@ -1,5 +1,6 @@
 package com.example.beta
 
+import android.accessibilityservice.AccessibilityService
 import android.app.*
 import android.app.Activity.RESULT_OK
 import android.content.BroadcastReceiver
@@ -1399,17 +1400,20 @@ class ScreenCaptureService : Service() {
             try {
                 image = reader.acquireLatestImage()
                 if (image != null) {
+                    Log.i("BetaAgent", "CAPTURE_FRAME_AVAILABLE")
                     screenshotRecoveryAttempts = 0
                     processImage(image)
                 } else {
                     Log.e("ScreenCaptureService", "Failed to acquire image for pending screenshot - image is null")
-                    // Restore overlay visibility if we can't get the image
-                    restoreOverlayVisibility(currentInputText)
+                    if (!processTreeOnlyScreenshotFallback("image callback returned null")) {
+                        markCaptureLost("image callback returned null", stopProjection = true)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error processing pending screenshot: ", e)
-                // Restore overlay visibility on error
-                restoreOverlayVisibility(currentInputText)
+                if (!processTreeOnlyScreenshotFallback("image callback threw ${e.javaClass.simpleName}")) {
+                    markCaptureLost("image callback failed", stopProjection = true)
+                }
             } finally {
                 image?.close()
             }
@@ -2309,13 +2313,14 @@ class ScreenCaptureService : Service() {
             val accessibilityService = myApp?.getAccessibilityService()
             
             if (accessibilityService != null) {
-                // Capture current tree data and app name
-                accessibilityService.showBlinkitTree()
+                val beginSequenceAfterSurfaceReady: () -> Unit = {
+                    // Capture current tree data and app name
+                    accessibilityService.showBlinkitTree()
                 
-                // Wait for tree data to be captured
-                Handler(Looper.getMainLooper()).postDelayed({
-                    val treeData = accessibilityService.getLastTreeData()
-                    val appName = accessibilityService.getLastAppName()
+                    // Wait for tree data to be captured
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        val treeData = accessibilityService.getLastTreeData()
+                        val appName = accessibilityService.getLastAppName()
                     
                     // Store the data for backend processing
                     currentTreeData = treeData
@@ -2367,12 +2372,13 @@ class ScreenCaptureService : Service() {
                         setOverlayState(OverlayState.CAPTURING)
                     }
 
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        triggerSequenceScreenshot()
-                    }, 500)
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            triggerSequenceScreenshot()
+                        }, 500)
                     
-                }, 800) // Wait 800ms for tree data to be captured
-                
+                    }, 800) // Wait 800ms for tree data to be captured
+                }
+                prepareBlinkitFreshStart(accessibilityService, beginSequenceAfterSurfaceReady)
             } else {
                 Log.w("ScreenCaptureService", "Accessibility service not available; cannot execute automated actions")
                 isActionSequenceActive = false
@@ -2418,9 +2424,63 @@ class ScreenCaptureService : Service() {
         // Log.d("ScreenCaptureService", "=== FINISHED SUBMIT INSTRUCTION PROCESS ===")
     }
 
+    private fun prepareBlinkitFreshStart(
+        accessibilityService: MyAccessibilityService,
+        onReady: () -> Unit
+    ) {
+        val actionExecutor = ActionExecutor(accessibilityService)
+        if (!actionExecutor.isBlinkitProductDetailOrGallerySurfaceActive()) {
+            onReady()
+            return
+        }
+
+        Log.i("BetaAgent", "BLINKIT_FRESH_START_PDP_DETECTED")
+        var backAttempts = 0
+
+        fun checkSurfaceAndContinue() {
+            if (!actionExecutor.isBlinkitProductDetailOrGallerySurfaceActive()) {
+                Log.i("BetaAgent", "BLINKIT_FRESH_START_READY back_attempts=$backAttempts")
+                onReady()
+                return
+            }
+            if (backAttempts >= 2) {
+                Log.w("BetaAgent", "BLINKIT_FRESH_START_PDP_LIMIT_REACHED back_attempts=$backAttempts")
+                onReady()
+                return
+            }
+
+            backAttempts += 1
+            val backedOut = accessibilityService.performGlobalAction(
+                AccessibilityService.GLOBAL_ACTION_BACK
+            )
+            Log.i(
+                "BetaAgent",
+                "BLINKIT_FRESH_START_BACK_$backAttempts result=$backedOut"
+            )
+            if (!backedOut) {
+                onReady()
+                return
+            }
+            accessibilityService.runWhenCommerceUiQuiescent(
+                quietMs = 350L,
+                minWaitMs = 450L,
+                maxWaitMs = 1_400L,
+                onReady = ::checkSurfaceAndContinue
+            )
+        }
+
+        checkSurfaceAndContinue()
+    }
+
     private fun triggerSequenceScreenshot() {
         try {
+            Log.i(
+                "BetaAgent",
+                "INITIAL_OBSERVATION_CAPTURE_REQUEST generation=$currentSequenceGeneration " +
+                    "tree_chars=${currentTreeData?.length ?: 0}"
+            )
             if (!ensureCaptureReadyForAutomation("sequence screenshot")) {
+                Log.e("BetaAgent", "FLOW_FAILED: reason=initial_capture_not_ready")
                 return
             }
             enableScreenshots()
@@ -2558,6 +2618,28 @@ class ScreenCaptureService : Service() {
                 OBSERVATION_DISPATCH_WATCHDOG_MS
             )
         }
+    }
+
+    private fun scheduleScreenshotRequestWatchdog(requestGeneration: Long) {
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!isScreenshotRequestPending(requestGeneration)) {
+                return@postDelayed
+            }
+
+            Log.w(
+                "BetaAgent",
+                "CAPTURE_REQUEST_WATCHDOG_RECOVERY request_generation=$requestGeneration " +
+                    "sequence_generation=$currentSequenceGeneration tree_chars=${currentTreeData?.length ?: 0}"
+            )
+            if (!processTreeOnlyScreenshotFallback("capture request watchdog")) {
+                Log.e(
+                    "BetaAgent",
+                    "FLOW_FAILED: reason=capture_request_watchdog_no_tree " +
+                        "request_generation=$requestGeneration sequence_generation=$currentSequenceGeneration"
+                )
+                markCaptureLost("capture request watchdog expired without tree", stopProjection = true)
+            }
+        }, SCREENSHOT_REQUEST_WATCHDOG_MS)
     }
     
     fun stopActionSequence() {
@@ -2753,6 +2835,15 @@ class ScreenCaptureService : Service() {
     private fun overlayStatusForBackendText(text: String): OverlayStatus? {
         val compact = text.replace("\r", "").trim()
         val normalized = compact.lowercase(Locale.US)
+        val stoppedDetail = compact
+            .substringAfter("Stopped", "")
+            .trimStart(':', '-', ' ')
+            .lineSequence()
+            .firstOrNull()
+            .orEmpty()
+            .replace(Regex("\\s+"), " ")
+            .take(52)
+            .trim()
 
         Regex("state:\\s*item_result\\s*\\(([^:()]+):\\s*([a-z_]+)\\)", RegexOption.IGNORE_CASE)
             .find(compact)
@@ -2805,7 +2896,10 @@ class ScreenCaptureService : Service() {
                     normalized.contains("return to")) -> OverlayStatus("Tap to resume", OverlayState.READY)
             normalized.startsWith("paused") -> OverlayStatus("Check cart", OverlayState.WORKING)
             normalized.startsWith("stopped") && normalized.contains("backend") -> OverlayStatus("Backend unavailable", OverlayState.READY)
-            normalized.startsWith("stopped") -> OverlayStatus("Stopped", OverlayState.READY)
+            normalized.startsWith("stopped") -> OverlayStatus(
+                if (stoppedDetail.isNotEmpty()) "Stopped: $stoppedDetail" else "Stopped",
+                OverlayState.READY
+            )
             else -> null
         }
     }
@@ -3317,6 +3411,7 @@ class ScreenCaptureService : Service() {
         private const val OVERLAY_PREF_Y = "overlay_top_px"
         private const val DEFAULT_OVERLAY_RIGHT_INSET_PX = 50
         private const val OBSERVATION_DISPATCH_WATCHDOG_MS = 4_000L
+        private const val SCREENSHOT_REQUEST_WATCHDOG_MS = 12_000L
         // Consider adding actions for START if needed, though currently handled by intent extras
     }
 
@@ -3347,7 +3442,7 @@ class ScreenCaptureService : Service() {
     // Add method to trigger screenshot manually
     fun triggerScreenshot() {
         if (!screenshotEnabled) {
-            // Log.d("ScreenCaptureService", "Screenshot disabled, not taking screenshot")
+            Log.w("BetaAgent", "CAPTURE_REQUEST_SKIPPED reason=screenshots_disabled")
             return
         }
         
@@ -3376,6 +3471,15 @@ class ScreenCaptureService : Service() {
         Log.d("ScreenCaptureService", "Current input text: $currentInputText")
         drainStaleScreenshotFrame("trigger")
         val requestGeneration = beginScreenshotRequest()
+        Log.i(
+            "BetaAgent",
+            "CAPTURE_REQUEST_STARTED request_generation=$requestGeneration " +
+                "sequence_generation=$currentSequenceGeneration tree_chars=${currentTreeData?.length ?: 0}"
+        )
+        scheduleScreenshotRequestWatchdog(requestGeneration)
+        val captureHandler = handler ?: Handler(Looper.getMainLooper()).also {
+            Log.w("BetaAgent", "CAPTURE_HANDLER_FALLBACK request_generation=$requestGeneration")
+        }
         
         // ENHANCED: Temporarily hide the overlay during screenshot capture
         try {
@@ -3412,7 +3516,7 @@ class ScreenCaptureService : Service() {
                 Log.w("ScreenCaptureService", "Overlay view not initialized - cannot verify hiding")
             }
             
-            handler?.post {
+            captureHandler.post {
                 try {
                     if (!isScreenshotRequestPending(requestGeneration)) {
                         Log.d("ScreenCaptureService", "Screenshot frame arrived after overlay hide")
@@ -3425,7 +3529,7 @@ class ScreenCaptureService : Service() {
                         Log.d("ScreenCaptureService", "VirtualDisplay resized to force new frame")
                     }
 
-                    handler?.postDelayed({
+                    captureHandler.postDelayed({
                         if (isScreenshotRequestPending(requestGeneration)) {
                             Log.w("ScreenCaptureService", "Screenshot timeout - attempting manual image acquisition")
                             pendingScreenshot = false

@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
@@ -836,7 +837,14 @@ class MainActivity : ComponentActivity() {
             statusRes = R.string.main_status_capture_prompt,
             noteRes = R.string.main_primary_note_capture_prompt
         )
-        val projectionIntent = mediaProjectionManager.createScreenCaptureIntent()  // No need for safe call
+        val projectionIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            Log.i("BetaAgent", "MEDIA_PROJECTION_DEFAULT_DISPLAY_REQUEST")
+            mediaProjectionManager.createScreenCaptureIntent(
+                MediaProjectionConfig.createConfigForDefaultDisplay()
+            )
+        } else {
+            mediaProjectionManager.createScreenCaptureIntent()
+        }
         screenCaptureResult.launch(projectionIntent)  // Only responsible for starting projection
 
         /*// Get display metrics here to pass it along to the service

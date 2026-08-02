@@ -79,4 +79,29 @@ class CommerceActionClassifierTest {
             )
         )
     }
+
+    @Test
+    fun executableActionContext_allowsSafeSearchAction() {
+        assertFalse(
+            CommerceActionClassifier.isCheckoutOrPaymentExecutionAction(
+                CommerceActionClassifier.ExecutableActionContext(
+                    actionType = "click",
+                    actionTarget = "Focus search field",
+                    selectorText = "Search for products"
+                )
+            )
+        )
+    }
+
+    @Test
+    fun executableActionContext_blocksExecutableCartTarget() {
+        assertTrue(
+            CommerceActionClassifier.isCheckoutOrPaymentExecutionAction(
+                CommerceActionClassifier.ExecutableActionContext(
+                    actionType = "click",
+                    actionTarget = "View cart"
+                )
+            )
+        )
+    }
 }
