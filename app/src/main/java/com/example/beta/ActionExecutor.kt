@@ -56,11 +56,6 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         val left: Int
     )
 
-    private enum class QuantityStepDirection {
-        INCREMENT,
-        DECREMENT
-    }
-
     private enum class GestureAwaitOutcome {
         COMPLETED,
         CANCELLED,
@@ -646,6 +641,29 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             }
 
             return false
+        }
+
+        val quantityDirection = quantityStepDirection(recommendedAction)
+        if (QuantityStepActionPolicy.requiresCoordinateOnlyExecution(quantityDirection, isSwiggyForeground())) {
+            val hasCoordinates = recommendedAction.optJSONObject("coordinates") != null ||
+                recommendedAction.optJSONObject("fallback_coordinates") != null
+            if (!hasCoordinates) {
+                Log.e("BetaAgent", "FLOW_FAILED quantity step refused: target-local coordinates are missing")
+                return false
+            }
+
+            val strategy = "${quantityDirection?.name?.lowercase()} quantity control"
+            Log.i("BetaAgent", "QUANTITY_STEP_COORDINATE_STARTED direction=$quantityDirection")
+            val success = performClickByCoordinatesWithValidation(recommendedAction, strategy)
+            Log.i(
+                "BetaAgent",
+                if (success) {
+                    "QUANTITY_STEP_COORDINATE_DISPATCHED direction=$quantityDirection"
+                } else {
+                    "FLOW_FAILED quantity coordinate gesture did not complete direction=$quantityDirection"
+                }
+            )
+            return success
         }
         
         // Try to find element using multiple methods
@@ -3093,38 +3111,13 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
     private fun quantityStepDirection(recommendedAction: JSONObject): QuantityStepDirection? {
         val selector = recommendedAction.optJSONObject("element_selector")
-        val selectorText = selector?.optString("text", "").orEmpty().trim()
-        if (selectorText == "+") return QuantityStepDirection.INCREMENT
-        if (selectorText == "-") return QuantityStepDirection.DECREMENT
-
-        val combined = listOf(
-            recommendedAction.optString("action_target", ""),
-            recommendedAction.optString("reasoning", ""),
-            selector?.optString("content_description", "").orEmpty(),
-            selector?.optString("resource_id", "").orEmpty()
-        ).joinToString(" ").lowercase()
-
-        if (
-            combined.contains("increase quantity") ||
-            combined.contains("increment") ||
-            combined.contains("tap plus") ||
-            combined.contains(" plus ") ||
-            combined.contains("reach requested quantity")
-        ) {
-            return QuantityStepDirection.INCREMENT
-        }
-
-        if (
-            combined.contains("decrease quantity") ||
-            combined.contains("decrement") ||
-            combined.contains("tap minus") ||
-            combined.contains(" minus ") ||
-            combined.contains("remove one")
-        ) {
-            return QuantityStepDirection.DECREMENT
-        }
-
-        return null
+        return QuantityStepActionPolicy.detectDirection(
+            selectorText = selector?.optString("text", "").orEmpty(),
+            actionTarget = recommendedAction.optString("action_target", ""),
+            reasoning = recommendedAction.optString("reasoning", ""),
+            contentDescription = selector?.optString("content_description", "").orEmpty(),
+            resourceId = selector?.optString("resource_id", "").orEmpty()
+        )
     }
 
     private fun findSwiggyQuantityStepperNode(

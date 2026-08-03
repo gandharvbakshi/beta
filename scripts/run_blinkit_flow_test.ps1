@@ -991,6 +991,34 @@ function Wait-BetaMediaProjectionPermissionDialog([int]$TimeoutSeconds = 12) {
     return $false
 }
 
+function Tap-MediaProjectionFallback {
+    $sizeText = (adb shell wm size) -join "`n"
+    $sizeMatch = [regex]::Match($sizeText, '(\d+)x(\d+)')
+    if ($sizeMatch.Success) {
+        $screenWidth = [int]$sizeMatch.Groups[1].Value
+        $screenHeight = [int]$sizeMatch.Groups[2].Value
+        adb shell input tap ([int]($screenWidth * 0.83)) ([int]($screenHeight * 0.71)) | Out-Null
+        return
+    }
+    adb shell input tap 893 1703 | Out-Null
+}
+
+function Get-MediaProjectionStartButtonCenter([string]$Xml) {
+    $buttonPattern = 'text="(?:Start now|Start Now|Start)"[^>]*class="android\.widget\.Button"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"'
+    $buttonMatch = [regex]::Match(
+        $Xml,
+        $buttonPattern,
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    if (-not $buttonMatch.Success) {
+        return $null
+    }
+    return @{
+        X = [int](([int]$buttonMatch.Groups[1].Value + [int]$buttonMatch.Groups[3].Value) / 2)
+        Y = [int](([int]$buttonMatch.Groups[2].Value + [int]$buttonMatch.Groups[4].Value) / 2)
+    }
+}
+
 function Tap-MediaProjectionPermissionDialog([int]$TimeoutSeconds = 12) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
@@ -1000,11 +1028,11 @@ function Tap-MediaProjectionPermissionDialog([int]$TimeoutSeconds = 12) {
         }
 
         $xml = Get-UiDump
-        $startNowPoint = Get-NodeCenterByTextOrDesc @("Start now", "Start Now", "Start") $xml
+        $startNowPoint = Get-MediaProjectionStartButtonCenter $xml
         if ($startNowPoint) {
             adb shell input tap $startNowPoint.X $startNowPoint.Y | Out-Null
         } else {
-            adb shell input tap 854 1530 | Out-Null
+            Tap-MediaProjectionFallback
         }
         Start-Sleep -Milliseconds 700
         if (-not (Wait-BetaMediaProjectionPermissionDialog 1)) {
@@ -1012,11 +1040,11 @@ function Tap-MediaProjectionPermissionDialog([int]$TimeoutSeconds = 12) {
         }
 
         $xml = Get-UiDump
-        $startNowPoint = Get-NodeCenterByTextOrDesc @("Start now", "Start Now", "Start") $xml
+        $startNowPoint = Get-MediaProjectionStartButtonCenter $xml
         if ($startNowPoint) {
             adb shell input tap $startNowPoint.X $startNowPoint.Y | Out-Null
         } else {
-            adb shell input tap 854 1530 | Out-Null
+            Tap-MediaProjectionFallback
         }
         Start-Sleep -Seconds 1
         return $true

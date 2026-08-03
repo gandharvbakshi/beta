@@ -5,6 +5,7 @@ enum class ItemOutcomeStatus(val code: String) {
     OOS("oos"),
     STORE_UNAVAILABLE("store_unavailable"),
     BACKEND_UNAVAILABLE("backend_unavailable"),
+    QUANTITY_NOT_REACHED("quantity_not_reached"),
     NOT_FOUND("not_found"),
     MISCLICK("misclick"),
     SKIPPED("skipped"),
@@ -83,14 +84,20 @@ fun terminalFailureStatusForReason(reason: String?): ItemOutcomeStatus {
         isBackendUnavailableFailureReason(normalized) -> ItemOutcomeStatus.BACKEND_UNAVAILABLE
         isStoreAppUnavailableFailureReason(normalized) ||
             isStoreUnavailableFailureReason(normalized) -> ItemOutcomeStatus.STORE_UNAVAILABLE
+        normalized.contains("quantity") && (
+            normalized.contains("did not reach") ||
+                normalized.contains("not confirmed") ||
+                normalized.contains("not visible") ||
+                normalized.contains("could not confirm") ||
+                normalized.contains("controls did not reach") ||
+                normalized.contains("exceeded requested")
+            ) -> ItemOutcomeStatus.QUANTITY_NOT_REACHED
         normalized.contains("out of stock") ||
             normalized.contains("sold out") ||
             normalized.contains("notify me") ||
             normalized.contains("currently unavailable") ||
             normalized.contains("unavailable") ||
-            normalized.contains("substitution") ||
-            (normalized.contains("quantity") && normalized.contains("did not reach")) ||
-            (normalized.contains("requested quantity") && normalized.contains("not visible")) -> ItemOutcomeStatus.OOS
+            normalized.contains("substitution") -> ItemOutcomeStatus.OOS
         normalized.contains("low") && normalized.contains("confidence") -> ItemOutcomeStatus.LOW_CONFIDENCE
         normalized.contains("timeout") ||
             normalized.contains("timed out") ||
@@ -109,6 +116,7 @@ fun terminalFailureNoteForStatus(status: ItemOutcomeStatus, fallback: String): S
         ItemOutcomeStatus.OOS -> "out_of_stock"
         ItemOutcomeStatus.STORE_UNAVAILABLE -> "store_unavailable"
         ItemOutcomeStatus.BACKEND_UNAVAILABLE -> "backend_unavailable"
+        ItemOutcomeStatus.QUANTITY_NOT_REACHED -> "quantity_not_reached"
         ItemOutcomeStatus.LOW_CONFIDENCE -> "low_confidence"
         ItemOutcomeStatus.TIMEOUT -> "timeout"
         ItemOutcomeStatus.MISCLICK -> "misclick"
@@ -184,6 +192,7 @@ private fun orderFailureLabel(reason: ItemOutcomeStatus): String {
         ItemOutcomeStatus.OOS -> "unavailable"
         ItemOutcomeStatus.STORE_UNAVAILABLE -> "store unavailable"
         ItemOutcomeStatus.BACKEND_UNAVAILABLE -> "blocked by Beta"
+        ItemOutcomeStatus.QUANTITY_NOT_REACHED -> "needs quantity adjustment"
         ItemOutcomeStatus.LOW_CONFIDENCE -> "needs review"
         ItemOutcomeStatus.TIMEOUT -> "timed out"
         ItemOutcomeStatus.MISCLICK -> "needs review"

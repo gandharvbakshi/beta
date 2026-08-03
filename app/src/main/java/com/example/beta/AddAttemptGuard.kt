@@ -2,11 +2,17 @@ package com.example.beta
 
 internal class AddAttemptGuard {
     private var attemptConsumed = false
+    private var stockRecoveryAttemptConsumed = false
 
     @Synchronized
-    fun reserve(): Boolean {
-        if (attemptConsumed) return false
-        attemptConsumed = true
+    fun reserve(allowStockRecovery: Boolean = false): Boolean {
+        if (!attemptConsumed) {
+            attemptConsumed = true
+            stockRecoveryAttemptConsumed = allowStockRecovery
+            return true
+        }
+        if (!allowStockRecovery || stockRecoveryAttemptConsumed) return false
+        stockRecoveryAttemptConsumed = true
         return true
     }
 
@@ -16,5 +22,6 @@ internal class AddAttemptGuard {
     @Synchronized
     fun reset() {
         attemptConsumed = false
+        stockRecoveryAttemptConsumed = false
     }
 }

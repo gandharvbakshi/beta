@@ -110,8 +110,12 @@ class OrderOutcomeTest {
             terminalFailureStatusForReason("Item currently unavailable")
         )
         assertEquals(
-            ItemOutcomeStatus.OOS,
+            ItemOutcomeStatus.QUANTITY_NOT_REACHED,
             terminalFailureStatusForReason("Item was added, but quantity controls did not reach requested quantity 6.")
+        )
+        assertEquals(
+            ItemOutcomeStatus.QUANTITY_NOT_REACHED,
+            terminalFailureStatusForReason("Requested quantity 2 is not visible yet")
         )
     }
 
@@ -128,6 +132,10 @@ class OrderOutcomeTest {
         assertEquals(
             "out_of_stock",
             terminalFailureNoteForStatus(ItemOutcomeStatus.OOS, "workflow_failed")
+        )
+        assertEquals(
+            "quantity_not_reached",
+            terminalFailureNoteForStatus(ItemOutcomeStatus.QUANTITY_NOT_REACHED, "workflow_failed")
         )
     }
 
