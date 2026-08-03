@@ -35,4 +35,19 @@ class QuantityStepActionPolicyTest {
         assertNull(direction)
         assertFalse(QuantityStepActionPolicy.requiresCoordinateOnlyExecution(direction, isSwiggyForeground = false))
     }
+
+    @Test
+    fun minusSelector_isDetectedAsDecrementAndRequiresCoordinatesOutsideSwiggy() {
+        val direction = QuantityStepActionPolicy.detectDirection(
+            selectorText = "-",
+            actionTarget = "Decrease quantity to remove limited-stock item",
+            reasoning = "remove one before trying another product",
+            contentDescription = "",
+            resourceId = ""
+        )
+
+        assertEquals(QuantityStepDirection.DECREMENT, direction)
+        assertTrue(QuantityStepActionPolicy.requiresCoordinateOnlyExecution(direction, isSwiggyForeground = false))
+        assertFalse(QuantityStepActionPolicy.requiresCoordinateOnlyExecution(direction, isSwiggyForeground = true))
+    }
 }
