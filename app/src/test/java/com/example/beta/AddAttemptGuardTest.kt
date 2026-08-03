@@ -26,4 +26,22 @@ class AddAttemptGuardTest {
         assertTrue(guard.reserve())
         assertTrue(guard.isConsumed())
     }
+
+    @Test
+    fun stockRecovery_allowsExactlyOneMarkedAlternativeAttempt() {
+        val guard = AddAttemptGuard()
+
+        assertTrue(guard.reserve())
+        assertTrue(guard.reserve(allowStockRecovery = true))
+        assertFalse(guard.reserve(allowStockRecovery = true))
+        assertFalse(guard.reserve())
+    }
+
+    @Test
+    fun markingInitialAttempt_doesNotCreateAnExtraRecoveryAllowance() {
+        val guard = AddAttemptGuard()
+
+        assertTrue(guard.reserve(allowStockRecovery = true))
+        assertFalse(guard.reserve(allowStockRecovery = true))
+    }
 }

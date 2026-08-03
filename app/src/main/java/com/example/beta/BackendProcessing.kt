@@ -1889,7 +1889,9 @@ object BackendProcessing {
                                             return@onResponse
                                         }
 
-                                        if (isProductAddAction && !addAttemptGuard.reserve()) {
+                                        val allowStockLimitedAlternativeAdd =
+                                            workflowObj?.optBoolean("stock_limited_alternative_add", false) == true
+                                        if (isProductAddAction && !addAttemptGuard.reserve(allowStockLimitedAlternativeAdd)) {
                                             failDuplicateAddAttemptAndStop(
                                                 context = context,
                                                 item = requestInputText,
@@ -1898,6 +1900,9 @@ object BackendProcessing {
                                                 requestActionNumber = requestActionNumber
                                             )
                                             return@onResponse
+                                        }
+                                        if (isProductAddAction && allowStockLimitedAlternativeAdd) {
+                                            Log.i(TAG, "STOCK_LIMITED_ALTERNATIVE_ADD_ALLOWED")
                                         }
                                         
                                         // Log.d("BackendProcessing", "Executing recommended action...")
