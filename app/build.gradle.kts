@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.example.beta"
-    compileSdk = 35
+    compileSdk = 36
 
     fun configValue(name: String, fallback: String): String {
         return providers.gradleProperty(name).orNull ?: System.getenv(name) ?: fallback
@@ -47,9 +47,9 @@ android {
     defaultConfig {
         applicationId = "live.betaapp.android"
         minSdk = 33
-        targetSdk = 35
-        versionCode = configIntValue("BETA_VERSION_CODE", 14)
-        versionName = configValue("BETA_VERSION_NAME", "0.2.12")
+        targetSdk = 36
+        versionCode = configIntValue("BETA_VERSION_CODE", 15)
+        versionName = configValue("BETA_VERSION_NAME", "0.2.13")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
