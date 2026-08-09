@@ -6,6 +6,18 @@ import org.junit.Test
 
 class CommerceTreeBoundsPolicyTest {
     @Test
+    fun `keeps root window bounds for coordinate scaling`() {
+        assertTrue(
+            MyAccessibilityService.shouldAppendCommerceNodeBounds(
+                className = "android.widget.FrameLayout",
+                viewId = "",
+                contentDescription = "",
+                isRoot = true,
+            )
+        )
+    }
+
+    @Test
     fun `keeps bounds for blinkit product name view`() {
         assertTrue(
             MyAccessibilityService.shouldAppendCommerceNodeBounds(
@@ -23,6 +35,17 @@ class CommerceTreeBoundsPolicyTest {
                 className = "android.view.View",
                 viewId = "com.grofers.customerapp:id/tv_title",
                 contentDescription = "quantity 2",
+            )
+        )
+    }
+
+    @Test
+    fun `keeps bounds for blinkit add control`() {
+        assertTrue(
+            MyAccessibilityService.shouldAppendCommerceNodeBounds(
+                className = "android.view.View",
+                viewId = "com.grofers.customerapp:id/tv_title",
+                contentDescription = "ADD",
             )
         )
     }

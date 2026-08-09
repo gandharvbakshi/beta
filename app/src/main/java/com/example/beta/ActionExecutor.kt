@@ -572,6 +572,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 Log.d(TAG, "Focused Swiggy product search using fresh foreground state")
                 return true
             }
+            if (isBlinkitForeground() && focusSearchFieldForTyping(recommendedAction)) {
+                Log.d(TAG, "Focused Blinkit product search using fresh accessibility state")
+                return typeAfterSearchClickIfRequested(recommendedAction, true)
+            }
             val coordinates = recommendedAction.optJSONObject("coordinates")
             if (coordinates != null) {
                 Log.d(TAG, "Search bar detected - using coordinate-based click as primary method")
@@ -736,7 +740,16 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         } else {
             markRecentSwiggySearchFocus("search click action succeeded")
         }
-        if (textToType.isBlank()) return true
+        if (textToType.isBlank()) {
+            if (isBlinkitForeground()) {
+                val focused = waitForSearchFieldFocus(1800)
+                if (!focused) {
+                    Log.w(TAG, "Blinkit search click did not produce a focused editable search field")
+                }
+                return focused
+            }
+            return true
+        }
 
         if (!waitForSearchFieldFocus(500)) {
             Log.d(TAG, "Search field not focused after click; attempting accessibility fallback")
@@ -2194,12 +2207,13 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         val resourceId = node.viewIdResourceName.orEmpty()
         val text = node.text?.toString().orEmpty()
         val description = node.contentDescription?.toString().orEmpty()
-        val combined = "$resourceId $text $description"
-        val isSearchField = node.isVisibleToUser && node.isEnabled && (
-            resourceId.contains("search", ignoreCase = true) ||
-                combined.contains("Search for", ignoreCase = true) ||
-                combined.contains("Search across", ignoreCase = true)
-            )
+        val isSearchField = CommerceSearchFocusPolicy.isAccessibilityCandidate(
+            resourceId = resourceId,
+            text = text,
+            description = description,
+            visible = node.isVisibleToUser,
+            enabled = node.isEnabled
+        )
         if (isSearchField) return node
 
         for (i in 0 until node.childCount) {

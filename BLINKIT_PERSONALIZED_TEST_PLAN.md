@@ -10,7 +10,7 @@ The existing Blinkit cart is user state. Record its baseline before each case, p
 
 ## Profile-derived coverage
 
-Representative historical baskets contain 1-7 distinct product lines and commonly include quantities of 2-3. The category mix includes produce sold by piece or weight, chilled/frozen goods, beverages, cough/digestive products, confectionery, stationery, party/disposable supplies, and 2x/3x/6x multipacks. Important ambiguity cases are single-unit versus multipack variants and several visually similar products from the same brand.
+The read-only trailing-12-month review covered 37 de-identified fulfillment cards. Representative baskets contain 1-11 distinct product lines and commonly include quantities of 2-4. The category mix includes produce sold by piece or weight, chilled/frozen goods, beverages, cough/digestive products, confectionery, stationery, party/disposable supplies, and 2x/3x/6x multipacks. Important ambiguity cases are single-unit versus multipack variants and several visually similar products from the same brand.
 
 Print and service orders are out of scope. Raw history screenshots, dates, addresses, payment references, filenames, and other private fields must not be retained in repo artifacts.
 
@@ -18,8 +18,10 @@ Print and service orders are out of scope. Raw history screenshots, dates, addre
 
 - Store user-specific shorthand on-device in `PreferenceStore`/private `SharedPreferences`.
 - Resolve preferences locally before the first backend call; do not add a model or network round trip.
-- Seed `mints` to `Impact Sugar Free Mint Candies Strong Mints` at confidence 1.0.
-- Preserve requested quantity: `2 mints` becomes `2 Impact Sugar Free Mint Candies Strong Mints`.
+- Seed `mints` and `mint` to `Impact Sugar Free Mint Candies Ice Mints` at confidence 1.0.
+- Seed `aata` and `atta` to `Organic Tattva Multigrain Organic Atta 1 kg`.
+- Seed `bhindi` to `Lady Finger 250 g`, `juice` to `Raw Pressery Valencia Orange Juice Pack of 2`, and `chips` to `To Be Honest Crispy Beetroot with Himalayan Rock Salt Chips`.
+- Preserve requested quantity: `2 mints` becomes `2 Impact Sugar Free Mint Candies Ice Mints`.
 - Apply a preference only to the exact normalized shorthand. An explicit request such as `fresh mints`, another brand, or a named pack size must bypass the generic `mints` preference.
 - Preferences must remain editable/forgettable and must not silently learn from a single uncertain outcome.
 - Seed alternate spellings such as `aata` and `atta` as separate exact tokens when both should resolve to the same history-backed product.
@@ -46,7 +48,7 @@ Print and service orders are out of scope. Raw history screenshots, dates, addre
 | P04 | Explicit override | A named different mint flavour/brand | Generic shorthand preference is not applied |
 | P05 | Mixed 3 | Produce + chilled/frozen + packaged | Three intended lines, correct unit interpretation |
 | P06 | Historical-shape 6 | Produce, pharmacy, stationery, packaged goods; one quantity 2 | Six lines complete without dropped/duplicated items |
-| P07 | Historical-shape 7 | Broad basket including multipack and fresh goods | Seven lines complete in order with exact per-item outcomes |
+| P07 | Historical-shape 11 | Largest observed basket shape, including multipack and fresh goods | Eleven lines complete in order with exact per-item outcomes |
 | P08 | Similar SKU | Same brand single versus multipack | Requested form factor selected; otherwise explicit safe failure |
 | P09 | Quantity/pack ambiguity | Pieces, weight, and 2x/3x/6x packs | Requested count/measure is retained; no silent unit substitution |
 | P10 | Unavailable/stock-limited | Missing SKU or capped quantity | Bounded failure or explicit stock outcome; no unrelated substitute |
@@ -57,7 +59,7 @@ Print and service orders are out of scope. Raw history screenshots, dates, addre
 | P15 | 25-item stress | Upper personalized list target | Stable bounded execution under the 60-minute cap; no checkout |
 | P16 | Privacy/cleanup | Evidence and temporary history data | Only de-identified results retained; temporary raw captures deleted |
 | P17 | Bare category prompts | `mints`, `aata`, `bhindi`, `juice`, `chips` without an order verb | Each parses as one line and resolves locally when a history-backed preference exists |
-| P18 | Minimal historical basket | A 6/7-line basket expressed only as category words and quantities | Same exact products/quantities as the corresponding historical basket; every line accounted for |
+| P18 | Minimal historical basket | An 11-line basket expressed only as category words and quantities | Same exact products/quantities as the corresponding historical basket; every line accounted for |
 | P19 | Minimal long baskets | 12/20/25 category-word lines using the private preference profile | No dropped/merged lines, no per-item preference network call, and the same timeout/safety criteria as P13-P15 |
 
 ## Large-list timing policy
@@ -74,21 +76,22 @@ For a 12/20/25-item stress case, a bounded explicit failure is a safety pass but
 
 | ID | Build/surface | Result | Evidence summary |
 | --- | --- | --- | --- |
-| P00 | Hosted health | Pass | Revision `beta-backend-staging-00068-9f8` serves 100% traffic; `/health` returned HTTP 200 with service status OK |
-| P01/P02 | Installed Beta 0.2.10 + live Blinkit | Pass | One exact Vicks item added in about 24s; original 2 cart items preserved; test increment removed and baseline restored |
-| P03 (generic query) | Installed Beta 0.2.10 | Fail safe | Exact mint product was visible but backend failed to pair the matching card with its own ADD; quantity 0, cart unchanged |
-| P03 (preference) | Installed Beta 0.2.10 | Local rewrite pass / flow fail safe | `2 mints` rewrote locally to exact Strong Mints and retained quantity 2; same backend card-pairing defect prevented add; cart unchanged |
+| P00 | Hosted health | Pass | Revision `beta-backend-staging-00070-kqf` serves 100% traffic; `/health` returned HTTP 200 with service status OK |
+| P01/P02 | Installed Beta + live Blinkit | Pass | Original 2 cart items preserved; each completed test increment was removed and baseline restored |
+| P03 (`mints`) | Installed Beta + live Blinkit | Pass | Bare shorthand rewrote locally to exact Ice Mints, added quantity 1, verified success, and rolled back from cart 3 to baseline 2 |
+| P17 (`aata`, first run) | Installed Beta + live Blinkit | Fail safe / Android root cause fixed | Coordinate search click was displaced by the overlay and opened a category surface; quantity 0 and cart unchanged. Fresh accessibility search focus plus mandatory editable-field confirmation now passes unit/build verification |
+| P17 (`aata`, second run) | Patched Android + hosted revision 00070 | Fail safe / backend root cause fixed in source | Correct search results showed the exact 1 kg product, but compact tree data omitted ADD geometry and the backend scrolled past it. Target-name/ADD column pairing and device-to-upload scaling now pass 199 Blinkit backend tests; live rerun pending deployment |
 | P13-P15 policy | Current source | Unit pass | Dynamic 1/7/12/20/25/very-large timeout tests pass |
 | P04 preference override | Current source | Unit pass | Explicit variant bypasses the exact `mints` shorthand preference |
-| P03 (quantity execution) | Beta 0.2.13 + live Blinkit | App mutation pass / terminal verification fail | Exact Strong Mints reached quantity 2 and cart moved from 2 to 4; backend failed to associate the target card's visible stepper, then test increments were removed and baseline 2 restored |
-| P03 verifier fix | Hosted revision 00068 | Unit/review/deploy pass; phone rerun pending | Strict target-local tree/OCR correlation, adjacent-row regressions, full 193-test suite, and independent review passed; wireless ADB must reconnect before live confirmation |
-| P17 parser/profile path | Current source | Unit implementation in progress | Bare-category and long category-list regressions added; private batch-seed utility and live readback still required |
+| P03 (quantity execution) | Earlier build + live Blinkit | Pass after verifier fix | Exact mint reached quantity 2 and cart moved from 2 to 4; test increments were removed and baseline 2 restored |
+| P17 parser/profile path | Current source and phone | Pass | Seven exact shorthand mappings were batch-seeded from a private gitignored profile and read locally before any backend request |
 
 ## Fix-to-live sequence
 
-1. Deploy the tested backend card/ADD containment fix to hosted staging.
-2. Build and install the current Android branch with hosted credentials, then restore Beta-only permissions/services and re-seed the local `mints` preference if uninstall cleared app data.
-3. Re-run P03 and roll back exactly two mint increments.
-4. Run P05-P12 in increasing order, fixing the first reproducible root cause before expanding.
-5. Run P13-P15 only after small and historical-size baskets pass; keep per-test rollback and stop at cart verification.
-6. Run final Android/backend suites and an Opus-only high-effort adversarial review, then update the canonical Drive handoff.
+1. Deploy the tested target-name/ADD geometry fix to hosted staging and verify `/health` plus revision traffic.
+2. Install the current Android APK with hosted credentials, restore Beta-only permissions/services if needed, and verify all seven local preferences remain seeded.
+3. Re-run bare `aata`; verify the exact 1 kg target, then roll back its one increment to cart baseline 2.
+4. Run bare `bhindi`, `juice`, and `chips` one at a time with exact target evidence and per-item rollback.
+5. Run mixed 3/6/11-line historical-shape lists; fix the first reproducible root cause before expanding.
+6. Run 12/20/25 stress lists only after the observed 11-line shape passes; stop at cart verification and preserve the original cart.
+7. Run final Android/backend suites and an approved adversarial review, then update the canonical Drive handoff.

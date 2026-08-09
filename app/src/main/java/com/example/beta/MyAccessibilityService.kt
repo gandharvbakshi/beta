@@ -628,7 +628,7 @@ class MyAccessibilityService : AccessibilityService() {
             
             // Preserve geometry for actionable controls and the target-local
             // Blinkit product/quantity nodes used by backend verification.
-            if (shouldAppendCommerceNodeBounds(className, viewId, contentDesc)) {
+            if (shouldAppendCommerceNodeBounds(className, viewId, contentDesc, isRoot = prefix == "ROOT")) {
                 val bounds = android.graphics.Rect()
                 node.getBoundsInScreen(bounds)
                 treeBuilder.append("$indent  📍 Bounds: [${bounds.left},${bounds.top}] -> [${bounds.right},${bounds.bottom}]\n")
@@ -782,7 +782,10 @@ class MyAccessibilityService : AccessibilityService() {
             className: String,
             viewId: String,
             contentDescription: String,
+            isRoot: Boolean = false,
         ): Boolean {
+            if (isRoot) return true
+
             if (
                 className.contains("Button", ignoreCase = true) ||
                 className.contains("TextView", ignoreCase = true) ||
@@ -796,9 +799,17 @@ class MyAccessibilityService : AccessibilityService() {
                 return true
             }
 
+            if (
+                idSuffix == "tv_title" &&
+                contentDescription.trim().lowercase() in ADD_CONTROL_DESCRIPTIONS
+            ) {
+                return true
+            }
+
             return QUANTITY_DESCRIPTION.matches(contentDescription.trim())
         }
 
+        private val ADD_CONTROL_DESCRIPTIONS = setOf("add", "add to cart")
         private val QUANTITY_DESCRIPTION = Regex("^quantity\\s+[1-9]\\d*$", RegexOption.IGNORE_CASE)
     }
 }
