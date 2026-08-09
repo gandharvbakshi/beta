@@ -626,8 +626,9 @@ class MyAccessibilityService : AccessibilityService() {
             treeBuilder.append("$indent  ⚡ Clickable: $isClickable, Enabled: $isEnabled, Visible: $isVisible\n")
             treeBuilder.append("$indent  🎯 Focused: ${node.isFocused}, AccessibilityFocused: ${node.isAccessibilityFocused}, Editable: ${node.isEditable}\n")
             
-            // Append additional properties for important elements
-            if (className.contains("Button") || className.contains("TextView") || className.contains("ImageView")) {
+            // Preserve geometry for actionable controls and the target-local
+            // Blinkit product/quantity nodes used by backend verification.
+            if (shouldAppendCommerceNodeBounds(className, viewId, contentDesc)) {
                 val bounds = android.graphics.Rect()
                 node.getBoundsInScreen(bounds)
                 treeBuilder.append("$indent  📍 Bounds: [${bounds.left},${bounds.top}] -> [${bounds.right},${bounds.bottom}]\n")
@@ -760,6 +761,12 @@ class MyAccessibilityService : AccessibilityService() {
         private const val ZEPTO_PACKAGE = "com.zeptoconsumerapp"
         private const val NON_BLINKIT_LOG_INTERVAL_MS = 5000L
         private const val COMMERCE_TREE_CAPTURE_MAX_DEPTH = 24
+        private val PRODUCT_NAME_VIEW_IDS = setOf(
+            "tv_name",
+            "product_name",
+            "product_title",
+            "item_name",
+        )
         private val SUPPORTED_COMMERCE_PACKAGES = setOf(
             BLINKIT_PACKAGE,
             SWIGGY_MAIN_PACKAGE,
@@ -770,5 +777,28 @@ class MyAccessibilityService : AccessibilityService() {
         private fun isSupportedCommercePackage(packageName: String?): Boolean {
             return packageName in SUPPORTED_COMMERCE_PACKAGES
         }
+
+        internal fun shouldAppendCommerceNodeBounds(
+            className: String,
+            viewId: String,
+            contentDescription: String,
+        ): Boolean {
+            if (
+                className.contains("Button", ignoreCase = true) ||
+                className.contains("TextView", ignoreCase = true) ||
+                className.contains("ImageView", ignoreCase = true)
+            ) {
+                return true
+            }
+
+            val idSuffix = viewId.substringAfterLast('/').lowercase()
+            if (idSuffix in PRODUCT_NAME_VIEW_IDS) {
+                return true
+            }
+
+            return QUANTITY_DESCRIPTION.matches(contentDescription.trim())
+        }
+
+        private val QUANTITY_DESCRIPTION = Regex("^quantity\\s+[1-9]\\d*$", RegexOption.IGNORE_CASE)
     }
 }
