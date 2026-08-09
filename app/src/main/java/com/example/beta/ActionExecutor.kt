@@ -41,6 +41,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         private val gestureCallbackHandler by lazy {
             Handler(gestureCallbackThread.looper)
         }
+
+        internal fun shouldUseNodeBoundGestureScroll(targetIsScrollable: Boolean): Boolean {
+            return targetIsScrollable
+        }
     }
 
     private data class TapAdjustment(
@@ -903,9 +907,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         // Check if the node is scrollable
         Log.d(TAG, "Target element scrollable check: ${targetNode.isScrollable}")
         Log.d(TAG, "Target element scroll actions available: ${targetNode.actionList}")
-        
-        if (!targetNode.isScrollable) {
-            Log.w(TAG, "Target element is not scrollable, but trying scroll actions anyway")
+
+        if (!shouldUseNodeBoundGestureScroll(targetNode.isScrollable)) {
+            Log.w(TAG, "Target element is not scrollable; using full-screen coordinate scroll fallback")
+            return performCoordinateScroll(recommendedAction)
         }
         
         // Try different scroll actions
@@ -949,6 +954,11 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         val targetNode = findTargetElement(recommendedAction)
         if (targetNode == null) {
             Log.w(TAG, "Target element not found for gesture scroll")
+            return false
+        }
+
+        if (!shouldUseNodeBoundGestureScroll(targetNode.isScrollable)) {
+            Log.w(TAG, "Target element is not scrollable; skipping node-bound gesture scroll")
             return false
         }
         
