@@ -2142,7 +2142,22 @@ object BackendProcessing {
             enqueueAttempt(1)
         }
 
-        attemptUpload()
+        try {
+            attemptUpload()
+        } catch (_: IllegalArgumentException) {
+            // OkHttp validates header values while building the request. Treat a
+            // malformed build-time credential as a terminal backend failure so
+            // the sequence does not sit idle until the item deadline expires.
+            File(context.cacheDir, filename).delete()
+            clearRequestInFlight(requestGeneration, requestToken)
+            handleBackendError(
+                context = context,
+                reason = "request_construction_failed",
+                details = "Invalid backend client configuration",
+                sessionContext = sessionContext
+            )
+            stopActionSequence()
+        }
     }
     
     // Handle backend errors with retry logic for transient errors
