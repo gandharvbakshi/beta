@@ -32,6 +32,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             ZEPTO_PACKAGE,
         )
         private val COMMERCE_SEARCH_FIELD_VIEW_IDS = listOf(
+            "com.grofers.customerapp:id/edittext",
             "in.swiggy.android:id/et_search_query_v2",
             "in.swiggy.android.instamart:id/et_search_query_v2",
         )
@@ -44,6 +45,10 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
         internal fun shouldUseNodeBoundGestureScroll(targetIsScrollable: Boolean): Boolean {
             return targetIsScrollable
+        }
+
+        internal fun isKnownCommerceSearchViewId(viewId: String): Boolean {
+            return viewId in COMMERCE_SEARCH_FIELD_VIEW_IDS
         }
 
         internal enum class ScrollIntent {
