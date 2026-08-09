@@ -121,18 +121,27 @@ function Validate-PreferenceEntries {
     return $normalized.ToArray()
 }
 
+function ConvertTo-AndroidShellArgument {
+    param([string]$Value)
+    return "'" + $Value.Replace("'", "'`"'`"'") + "'"
+}
+
 function Send-SeedBroadcast {
     param([pscustomobject]$Item)
 
     $args = @(
         "shell", "am", "broadcast", "-n", $ReceiverComponent, "-a", $SeedAction,
-        "--es", "token", $Item.token,
-        "--es", "preferred_phrase", $Item.preferredPhrase,
+        "--es", "token", (ConvertTo-AndroidShellArgument $Item.token),
+        "--es", "preferred_phrase", (ConvertTo-AndroidShellArgument $Item.preferredPhrase),
         "--ef", "confidence", $Item.confidence.ToString([CultureInfo]::InvariantCulture)
     )
 
     if ($Item.avoidPhrases.Count -gt 0) {
-        $args += @("--esa", "avoid_phrases", ($Item.avoidPhrases -join ","))
+        $args += @(
+            "--esa",
+            "avoid_phrases",
+            (ConvertTo-AndroidShellArgument ($Item.avoidPhrases -join ","))
+        )
     }
 
     if (-not $script:DryRun) {

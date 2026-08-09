@@ -43,4 +43,44 @@ Assert $validationFailed "Expected invalid profile to fail validation."
 
 Remove-Item -LiteralPath $tempProfile -ErrorAction SilentlyContinue
 
+Write-Host "Test 4: Android shell arguments quote spaces and metacharacters"
+$quotedProfile = Join-Path $env:TEMP "personal_preference_profile_quoted.json"
+@'
+{
+  "preferences": [
+    {
+    "token": "mints",
+    "preferredPhrase": "Impact Sugar Free Mint Candies (Strong Mints)",
+    "avoidPhrases": ["weak mint's"],
+    "confidence": 1.0
+    }
+  ]
+}
+'@ | Set-Content -LiteralPath $quotedProfile -Encoding UTF8
+
+$global:CapturedAdbArguments = @()
+function global:adb {
+    $global:CapturedAdbArguments = @($args)
+    $global:LASTEXITCODE = 0
+    return "Broadcast completed: result=0"
+}
+
+try {
+    & "$scriptDir\seed_personal_preferences.ps1" -ProfilePath $quotedProfile | Out-Null
+    $preferredIndex = [Array]::IndexOf($global:CapturedAdbArguments, "preferred_phrase")
+    $avoidIndex = [Array]::IndexOf($global:CapturedAdbArguments, "avoid_phrases")
+    Assert ($preferredIndex -ge 0) "Expected preferred_phrase broadcast argument."
+    Assert ($avoidIndex -ge 0) "Expected avoid_phrases broadcast argument."
+    Assert (
+        $global:CapturedAdbArguments[$preferredIndex + 1] -eq "'Impact Sugar Free Mint Candies (Strong Mints)'"
+    ) "Preferred phrase must be quoted as one Android shell argument."
+    Assert (
+        $global:CapturedAdbArguments[$avoidIndex + 1] -eq "'weak mint'`"'`"'s'"
+    ) "Embedded apostrophes must be escaped for the Android shell."
+} finally {
+    Remove-Item Function:\global:adb -ErrorAction SilentlyContinue
+    Remove-Variable CapturedAdbArguments -Scope Global -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $quotedProfile -ErrorAction SilentlyContinue
+}
+
 Write-Host "All tests passed."
