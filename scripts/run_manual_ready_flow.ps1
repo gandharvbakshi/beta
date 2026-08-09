@@ -85,6 +85,8 @@ function Normalize-FlowItem([string]$Value) {
     $raw = if ($null -eq $Value) { "" } else { $Value }
     $normalized = $raw.Trim().ToLowerInvariant()
     $normalized = $normalized -replace "^(get me|pick up|order|buy|add|get|please|fetch|bring)\s+", ""
+    $normalized = $normalized -replace '\s+(?:x\s*)?\d+(?:\.\d+)?\s*(?:kg|g|mg|l|ml|ltr|liter|litre)\s*$', ''
+    $normalized = $normalized -replace '\s+(?:x\s*)?\d+(?:\.\d+)?\s*(?:pack|packs|count|counts|pc|pcs)\s*$', ''
     $normalized = $normalized -replace "[^a-z0-9]+", ""
     if ($normalized -eq "apples") {
         return "apple"
