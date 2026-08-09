@@ -29,6 +29,17 @@ class CommerceTreeBoundsPolicyTest {
     }
 
     @Test
+    fun `keeps bounds for blinkit availability card descriptions`() {
+        assertTrue(
+            MyAccessibilityService.shouldAppendCommerceNodeBounds(
+                className = "android.view.ViewGroup",
+                viewId = "",
+                contentDescription = "Organic Tattva Multigrain Organic Atta is available for Rs 103",
+            )
+        )
+    }
+
+    @Test
     fun `keeps bounds for anchored accessibility quantity`() {
         assertTrue(
             MyAccessibilityService.shouldAppendCommerceNodeBounds(

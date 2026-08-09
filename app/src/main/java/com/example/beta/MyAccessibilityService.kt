@@ -799,6 +799,10 @@ class MyAccessibilityService : AccessibilityService() {
                 return true
             }
 
+            if (contentDescription.contains(" is available for ", ignoreCase = true)) {
+                return true
+            }
+
             if (
                 idSuffix == "tv_title" &&
                 contentDescription.trim().lowercase() in ADD_CONTROL_DESCRIPTIONS
