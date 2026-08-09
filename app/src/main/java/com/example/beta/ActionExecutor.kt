@@ -45,6 +45,19 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         internal fun shouldUseNodeBoundGestureScroll(targetIsScrollable: Boolean): Boolean {
             return targetIsScrollable
         }
+
+        internal enum class ScrollIntent {
+            FORWARD,
+            BACKWARD,
+        }
+
+        internal fun requestedScrollIntent(direction: String): ScrollIntent {
+            return if (direction.lowercase() in setOf("up", "backward")) {
+                ScrollIntent.BACKWARD
+            } else {
+                ScrollIntent.FORWARD
+            }
+        }
     }
 
     private data class TapAdjustment(
@@ -897,6 +910,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     
     private fun performScroll(recommendedAction: JSONObject): Boolean {
         Log.d(TAG, "Attempting to perform scroll action")
+        val scrollIntent = requestedScrollIntent(
+            recommendedAction.optString("direction", "down")
+        )
         
         val targetNode = findTargetElement(recommendedAction)
         if (targetNode == null) {
@@ -915,8 +931,11 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         
         // Try different scroll actions
         val scrollActions = listOf(
-            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD,
-            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            if (scrollIntent == ScrollIntent.BACKWARD) {
+                AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            } else {
+                AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+            }
         )
         
         for (action in scrollActions) {
@@ -971,10 +990,21 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             return false
         }
         
-        // Create a vertical scroll gesture (swipe up to scroll down)
+        val scrollIntent = requestedScrollIntent(
+            recommendedAction.optString("direction", "down")
+        )
+        // Swipe down to reveal earlier results; swipe up to reveal later results.
         val path = android.graphics.Path()
-        val startY = bounds.centerY() + bounds.height() / 4
-        val endY = bounds.centerY() - bounds.height() / 4
+        val startY = if (scrollIntent == ScrollIntent.BACKWARD) {
+            bounds.centerY() - bounds.height() / 4
+        } else {
+            bounds.centerY() + bounds.height() / 4
+        }
+        val endY = if (scrollIntent == ScrollIntent.BACKWARD) {
+            bounds.centerY() + bounds.height() / 4
+        } else {
+            bounds.centerY() - bounds.height() / 4
+        }
         val centerX = bounds.centerX()
         
         path.moveTo(centerX.toFloat(), startY.toFloat())
@@ -1004,12 +1034,14 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 return false
             }
 
-            val direction = recommendedAction.optString("direction", "down").lowercase()
+            val scrollIntent = requestedScrollIntent(
+                recommendedAction.optString("direction", "down")
+            )
             val centerX = screenWidth / 2
             val startY: Int
             val endY: Int
 
-            if (direction == "up" || direction == "backward") {
+            if (scrollIntent == ScrollIntent.BACKWARD) {
                 startY = (screenHeight * 0.35f).toInt()
                 endY = (screenHeight * 0.75f).toInt()
             } else {
