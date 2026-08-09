@@ -6,6 +6,49 @@ import org.junit.Test
 
 class InstructionParserPreferenceTest {
     @Test
+    fun bareMinimalHistoryPromptsDoNotRequireOrderVerb() {
+        val prompts = listOf("mints", "aata", "bhindi", "juice", "chips")
+
+        prompts.forEach { prompt ->
+            val item = InstructionParser.parse(prompt).single()
+            assertEquals(prompt, item.query)
+        }
+    }
+
+    @Test
+    fun longMinimalCategoryListKeepsEveryRequestedLine() {
+        val items = InstructionParser.parse("mints, aata, bhindi, juice, chips")
+
+        assertEquals(
+            listOf("mints", "aata", "bhindi", "juice", "chips"),
+            items.map { it.query }
+        )
+    }
+
+    @Test
+    fun bareMintPromptUsesTheSameLocalPreferenceAsCommandPrompt() {
+        var lookupCount = 0
+        val item = InstructionParser.applyPreferences(
+            InstructionParser.parse("mints"),
+            lookup = { query ->
+                lookupCount += 1
+                if (query == "mints") {
+                    Preference(
+                        token = "mints",
+                        preferredPhrase = "Impact Sugar Free Mint Candies Strong Mints",
+                        confidence = 1.0f
+                    )
+                } else {
+                    null
+                }
+            }
+        ).single()
+
+        assertEquals(1, lookupCount)
+        assertEquals("impact sugar free mint candies strong mints", item.query)
+    }
+
+    @Test
     fun shorthandPreferencePreservesRequestedQuantity() {
         val item = InstructionParser.applyPreferences(
             InstructionParser.parse("order 2 mints"),

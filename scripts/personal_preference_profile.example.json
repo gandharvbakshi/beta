@@ -1,0 +1,12 @@
+{
+  "version": "2026-08-09",
+  "note": "Copy to personal_preference_profile.json and add only history-backed stable choices. The copied file is gitignored.",
+  "preferences": [
+    {
+      "token": "mints",
+      "preferredPhrase": "Impact Sugar Free Mint Candies (Strong Mints)",
+      "avoidPhrases": [],
+      "confidence": 1.0
+    }
+  ]
+}

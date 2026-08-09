@@ -4,6 +4,8 @@
 
 Validate Beta against the user's de-identified 6-12 month Blinkit ordering patterns. Automation stops after search, exact product selection, add-to-cart, and cart-increment verification. It must never open checkout, proceed to payment, or place an order.
 
+The same historical baskets must be expressible with minimal prompts: bare category words such as `mints`, `aata`, `bhindi`, `juice`, or `chips`, without requiring an `order` verb or full product title.
+
 The existing Blinkit cart is user state. Record its baseline before each case, preserve every pre-existing item, and roll back only increments introduced by that test.
 
 ## Profile-derived coverage
@@ -20,6 +22,9 @@ Print and service orders are out of scope. Raw history screenshots, dates, addre
 - Preserve requested quantity: `2 mints` becomes `2 Impact Sugar Free Mint Candies Strong Mints`.
 - Apply a preference only to the exact normalized shorthand. An explicit request such as `fresh mints`, another brand, or a named pack size must bypass the generic `mints` preference.
 - Preferences must remain editable/forgettable and must not silently learn from a single uncertain outcome.
+- Seed alternate spellings such as `aata` and `atta` as separate exact tokens when both should resolve to the same history-backed product.
+- Do not invent a brand, flavour, size, or pack preference for a broad category. Until history supports one stable choice, keep the category generic and require target-local evidence or an explicit safe failure.
+- Support batch seeding from a private local profile file; keep that file out of source control and never log raw order history.
 
 ## Gates and execution order
 
@@ -51,6 +56,9 @@ Print and service orders are out of scope. Raw history screenshots, dates, addre
 | P14 | 20-item stress | Large mixed list | Bounded completion/failure, no global action-budget collision |
 | P15 | 25-item stress | Upper personalized list target | Stable bounded execution under the 60-minute cap; no checkout |
 | P16 | Privacy/cleanup | Evidence and temporary history data | Only de-identified results retained; temporary raw captures deleted |
+| P17 | Bare category prompts | `mints`, `aata`, `bhindi`, `juice`, `chips` without an order verb | Each parses as one line and resolves locally when a history-backed preference exists |
+| P18 | Minimal historical basket | A 6/7-line basket expressed only as category words and quantities | Same exact products/quantities as the corresponding historical basket; every line accounted for |
+| P19 | Minimal long baskets | 12/20/25 category-word lines using the private preference profile | No dropped/merged lines, no per-item preference network call, and the same timeout/safety criteria as P13-P15 |
 
 ## Large-list timing policy
 
@@ -66,12 +74,15 @@ For a 12/20/25-item stress case, a bounded explicit failure is a safety pass but
 
 | ID | Build/surface | Result | Evidence summary |
 | --- | --- | --- | --- |
-| P00 | Hosted health | Pass | `/health` returned HTTP 200 with service status OK; Google CLI identity still requires user re-verification for deploy/build secrets |
+| P00 | Hosted health | Pass | Revision `beta-backend-staging-00068-9f8` serves 100% traffic; `/health` returned HTTP 200 with service status OK |
 | P01/P02 | Installed Beta 0.2.10 + live Blinkit | Pass | One exact Vicks item added in about 24s; original 2 cart items preserved; test increment removed and baseline restored |
 | P03 (generic query) | Installed Beta 0.2.10 | Fail safe | Exact mint product was visible but backend failed to pair the matching card with its own ADD; quantity 0, cart unchanged |
 | P03 (preference) | Installed Beta 0.2.10 | Local rewrite pass / flow fail safe | `2 mints` rewrote locally to exact Strong Mints and retained quantity 2; same backend card-pairing defect prevented add; cart unchanged |
 | P13-P15 policy | Current source | Unit pass | Dynamic 1/7/12/20/25/very-large timeout tests pass |
 | P04 preference override | Current source | Unit pass | Explicit variant bypasses the exact `mints` shorthand preference |
+| P03 (quantity execution) | Beta 0.2.13 + live Blinkit | App mutation pass / terminal verification fail | Exact Strong Mints reached quantity 2 and cart moved from 2 to 4; backend failed to associate the target card's visible stepper, then test increments were removed and baseline 2 restored |
+| P03 verifier fix | Hosted revision 00068 | Unit/review/deploy pass; phone rerun pending | Strict target-local tree/OCR correlation, adjacent-row regressions, full 193-test suite, and independent review passed; wireless ADB must reconnect before live confirmation |
+| P17 parser/profile path | Current source | Unit implementation in progress | Bare-category and long category-list regressions added; private batch-seed utility and live readback still required |
 
 ## Fix-to-live sequence
 

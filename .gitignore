@@ -22,6 +22,7 @@ frontend_logs/
 *.logcat.txt
 Androind app error - no module.png
 logs/
+/scripts/personal_preference_profile.json
 debug_runs/
 Screenshot_*.png
 *.log
