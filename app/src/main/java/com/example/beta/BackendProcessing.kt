@@ -103,6 +103,7 @@ object BackendProcessing {
     @Volatile private var localSearchBootstrapGeneration: Long = -1L
     private var multiItemSequenceActive = false
     private var multiItemSequenceStartedAtMs: Long = 0L
+    private var multiItemSequenceTimeoutMs: Long = TimeUnit.MINUTES.toMillis(10)
     private var multiItemSequenceAccessibilityService: MyAccessibilityService? = null
     private var multiItemSequenceItems: List<ParsedItem> = emptyList()
     private var multiItemSequenceIndex: Int = 0
@@ -524,8 +525,8 @@ object BackendProcessing {
         val nextIndex = multiItemSequenceIndex + 1
         val elapsedMs = System.currentTimeMillis() - multiItemSequenceStartedAtMs
 
-        if (elapsedMs >= TimeUnit.MINUTES.toMillis(10)) {
-            Log.w(TAG, "Multi-item sequence timed out after 10 minutes")
+        if (elapsedMs >= multiItemSequenceTimeoutMs) {
+            Log.w(TAG, "Multi-item sequence timed out after ${multiItemSequenceTimeoutMs}ms")
             finishMultiItemSequence(context, timedOut = true)
             return true
         }
@@ -708,6 +709,7 @@ object BackendProcessing {
     private fun resetMultiItemSequenceState() {
         multiItemSequenceActive = false
         multiItemSequenceStartedAtMs = 0L
+        multiItemSequenceTimeoutMs = TimeUnit.MINUTES.toMillis(10)
         multiItemSequenceAccessibilityService = null
         multiItemSequenceItems = emptyList()
         multiItemSequenceIndex = 0
@@ -778,6 +780,8 @@ object BackendProcessing {
 
         multiItemSequenceActive = true
         multiItemSequenceStartedAtMs = System.currentTimeMillis()
+        multiItemSequenceTimeoutMs = MultiItemTimeoutPolicy.computeTimeoutMs(validItems.size)
+        val sequenceTimeoutMs = multiItemSequenceTimeoutMs
         multiItemSequenceAccessibilityService = accessibilityService
         multiItemSequenceItems = validItems
         multiItemSequenceIndex = 0
@@ -786,6 +790,7 @@ object BackendProcessing {
         lastOrderSummaryStatus = null
 
         Log.i(TAG, "MULTI_ORDER_STARTED items_total=${validItems.size} items=\"${validItems.joinToString(";") { it.query }}\"")
+        Log.i(TAG, "MULTI_ORDER_TIMEOUT items_total=${validItems.size} timeout_ms=$sequenceTimeoutMs")
         updateFlowStatus(context, "STATE: MULTI_ORDER_STARTED\nITEM 1/${validItems.size}: ${validItems.first().query}")
         startActionSequence(
             context,
@@ -798,9 +803,9 @@ object BackendProcessing {
 
         val sequenceStartedAt = multiItemSequenceStartedAtMs
         Thread {
-            Thread.sleep(TimeUnit.MINUTES.toMillis(10))
+            Thread.sleep(sequenceTimeoutMs)
             if (multiItemSequenceActive && multiItemSequenceStartedAtMs == sequenceStartedAt) {
-                Log.w(TAG, "Multi-item sequence reached 10-minute cap")
+                Log.w(TAG, "Multi-item sequence reached ${sequenceTimeoutMs}ms cap")
                 finishMultiItemSequence(context, timedOut = true)
                 stopActionSequence()
             }

@@ -6,6 +6,46 @@ import org.junit.Test
 
 class InstructionParserPreferenceTest {
     @Test
+    fun shorthandPreferencePreservesRequestedQuantity() {
+        val item = InstructionParser.applyPreferences(
+            InstructionParser.parse("order 2 mints"),
+            lookup = {
+                Preference(
+                    token = "mints",
+                    preferredPhrase = "Impact Sugar Free Mint Candies Strong Mints",
+                    confidence = 1.0f
+                )
+            }
+        ).single()
+
+        assertEquals(Quantity.Count(2), item.quantity)
+        assertEquals(
+            "2 impact sugar free mint candies strong mints",
+            item.backendInputText()
+        )
+    }
+
+    @Test
+    fun explicitVariantDoesNotUseGenericShorthandPreference() {
+        val item = InstructionParser.applyPreferences(
+            InstructionParser.parse("order fresh mints"),
+            lookup = { query ->
+                if (query == "mints") {
+                    Preference(
+                        token = "mints",
+                        preferredPhrase = "Impact Sugar Free Mint Candies Strong Mints",
+                        confidence = 1.0f
+                    )
+                } else {
+                    null
+                }
+            }
+        ).single()
+
+        assertEquals("fresh mints", item.query)
+    }
+
+    @Test
     fun applyPreferenceRewritesQueryAndLogs() {
         val logs = mutableListOf<String>()
         val items = InstructionParser.applyPreferences(
