@@ -110,12 +110,30 @@ class OrderOutcomeTest {
             terminalFailureStatusForReason("Item currently unavailable")
         )
         assertEquals(
+            ItemOutcomeStatus.OOS,
+            terminalFailureStatusForReason(
+                "Blinkit limited 2 matching items below quantity 2; Beta removed them and stopped with a clean cart."
+            )
+        )
+        assertEquals(
+            ItemOutcomeStatus.OOS,
+            terminalFailureStatusForReason(
+                "Blinkit limited this item to one, but Beta could not safely remove it before retrying."
+            )
+        )
+        assertEquals(
             ItemOutcomeStatus.QUANTITY_NOT_REACHED,
             terminalFailureStatusForReason("Item was added, but quantity controls did not reach requested quantity 6.")
         )
         assertEquals(
             ItemOutcomeStatus.QUANTITY_NOT_REACHED,
             terminalFailureStatusForReason("Requested quantity 2 is not visible yet")
+        )
+        assertEquals(
+            ItemOutcomeStatus.TIMEOUT,
+            terminalFailureStatusForReason(
+                "ADD was already attempted for atta, but cart verification never became available."
+            )
         )
     }
 

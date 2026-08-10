@@ -20,4 +20,17 @@ class ActionExecutorSearchFieldIdTest {
     fun `rejects unrelated ids`() {
         assertFalse(ActionExecutor.isKnownCommerceSearchViewId("com.grofers.customerapp:id/qd_search_bar"))
     }
+
+    @Test
+    fun `recognizes actions that focus or open product search`() {
+        assertTrue(ActionExecutor.isSearchFieldActionTarget("Focus search field"))
+        assertTrue(ActionExecutor.isSearchFieldActionTarget("Open product search"))
+        assertTrue(ActionExecutor.isSearchFieldActionTarget("Blinkit search bar"))
+    }
+
+    @Test
+    fun `does not treat search suggestions or results as the search field`() {
+        assertFalse(ActionExecutor.isSearchFieldActionTarget("Search suggestion for lady finger"))
+        assertFalse(ActionExecutor.isSearchFieldActionTarget("Click search result for lady finger"))
+    }
 }

@@ -84,6 +84,10 @@ fun terminalFailureStatusForReason(reason: String?): ItemOutcomeStatus {
         isBackendUnavailableFailureReason(normalized) -> ItemOutcomeStatus.BACKEND_UNAVAILABLE
         isStoreAppUnavailableFailureReason(normalized) ||
             isStoreUnavailableFailureReason(normalized) -> ItemOutcomeStatus.STORE_UNAVAILABLE
+        normalized.contains("limited") && (
+            normalized.contains("below quantity") ||
+                normalized.contains("this item to one")
+            ) -> ItemOutcomeStatus.OOS
         normalized.contains("quantity") && (
             normalized.contains("did not reach") ||
                 normalized.contains("not confirmed") ||
@@ -98,6 +102,7 @@ fun terminalFailureStatusForReason(reason: String?): ItemOutcomeStatus {
             normalized.contains("currently unavailable") ||
             normalized.contains("unavailable") ||
             normalized.contains("substitution") -> ItemOutcomeStatus.OOS
+        normalized.contains("cart verification never became available") -> ItemOutcomeStatus.TIMEOUT
         normalized.contains("low") && normalized.contains("confidence") -> ItemOutcomeStatus.LOW_CONFIDENCE
         normalized.contains("timeout") ||
             normalized.contains("timed out") ||

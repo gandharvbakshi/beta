@@ -51,6 +51,42 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             return viewId in COMMERCE_SEARCH_FIELD_VIEW_IDS
         }
 
+        internal fun isSearchFieldActionTarget(actionTarget: String): Boolean {
+            val normalized = actionTarget.trim().lowercase()
+            if (normalized.isBlank()) return false
+            if (normalized.contains("suggestion") || normalized.contains("result")) return false
+
+            return normalized == "search" ||
+                normalized.startsWith("search for ") ||
+                listOf(
+                    "search bar",
+                    "search field",
+                    "search box",
+                    "search icon",
+                    "product search",
+                    "open search",
+                    "focus search",
+                    "tap search",
+                    "click search"
+                ).any { normalized.contains(it) }
+        }
+
+        internal fun shouldTreatApplicationWindowAsForeground(
+            windowType: Int,
+            isActive: Boolean,
+            isFocused: Boolean
+        ): Boolean {
+            return windowType == AccessibilityWindowInfo.TYPE_APPLICATION && (isActive || isFocused)
+        }
+
+        internal fun hasSupportedCommerceForeground(
+            activeRootPackage: String?,
+            foregroundApplicationPackages: Collection<String>
+        ): Boolean {
+            return activeRootPackage in SUPPORTED_COMMERCE_PACKAGES ||
+                foregroundApplicationPackages.any { it in SUPPORTED_COMMERCE_PACKAGES }
+        }
+
         internal enum class ScrollIntent {
             FORWARD,
             BACKWARD,
@@ -519,7 +555,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             handleBlockingSystemDialogs()
             handleBlockingCommerceAppDialogs()
 
-            if (!actionTarget.contains("search", ignoreCase = true) &&
+            if (!isSearchFieldActionTarget(actionTarget) &&
                 requiresCommerceForegroundForAction(actionType, recommendedAction) &&
                 !isCommerceForeground() &&
                 !waitForSupportedCommerceForeground(900)
@@ -574,7 +610,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         
         // Check if this is a search bar or ADD button - use appropriate method
         val actionTarget = recommendedAction.optString("action_target", "")
-        val isSearchBar = actionTarget.contains("search", ignoreCase = true)
+        val isSearchBar = isSearchFieldActionTarget(actionTarget)
         val isOpenCartAction = actionTarget.contains("cart", ignoreCase = true)
             && (actionTarget.contains("view cart", ignoreCase = true) || actionTarget.contains("open cart", ignoreCase = true))
         val isAddButton = isProductAddButtonAction(actionTarget)
@@ -749,7 +785,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
         val actionTarget = recommendedAction.optString("action_target", "")
         val textToType = recommendedAction.optString("text_to_type", "")
-        if (!actionTarget.contains("search", ignoreCase = true)) return true
+        if (!isSearchFieldActionTarget(actionTarget)) return true
 
         if (isSwiggyForeground()) {
             val trustedFocus = waitForSearchFieldFocus(400) || waitForSwiggySafeKeyboardAfterSearchClick(4500)
@@ -1311,7 +1347,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
 
     private fun shouldKeepSearchInputOpen(recommendedAction: JSONObject): Boolean {
         val actionTarget = recommendedAction.optString("action_target", "")
-        if (actionTarget.contains("search", ignoreCase = true)) return true
+        if (isSearchFieldActionTarget(actionTarget)) return true
 
         val selector = recommendedAction.optJSONObject("element_selector")
         val className = selector?.optString("class_name", "").orEmpty()
@@ -1347,7 +1383,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     }
 
     private fun isSwiggyForeground(): Boolean {
-        return visibleWindowPackages().any(::isSwiggyPackage)
+        return foregroundWindowPackages().any(::isSwiggyPackage)
     }
 
     private fun isSwiggyPackage(packageName: String?): Boolean {
@@ -1355,11 +1391,11 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     }
 
     private fun isZeptoForeground(): Boolean {
-        return visibleWindowPackages().any { it == ZEPTO_PACKAGE }
+        return foregroundWindowPackages().any { it == ZEPTO_PACKAGE }
     }
 
     private fun isBlinkitForeground(): Boolean {
-        return visibleWindowPackages().any { it == BLINKIT_PACKAGE }
+        return foregroundWindowPackages().any { it == BLINKIT_PACKAGE }
     }
 
     private fun activeRootPackage(): String? {
@@ -1372,10 +1408,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     }
 
     private fun isCommerceForeground(): Boolean {
-        if (isSupportedCommercePackage(activeRootPackage())) {
-            return true
-        }
-        return visibleWindowPackages().any { isSupportedCommercePackage(it) }
+        return hasSupportedCommerceForeground(activeRootPackage(), foregroundWindowPackages())
     }
 
     private fun ensureCommerceForegroundForSearchAction(recommendedAction: JSONObject): Boolean {
@@ -1488,7 +1521,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
     private fun waitForCommercePackageForeground(packageName: String, timeoutMs: Long): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         do {
-            if (visibleWindowPackages().any { it == packageName }) {
+            if (foregroundWindowPackages().any { it == packageName }) {
                 return true
             }
             handleBlockingSystemDialogs()
@@ -1533,6 +1566,32 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
 
         return packages
+    }
+
+    private fun foregroundWindowPackages(): List<String> {
+        val packages = mutableListOf<String>()
+        activeRootPackage()?.let { packages.add(it) }
+
+        try {
+            accessibilityService.windows?.forEach { window ->
+                try {
+                    if (window != null && shouldTreatApplicationWindowAsForeground(
+                            window.type,
+                            window.isActive,
+                            window.isFocused
+                        )
+                    ) {
+                        window.root?.packageName?.toString()?.let { packages.add(it) }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to inspect foreground application window: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to enumerate foreground application windows: ${e.message}")
+        }
+
+        return packages.distinct()
     }
 
     private fun typeTextByKeyboardGesture(
@@ -3012,7 +3071,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             Log.d(TAG, "Parsing action target: '$actionTarget'")
             
             // Special handling for search bar - prioritize clickable search elements
-            if (actionTarget.contains("search", ignoreCase = true) || actionTarget.contains("action_bar_root")) {
+            if (isSearchFieldActionTarget(actionTarget) || actionTarget.contains("action_bar_root")) {
                 Log.d(TAG, "Searching for search bar element")
                 val searchElement = findClickableSearchElement(rootNode)
                 if (searchElement != null) {
