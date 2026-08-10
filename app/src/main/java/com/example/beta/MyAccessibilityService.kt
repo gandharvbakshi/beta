@@ -265,7 +265,13 @@ class MyAccessibilityService : AccessibilityService() {
             
             // Use the improved scanning approach
             for (window in allWindows) {
-                if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                if (
+                    shouldTreatApplicationWindowAsForeground(
+                        windowType = window.type,
+                        isActive = window.isActive,
+                        isFocused = window.isFocused
+                    )
+                ) {
                     val root = window.root ?: continue
                     val packageName = root.packageName?.toString() ?: continue
                     Log.d("MyAccessibilityService", "Window type: ${window.type}, Package: $packageName")
@@ -776,6 +782,14 @@ class MyAccessibilityService : AccessibilityService() {
 
         private fun isSupportedCommercePackage(packageName: String?): Boolean {
             return packageName in SUPPORTED_COMMERCE_PACKAGES
+        }
+
+        internal fun shouldTreatApplicationWindowAsForeground(
+            windowType: Int,
+            isActive: Boolean,
+            isFocused: Boolean
+        ): Boolean {
+            return windowType == AccessibilityWindowInfo.TYPE_APPLICATION && (isActive || isFocused)
         }
 
         internal fun shouldAppendCommerceNodeBounds(

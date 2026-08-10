@@ -1318,6 +1318,32 @@ class ScreenCaptureService : Service() {
         }
     }
 
+    private fun scheduleCaptureSurfaceRetry(reason: String): Boolean {
+        val captureActive = isCapturing && mediaProjection != null
+        if (!CaptureRecoveryPolicy.shouldRetryCaptureSurface(screenshotRecoveryAttempts, captureActive)) {
+            return false
+        }
+        if (!recreateCaptureSurfaceForScreenshot(reason)) {
+            return false
+        }
+
+        screenshotRecoveryAttempts += 1
+        Log.w(
+            "BetaAgent",
+            "CAPTURE_SURFACE_RETRY_SCHEDULED attempt=$screenshotRecoveryAttempts reason=$reason"
+        )
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!isCapturing || mediaProjection == null) {
+                Log.w("BetaAgent", "CAPTURE_SURFACE_RETRY_CANCELLED reason=capture_inactive")
+                return@postDelayed
+            }
+            enableScreenshots()
+            pendingScreenshot = true
+            triggerScreenshot()
+        }, 1200L)
+        return true
+    }
+
     private fun drainStaleScreenshotFrame(reason: String) {
         try {
             imageReader?.acquireLatestImage()?.close()
@@ -1405,7 +1431,11 @@ class ScreenCaptureService : Service() {
                     processImage(image)
                 } else {
                     Log.e("ScreenCaptureService", "Failed to acquire image for pending screenshot - image is null")
-                    if (!processTreeOnlyScreenshotFallback("image callback returned null")) {
+                    if (
+                        !scheduleCaptureSurfaceRetry("image callback returned null") &&
+                        !processTreeOnlyScreenshotFallback("image callback returned null after recovery")
+                    ) {
+                        screenshotRecoveryAttempts = 0
                         markCaptureLost("image callback returned null", stopProjection = true)
                     }
                 }
@@ -2495,7 +2525,12 @@ class ScreenCaptureService : Service() {
         }
     }
     
-    private fun triggerNextActionInSequence(originalInput: String, actionNumber: Int, sequenceGeneration: Long) {
+    private fun triggerNextActionInSequence(
+        originalInput: String,
+        actionNumber: Int,
+        sequenceGeneration: Long,
+        emptyTreeAttempt: Int = 0
+    ) {
         if (!BackendProcessing.isCurrentSequenceTrigger(originalInput, sequenceGeneration)) {
             Log.w(
                 "ScreenCaptureService",
@@ -2513,14 +2548,16 @@ class ScreenCaptureService : Service() {
         currentSequenceGeneration = sequenceGeneration
         isActionSequenceActive = true
         setOverlayState(OverlayState.CAPTURING)
-        scheduleObservationDispatchWatchdog(
-            originalInput = originalInput,
-            actionNumber = actionNumber,
-            sequenceGeneration = sequenceGeneration,
-            screenshotGenerationAtSchedule = synchronized(screenshotRequestLock) {
-                screenshotRequestGeneration
-            }
-        )
+        if (emptyTreeAttempt == 0) {
+            scheduleObservationDispatchWatchdog(
+                originalInput = originalInput,
+                actionNumber = actionNumber,
+                sequenceGeneration = sequenceGeneration,
+                screenshotGenerationAtSchedule = synchronized(screenshotRequestLock) {
+                    screenshotRequestGeneration
+                }
+            )
+        }
 
         val accessibility = (application as? MyApplication)?.getAccessibilityService()
         val capture = capture@{
@@ -2537,6 +2574,23 @@ class ScreenCaptureService : Service() {
                     accessibility.showBlinkitTree()
                     currentTreeData = accessibility.getLastTreeData()
                     currentAppName = accessibility.getLastAppName()
+                }
+
+                if (CaptureRecoveryPolicy.shouldRetryEmptyTree(emptyTreeAttempt, currentTreeData)) {
+                    Log.w(
+                        "BetaAgent",
+                        "OBSERVATION_TREE_RETRY attempt=${emptyTreeAttempt + 1} action=$actionNumber " +
+                            "generation=$sequenceGeneration app=${currentAppName.orEmpty()}"
+                    )
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        triggerNextActionInSequence(
+                            originalInput = originalInput,
+                            actionNumber = actionNumber,
+                            sequenceGeneration = sequenceGeneration,
+                            emptyTreeAttempt = emptyTreeAttempt + 1
+                        )
+                    }, 700L)
+                    return@capture
                 }
 
                 if (!ensureCaptureReadyForAutomation("next action screenshot")) return@capture
@@ -3543,15 +3597,7 @@ class ScreenCaptureService : Service() {
                                     image.close()
                                 } else {
                                     Log.w("ScreenCaptureService", "Manual image acquisition failed - attempting capture pipeline recovery")
-                                    if (
-                                        screenshotRecoveryAttempts < 2 &&
-                                        recreateCaptureSurfaceForScreenshot("timeout image null")
-                                    ) {
-                                        screenshotRecoveryAttempts += 1
-                                        Handler(Looper.getMainLooper()).postDelayed({
-                                            triggerScreenshot()
-                                        }, 1200)
-                                    } else {
+                                    if (!scheduleCaptureSurfaceRetry("timeout image null")) {
                                         screenshotRecoveryAttempts = 0
                                         val fallbackProcessed =
                                             processTreeOnlyScreenshotFallback("timeout image null after recovery")

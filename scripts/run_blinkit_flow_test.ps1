@@ -2,7 +2,9 @@ param(
     [string]$Instruction = "order butter",
     [switch]$SkipBuild,
     [switch]$SkipCartReset,
-    [switch]$UseBetaAutoLaunch
+    [switch]$UseBetaAutoLaunch,
+    [int]$FlowTimeoutSeconds = 0,
+    [switch]$AllowExpectedOos
 )
 
 $ErrorActionPreference = "Stop"
@@ -1432,7 +1434,7 @@ function Test-BackendCartVerified {
 }
 
 function Get-FlowTerminalLogText {
-    $logs = adb logcat -d | Select-String "BLINKIT_ADD_TO_CART_CLICKED|FLOW_FAILED|STATE: FAILED|ORDER_RESULT|checkout_boundary|MediaProjection state: null|Cannot trigger screenshot: Service not capturing"
+    $logs = adb logcat -d | Select-String "BLINKIT_ADD_TO_CART_CLICKED|FLOW_FAILED|STATE: FAILED|ITEM_RESULT|ORDER_RESULT|checkout_boundary|MediaProjection state: null|Cannot trigger screenshot: Service not capturing"
     if (-not $logs) {
         return ""
     }
@@ -1440,6 +1442,8 @@ function Get-FlowTerminalLogText {
 }
 
 function Test-FlowFailureLog {
+    param([switch]$IgnoreItemFailuresUntilOrderResult)
+
     $text = Get-FlowTerminalLogText
     if (-not $text) {
         return $false
@@ -1448,11 +1452,28 @@ function Test-FlowFailureLog {
     if ($text -match "checkout_boundary|MediaProjection state: null|Cannot trigger screenshot: Service not capturing") {
         return $true
     }
-    if ($text -match "FLOW_FAILED|STATE: FAILED") {
+    if (-not $IgnoreItemFailuresUntilOrderResult -and $text -match "FLOW_FAILED|STATE: FAILED") {
         return $true
     }
     if ($text -match "ORDER_RESULT" -and $text -match "items_failed=(\d+)") {
-        return ([int]$matches[1] -gt 0)
+        $failedCount = [int]$matches[1]
+        if ($failedCount -le 0) {
+            return $false
+        }
+        if ($AllowExpectedOos) {
+            $nonSuccessStatuses = @(
+                [regex]::Matches($text, 'ITEM_RESULT\s+.*?status=([a-z_]+)') |
+                    ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() } |
+                    Where-Object { $_ -ne "success" }
+            )
+            if (
+                $nonSuccessStatuses.Count -eq $failedCount -and
+                @($nonSuccessStatuses | Where-Object { $_ -ne "oos" }).Count -eq 0
+            ) {
+                return $false
+            }
+        }
+        return $true
     }
     return $false
 }
@@ -1538,7 +1559,7 @@ function Try-LiveCartVerification([string]$InstructionText) {
     return (Test-XmlContainsTargetTokens $cartXml $tokens)
 }
 
-function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120) {
+function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120, [int]$ExpectedItemCount = 1) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $lastLiveCartCheck = (Get-Date).AddSeconds(-30)
     $addClickedAt = $null
@@ -1548,15 +1569,16 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120) {
         $latestOrderResultHasItemsFailed = $false
         $latestItemsTotal = 0
         $latestItemsSucceeded = 0
+        $latestNonSuccessStatuses = @()
         $addClickCount = 0
         if ($script:BlinkitAddToCartClicked) {
             if (($addClickedAt -ne $null) -and ((Get-Date) -gt $addClickedAt.AddSeconds(25))) {
                 if (Dismiss-AnrFromWindowState) {
                     Start-BlinkitAndWait 45 | Out-Null
-                    if (Test-FlowFailureLog) {
+                    if (Test-FlowFailureLog -IgnoreItemFailuresUntilOrderResult:($ExpectedItemCount -gt 1)) {
                         return "failed"
                     }
-                } elseif (Test-FlowFailureLog) {
+                } elseif (Test-FlowFailureLog -IgnoreItemFailuresUntilOrderResult:($ExpectedItemCount -gt 1)) {
                     return "failed"
                 }
             }
@@ -1584,8 +1606,14 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120) {
                 if ($line -match "checkout_boundary") {
                     return "failed"
                 }
-                if ($line -match "FLOW_FAILED|STATE: FAILED") {
+                if ($ExpectedItemCount -le 1 -and $line -match "FLOW_FAILED|STATE: FAILED") {
                     return "failed"
+                }
+                if ($line -match 'ITEM_RESULT\s+.*status=([a-z_]+)') {
+                    $itemStatus = $matches[1].ToLowerInvariant()
+                    if ($itemStatus -ne "success") {
+                        $latestNonSuccessStatuses += $itemStatus
+                    }
                 }
                 if ($line -match "ORDER_RESULT") {
                     $sawOrderResult = $true
@@ -1608,6 +1636,17 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120) {
         }
         if ($sawOrderResult) {
             if ($latestOrderResultFailed) {
+                $onlyExpectedOos = (
+                    $AllowExpectedOos -and
+                    $latestNonSuccessStatuses.Count -gt 0 -and
+                    @($latestNonSuccessStatuses | Where-Object { $_ -ne "oos" }).Count -eq 0 -and
+                    ($latestItemsSucceeded + $latestNonSuccessStatuses.Count) -eq $latestItemsTotal -and
+                    $addClickCount -ge $latestItemsSucceeded
+                )
+                if ($onlyExpectedOos) {
+                    Write-Phase "ORDER_RESULT completed with expected out-of-stock items only."
+                    return "success_expected_oos"
+                }
                 return "failed"
             }
             if (
@@ -1622,7 +1661,7 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120) {
         }
         if ($script:BlinkitAddToCartClicked -and $addClickedAt -ne $null -and ((Get-Date) -gt $addClickedAt.AddSeconds(25)) -and ((Get-Date) -gt $lastLiveCartCheck.AddSeconds(8))) {
             $lastLiveCartCheck = Get-Date
-            if (Test-FlowFailureLog) {
+            if (Test-FlowFailureLog -IgnoreItemFailuresUntilOrderResult:($ExpectedItemCount -gt 1)) {
                 return "failed"
             }
         }
@@ -1975,8 +2014,17 @@ try {
         throw "Beta did not receive the emulator instruction."
     }
 
-    Write-Phase "waiting for safe add-to-cart verification"
-    $outcome = Wait-ForFlowOutcome 240
+    $estimatedItemCount = @(
+        $Instruction -split '(?i)(?:[,;\r\n]+|\s+(?:and|plus|और|ಮತ್ತು|ಹಾಗೂ)\s+|\s*&\s*)' |
+            Where-Object { $_.Trim() }
+    ).Count
+    $effectiveFlowTimeout = if ($FlowTimeoutSeconds -gt 0) {
+        $FlowTimeoutSeconds
+    } else {
+        [Math]::Max(240, 90 + (35 * [Math]::Max(1, $estimatedItemCount)))
+    }
+    Write-Phase "waiting for safe add-to-cart verification (timeout ${effectiveFlowTimeout}s for approximately $estimatedItemCount item(s))"
+    $outcome = Wait-ForFlowOutcome $effectiveFlowTimeout $estimatedItemCount
     if ($outcome -eq "capture_lost" -and -not $captureRetryUsed) {
         $captureRetryUsed = $true
         Write-Phase "screen capture was lost; switching to ADB screenshot fallback"
@@ -1987,7 +2035,7 @@ try {
         }
         $outcome = Invoke-AdbBackendFlow $Instruction 20
     }
-    if ($outcome -ne "success") {
+    if ($outcome -notin @("success", "success_expected_oos")) {
         Write-Warning "Blinkit flow outcome for '$Instruction': $outcome"
         $result = 1
     } else {

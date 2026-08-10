@@ -33,4 +33,32 @@ class ActionExecutorSearchFieldIdTest {
         assertFalse(ActionExecutor.isSearchFieldActionTarget("Search suggestion for lady finger"))
         assertFalse(ActionExecutor.isSearchFieldActionTarget("Click search result for lady finger"))
     }
+
+    @Test
+    fun `recognizes search suggestion targets`() {
+        assertTrue(ActionExecutor.isSearchSuggestionActionTarget("Search suggestion for pencil"))
+        assertFalse(ActionExecutor.isSearchSuggestionActionTarget("Focus search field"))
+    }
+
+    @Test
+    fun `rejects editable search field as suggestion node`() {
+        assertFalse(
+            ActionExecutor.isSafeSearchSuggestionNode(
+                isEditable = true,
+                className = "android.widget.EditText",
+                viewId = "com.grofers.customerapp:id/edittext",
+                isVisible = true,
+                isEnabled = true
+            )
+        )
+        assertTrue(
+            ActionExecutor.isSafeSearchSuggestionNode(
+                isEditable = false,
+                className = "android.view.View",
+                viewId = "",
+                isVisible = true,
+                isEnabled = true
+            )
+        )
+    }
 }

@@ -32,7 +32,7 @@ fun ParsedItem.backendInputText(): String {
 }
 
 object InstructionParser {
-    const val PARSER_VERSION = "2026.07.23.1"
+    const val PARSER_VERSION = "2026.08.10.1"
 
     private val leadingCommandRegex = Regex(
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
@@ -72,6 +72,10 @@ object InstructionParser {
         RegexOption.IGNORE_CASE
     )
     private val leadingCountRegex = Regex("^([1-9]\\d?)\\s+(.+)$")
+    private val leadingMultipackDescriptorRegex = Regex(
+        "^[1-9]\\d?\\s*(?:x\\s*)?(?:pack|pk|pc|pcs|piece|pieces)\\b\\s+.+$",
+        RegexOption.IGNORE_CASE
+    )
     private val leadingWeightRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(g|gm|gms|gram|grams|kg|kgs)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
     private val leadingVolumeRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(ml|l|ltr|liter|litre|liters|litres)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
     private val trailingMeasureRegex = Regex(
@@ -108,7 +112,10 @@ object InstructionParser {
             .forEach { segment ->
                 val (withoutQuantity, quantity) = extractQuantityPrefix(segment)
                 val (withoutModifiers, avoidPhrases) = extractPreferenceModifiers(withoutQuantity)
-                val cleaned = cleanSegment(withoutModifiers)
+                val cleaned = cleanSegment(
+                    withoutModifiers,
+                    preserveLeadingNumber = leadingMultipackDescriptorRegex.matches(withoutModifiers.trim())
+                )
                 if (cleaned.isEmpty() || noOpRegex.matches(cleaned.lowercase(Locale.US))) {
                     return@forEach
                 }
@@ -185,12 +192,12 @@ object InstructionParser {
         }
     }
 
-    private fun cleanSegment(segment: String): String {
+    private fun cleanSegment(segment: String, preserveLeadingNumber: Boolean = false): String {
         var text = segment.trim().trim(',', ';', '&').trim()
         while (true) {
             val before = text
             text = text
-                .replace(leadingNoiseRegex, "")
+                .replace(if (preserveLeadingNumber) leadingFillerRegex else leadingNoiseRegex, "")
                 .replace(trailingCartNoiseRegex, "")
                 .replace(trailingNoiseRegex, "")
                 .trim()
@@ -250,6 +257,9 @@ object InstructionParser {
                 else -> amount.toInt()
             }
             if (ml > 0) return match.groupValues[3].trim() to Quantity.Volume(ml)
+        }
+        if (leadingMultipackDescriptorRegex.matches(normalized)) {
+            return normalized to Quantity.Default
         }
         val match = leadingCountRegex.find(normalized) ?: return segment to Quantity.Default
         val count = match.groupValues[1].toIntOrNull() ?: return segment to Quantity.Default

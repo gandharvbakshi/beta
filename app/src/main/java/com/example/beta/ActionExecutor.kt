@@ -71,6 +71,26 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 ).any { normalized.contains(it) }
         }
 
+        internal fun isSearchSuggestionActionTarget(actionTarget: String): Boolean {
+            val normalized = actionTarget.trim().lowercase()
+            return normalized.contains("search suggestion") ||
+                (normalized.contains("suggestion") && normalized.contains("search"))
+        }
+
+        internal fun isSafeSearchSuggestionNode(
+            isEditable: Boolean,
+            className: String,
+            viewId: String,
+            isVisible: Boolean,
+            isEnabled: Boolean
+        ): Boolean {
+            return isVisible &&
+                isEnabled &&
+                !isEditable &&
+                !className.contains("EditText", ignoreCase = true) &&
+                !isKnownCommerceSearchViewId(viewId)
+        }
+
         internal fun shouldTreatApplicationWindowAsForeground(
             windowType: Int,
             isActive: Boolean,
@@ -3069,6 +3089,22 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         // First try to parse action_target text for element information
         if (actionTarget.isNotEmpty()) {
             Log.d(TAG, "Parsing action target: '$actionTarget'")
+
+            if (isSearchSuggestionActionTarget(actionTarget)) {
+                val suggestionText = recommendedAction
+                    .optJSONObject("element_selector")
+                    ?.optString("text", "")
+                    .orEmpty()
+                if (suggestionText.isBlank()) {
+                    Log.w(TAG, "Search suggestion action has no selector text; refusing broad lookup")
+                    return null
+                }
+                val suggestion = findSearchSuggestionElement(rootNode, suggestionText)
+                if (suggestion == null) {
+                    Log.w(TAG, "Safe search suggestion '$suggestionText' not found; refusing editable fallback")
+                }
+                return suggestion
+            }
             
             // Special handling for search bar - prioritize clickable search elements
             if (isSearchFieldActionTarget(actionTarget) || actionTarget.contains("action_bar_root")) {
@@ -3226,6 +3262,49 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         }
         
         Log.w(TAG, "Could not find target element using any method")
+        return null
+    }
+
+    private fun findSearchSuggestionElement(
+        rootNode: AccessibilityNodeInfo,
+        exactText: String,
+        budget: NodeScanBudget = newDefaultNodeScanBudget()
+    ): AccessibilityNodeInfo? {
+        if (!budget.markVisited()) return null
+
+        val matchesText = rootNode.text?.toString()?.equals(exactText, ignoreCase = true) == true ||
+            rootNode.contentDescription?.toString()?.equals(exactText, ignoreCase = true) == true
+        if (
+            matchesText &&
+            isSafeSearchSuggestionNode(
+                isEditable = rootNode.isEditable,
+                className = rootNode.className?.toString().orEmpty(),
+                viewId = rootNode.viewIdResourceName.orEmpty(),
+                isVisible = rootNode.isVisibleToUser,
+                isEnabled = rootNode.isEnabled
+            )
+        ) {
+            val clickable = findClickableSelfOrAncestor(rootNode)
+            if (
+                clickable != null &&
+                isSafeSearchSuggestionNode(
+                    isEditable = clickable.isEditable,
+                    className = clickable.className?.toString().orEmpty(),
+                    viewId = clickable.viewIdResourceName.orEmpty(),
+                    isVisible = clickable.isVisibleToUser,
+                    isEnabled = clickable.isEnabled
+                )
+            ) {
+                return clickable
+            }
+        }
+
+        for (i in 0 until rootNode.childCount) {
+            if (budget.shouldStop()) break
+            val child = rootNode.getChild(i) ?: continue
+            val result = findSearchSuggestionElement(child, exactText, budget)
+            if (result != null) return result
+        }
         return null
     }
 
