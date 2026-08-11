@@ -3,6 +3,7 @@ param(
     [string[]]$Queries,
     [Parameter(Mandatory = $true)]
     [string[]]$ExpectedProducts,
+    [string[]]$ExpectedPacks = @(),
     [string]$DeviceSerial = "",
     [switch]$Execute,
     [switch]$LiveSearchPreflightOnly,
@@ -27,6 +28,9 @@ $DeviceMode = $Execute.IsPresent -or $LiveSearchPreflightOnly.IsPresent
 
 if ($Queries.Count -ne $ExpectedProducts.Count) {
     throw "Queries and ExpectedProducts must contain the same number of entries."
+}
+if ($ExpectedPacks.Count -gt 0 -and $ExpectedPacks.Count -ne $Queries.Count) {
+    throw "ExpectedPacks must be empty or contain the same number of entries as Queries."
 }
 
 New-Item -ItemType Directory -Force -Path $LogsDir | Out-Null
@@ -287,23 +291,58 @@ function Exact-Product-Match([string]$Name, [string]$ExpectedProduct) {
     return $nameNorm -eq $expectedNorm
 }
 
-function Assert-NotPreserve([string]$ProductName) {
+function Exact-Pack-Match([string]$PackText, [string]$ExpectedPack) {
+    $packNorm = Normalize-Text $PackText
+    $expectedNorm = Normalize-Text $ExpectedPack
+    if (-not $packNorm -or -not $expectedNorm) { return $false }
+    return $packNorm -eq $expectedNorm
+}
+
+function Split-ProductIdentity([string]$Value) {
+    $normalized = Normalize-Text $Value
+    if (-not $normalized) {
+        return [pscustomobject]@{ Name = ""; Pack = "" }
+    }
+
+    $packMatch = [regex]::Match($normalized, '^(.*?)(?:\s+)?(\d+(?:\.\d+)?\s*(?:ml|l|g|kg|mg|mcg|pcs?|pieces?|pack(?:s)?|count|ct|oz|lb|litre|liter|dozen))$')
+    if ($packMatch.Success) {
+        return [pscustomobject]@{
+            Name = $packMatch.Groups[1].Value.Trim()
+            Pack = $packMatch.Groups[2].Value.Trim()
+        }
+    }
+
+    return [pscustomobject]@{ Name = $normalized; Pack = "" }
+}
+
+function Assert-NotPreserve([string]$ProductName, [string]$PackText = "") {
     $normalized = Normalize-Text $ProductName
+    $normalizedPack = Normalize-Text $PackText
     if (-not $normalized) {
         return
     }
 
-    $preserved = $PreserveProducts | ForEach-Object { Normalize-Text $_ }
-    foreach ($item in $preserved) {
-        if (-not $item) { continue }
-        if ($normalized -eq $item -or $normalized -like "*$item*" -or $item -like "*$normalized*") {
+    $candidateIdentity = if ($normalizedPack) { "$normalized $normalizedPack" } else { $normalized }
+    foreach ($preserve in $PreserveProducts) {
+        $parts = Split-ProductIdentity $preserve
+        if (-not $parts.Name) { continue }
+
+        if ($parts.Pack) {
+            if ($normalized -eq $parts.Name -and -not $normalizedPack) {
+                throw "Matched preserved product '$ProductName', but its pack could not be resolved. Failing closed before decrement."
+            }
+            $preserveIdentity = "$($parts.Name) $($parts.Pack)"
+            if ($candidateIdentity -eq $preserveIdentity) {
+                throw "Matched product '$candidateIdentity' is preserved and must not be decremented."
+            }
+        } elseif ($normalized -eq $parts.Name -or $normalized -like "*$($parts.Name)*" -or $parts.Name -like "*$normalized*") {
             throw "Matched product '$ProductName' is preserved and must not be decremented."
         }
     }
 }
 
 function Find-MatchingDecrement {
-    param([object[]]$Nodes, [string]$Query, [string]$ExpectedProduct)
+    param([object[]]$Nodes, [string]$Query, [string]$ExpectedProduct, [string]$ExpectedPack = "")
 
     $headerBoundaryY = 0
     $headerY = @($Nodes | Where-Object {
@@ -333,6 +372,8 @@ function Find-MatchingDecrement {
         "${BlinkitPackage}:id/product_title"
     )
 
+    $productPackResourceId = "${BlinkitPackage}:id/tv_uom_title"
+    $expectedPackNorm = Normalize-Text $ExpectedPack
     $productMatches = @()
     foreach ($node in $Nodes) {
         $productText = "$($node.Text) $($node.Desc)"
@@ -357,7 +398,29 @@ function Find-MatchingDecrement {
             })
 
             if ($decrementNodes.Count -eq 1) {
-                $productMatches += [pscustomobject]@{ Node = $node; Decrement = $decrementNodes[0] }
+                $decrement = $decrementNodes[0]
+                $packNodes = @($Nodes | Where-Object {
+                    $_.Resource -eq $productPackResourceId -and
+                    $_.Package -eq $BlinkitPackage -and
+                    $_.Enabled -and
+                    $_.Y -ge ($decrement.Y - 160) -and
+                    $_.Y -le ($decrement.Y + 80) -and
+                    $_.X -ge ($decrement.X - 240) -and
+                    $_.X -le ($decrement.X + 100)
+                })
+                if ($expectedPackNorm) {
+                    $packNodes = @($packNodes | Where-Object { Exact-Pack-Match "$($_.Text) $($_.Desc)" $ExpectedPack })
+                }
+                if ($expectedPackNorm) {
+                    if ($packNodes.Count -eq 0) {
+                        continue
+                    }
+                    if ($packNodes.Count -ne 1) {
+                        throw "Multiple same-card pack matches found for '$ExpectedProduct' / '$ExpectedPack' using query '$Query'."
+                    }
+                }
+                $packText = if ($packNodes.Count -eq 1) { ($packNodes[0].Text + ' ' + $packNodes[0].Desc).Trim() } else { "" }
+                $productMatches += [pscustomobject]@{ Node = $node; Decrement = $decrement; PackText = $packText }
             } elseif ($decrementNodes.Count -gt 1) {
                 throw "Multiple decrement controls matched product-card text for '$Query'. Failing closed before interaction."
             }
@@ -373,9 +436,9 @@ function Find-MatchingDecrement {
     }
 
     $product = $productMatches[0].Node
-    Assert-NotPreserve "$($product.Text) $($product.Desc)"
+    Assert-NotPreserve "$($product.Text) $($product.Desc)" $productMatches[0].PackText
 
-    return [pscustomobject]@{ Product = $product; Decrement = $productMatches[0].Decrement }
+    return [pscustomobject]@{ Product = $product; PackText = $productMatches[0].PackText; Decrement = $productMatches[0].Decrement }
 }
 
 function Ensure-BlinkitForeground {
@@ -517,14 +580,14 @@ function Search-Query {
 }
 
 function Wait-MatchingDecrement {
-    param([string]$Query, [string]$ExpectedProduct, [int]$TimeoutSeconds = 8)
+    param([string]$Query, [string]$ExpectedProduct, [string]$ExpectedPack = "", [int]$TimeoutSeconds = 8)
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $lastError = "No product result was available."
     while ((Get-Date) -lt $deadline) {
         try {
             $nodes = Parse-Nodes (Get-UiDump)
-            return Find-MatchingDecrement $nodes $Query $ExpectedProduct
+            return Find-MatchingDecrement $nodes $Query $ExpectedProduct $ExpectedPack
         }
         catch {
             $lastError = $_.Exception.Message
@@ -547,6 +610,7 @@ if (-not $DeviceMode) {
         executed = $false
         queries = $Queries
         expected_products = $ExpectedProducts
+        expected_packs = $ExpectedPacks
         results = $results
     } | ConvertTo-Json -Depth 6 | Set-Content -Path $SummaryPath -Encoding UTF8
     exit 0
@@ -560,12 +624,16 @@ try {
     for ($queryIndex = 0; $queryIndex -lt $Queries.Count; $queryIndex++) {
         $query = $Queries[$queryIndex]
         $expectedProduct = $ExpectedProducts[$queryIndex]
+        $expectedPack = if ($ExpectedPacks.Count -gt 0) { $ExpectedPacks[$queryIndex] } else { "" }
         Write-Host "`n=== Query: $query ==="
         Write-Host "Expected exact product: $expectedProduct"
+        if ($expectedPack) {
+            Write-Host "Expected exact pack: $expectedPack"
+        }
         Ensure-BlinkitForeground
         Assert-SafeBlinkitSearchSurface | Out-Null
         Search-Query $query
-        $pair = Wait-MatchingDecrement $query $expectedProduct
+        $pair = Wait-MatchingDecrement $query $expectedProduct $expectedPack
 
         $before = Get-CartCount
         if ($null -eq $before) {
@@ -573,13 +641,15 @@ try {
         }
 
         $plannedProductName = ($pair.Product.Text + ' ' + $pair.Product.Desc).Trim()
+        $plannedPackText = $pair.PackText
         $plannedBounds = "$($pair.Decrement.X1),$($pair.Decrement.Y1),$($pair.Decrement.X2),$($pair.Decrement.Y2)"
 
         $freshNodes = Assert-SafeBlinkitSearchSurface -ExpectedQuery $query
-        $freshPair = Find-MatchingDecrement $freshNodes $query $expectedProduct
+        $freshPair = Find-MatchingDecrement $freshNodes $query $expectedProduct $expectedPack
         $freshProductName = ($freshPair.Product.Text + ' ' + $freshPair.Product.Desc).Trim()
+        $freshPackText = $freshPair.PackText
         $freshBounds = "$($freshPair.Decrement.X1),$($freshPair.Decrement.Y1),$($freshPair.Decrement.X2),$($freshPair.Decrement.Y2)"
-        if ($freshProductName -ne $plannedProductName -or $freshBounds -ne $plannedBounds) {
+        if ($freshProductName -ne $plannedProductName -or $freshPackText -ne $plannedPackText -or $freshBounds -ne $plannedBounds) {
             throw "Search result changed before decrement for '$query'. Failing closed before interaction."
         }
 
@@ -594,6 +664,7 @@ try {
                 decrement_x = $target.X
                 decrement_y = $target.Y
                 matched_product = $freshProductName
+                matched_pack = $freshPackText
             }
             continue
         }
@@ -628,6 +699,7 @@ try {
             decrement_x = $target.X
             decrement_y = $target.Y
             matched_product = $freshProductName
+            matched_pack = $freshPackText
         }
     }
 
@@ -640,6 +712,7 @@ try {
         live_search_preflight_only = $LiveSearchPreflightOnly.IsPresent
         queries = $Queries
         expected_products = $ExpectedProducts
+        expected_packs = $ExpectedPacks
         results = $results
     } | ConvertTo-Json -Depth 6 | Set-Content -Path $SummaryPath -Encoding UTF8
 }
@@ -653,6 +726,7 @@ catch {
         live_search_preflight_only = $LiveSearchPreflightOnly.IsPresent
         queries = $Queries
         expected_products = $ExpectedProducts
+        expected_packs = $ExpectedPacks
         error = $_.Exception.Message
         results = $results
     } | ConvertTo-Json -Depth 6 | Set-Content -Path $SummaryPath -Encoding UTF8
