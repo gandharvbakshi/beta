@@ -852,10 +852,7 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         return CommerceActionClassifier.isProductAddButtonAction(actionTarget)
     }
 
-    private fun performRawCoordinateClick(
-        recommendedAction: JSONObject,
-        callback: AccessibilityService.GestureResultCallback? = null
-    ): Boolean {
+    private fun performRawCoordinateClick(recommendedAction: JSONObject): Boolean {
         Log.d(TAG, "Attempting raw coordinate click")
 
         val coordinates = recommendedAction.optJSONObject("coordinates") ?: return false
@@ -878,25 +875,13 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
             )
             .build()
 
-        val gestureCallback = callback ?: object : AccessibilityService.GestureResultCallback() {
-            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                Log.d(TAG, "Raw coordinate click gesture completed at ($x, $y)")
-            }
-
-            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                Log.w(TAG, "Raw coordinate click gesture cancelled at ($x, $y)")
-            }
+        val outcome = dispatchGestureAndAwaitOutcome(gesture, "raw_coordinate_click")
+        if (outcome != GestureAwaitOutcome.COMPLETED) {
+            Log.w(TAG, "Raw coordinate click did not complete at ($x, $y): $outcome")
+            return false
         }
-
-        val success = accessibilityService.dispatchGesture(gesture, gestureCallback, null)
-
-        if (success) {
-            Log.d(TAG, "Raw coordinate click dispatched successfully at ($x, $y)")
-            return true
-        }
-
-        Log.w(TAG, "Raw coordinate click dispatch failed at ($x, $y)")
-        return false
+        Log.d(TAG, "Raw coordinate click completed at ($x, $y)")
+        return true
     }
 
     private fun findOpenCartNodeByText(): Boolean {
@@ -1076,15 +1061,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
         
         val gesture = gestureBuilder.build()
         
-        return accessibilityService.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
-            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                Log.d(TAG, "Gesture scroll completed successfully")
-            }
-            
-            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                Log.w(TAG, "Gesture scroll was cancelled")
-            }
-        }, null)
+        val outcome = dispatchGestureAndAwaitOutcome(gesture, "target_gesture_scroll")
+        Log.d(TAG, "Gesture scroll outcome: $outcome")
+        return outcome == GestureAwaitOutcome.COMPLETED
     }
 
     private fun performCoordinateScroll(recommendedAction: JSONObject): Boolean {
@@ -1119,21 +1098,9 @@ class ActionExecutor(private val accessibilityService: AccessibilityService) {
                 .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 650))
                 .build()
 
-            val success = accessibilityService.dispatchGesture(
-                gesture,
-                object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
-                    override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                        Log.d(TAG, "Coordinate scroll completed successfully")
-                    }
-
-                    override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                        Log.w(TAG, "Coordinate scroll was cancelled")
-                    }
-                },
-                null
-            )
-            Log.d(TAG, "Coordinate scroll dispatch result: $success")
-            success
+            val outcome = dispatchGestureAndAwaitOutcome(gesture, "coordinate_scroll")
+            Log.d(TAG, "Coordinate scroll outcome: $outcome")
+            outcome == GestureAwaitOutcome.COMPLETED
         } catch (e: Exception) {
             Log.e(TAG, "Coordinate scroll failed: ${e.message}")
             false

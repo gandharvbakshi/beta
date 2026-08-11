@@ -39,6 +39,21 @@ class OrderRunLifecycleTest {
     }
 
     @Test
+    fun terminalWhileRequestIsActive_rejectsOldRequestToken() {
+        val lifecycle = OrderRunLifecycle<String>()
+        val generation = lifecycle.start("milk")
+        val token = lifecycle.beginRequest(generation)
+
+        assertTrue(token != null)
+
+        val terminal = lifecycle.terminal(generation, "milk:timeout", "timeout")
+
+        assertTrue(terminal != null)
+        assertFalse(lifecycle.shouldAccept(generation, token!!))
+        assertFalse(lifecycle.completeRequest(generation, token))
+    }
+
+    @Test
     fun terminal_allowsNextItemToStartWithNewGeneration() {
         val lifecycle = OrderRunLifecycle<String>()
         val firstGeneration = lifecycle.start("milk")

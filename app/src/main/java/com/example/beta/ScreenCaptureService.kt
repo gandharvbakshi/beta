@@ -78,23 +78,29 @@ class ScreenCaptureService : Service() {
     private var foregroundStarted = false
     private var virtualDisplay: android.hardware.display.VirtualDisplay? = null // Correct type
     private var accessibilityService: MyAccessibilityService? = null
-    private var currentInputText: String? = null
+    @Volatile private var currentInputText: String? = null
     @Volatile private var pendingScreenshot = false
     @Volatile private var screenshotRequestGeneration = 0L
+    @Volatile private var pendingScreenshotSequenceGeneration = CaptureRecoveryPolicy.UNSEQUENCED_GENERATION
     private val screenshotRequestLock = Any()
-    private var screenshotEnabled = false // Only take screenshots when explicitly enabled
+    @Volatile private var screenshotEnabled = false // Only take screenshots when explicitly enabled
     @Volatile private var lastObservationActionNumber = -1
     @Volatile private var lastObservationSequenceGeneration = -1L
     private var overlayBounds: android.graphics.Rect? = null
     private var currentTreeData: String? = null
     private var currentAppName: String? = null
     private var lastImageDrainWarningAt = 0L
-    private var screenshotRecoveryAttempts = 0
+    @Volatile private var screenshotRecoveryAttempts = 0
     
     // Sequential action support
-    private var isActionSequenceActive: Boolean = false
-    private var originalInputText: String? = null
-    private var currentSequenceGeneration: Long = -1L
+    @Volatile private var isActionSequenceActive: Boolean = false
+    @Volatile private var originalInputText: String? = null
+    @Volatile private var currentSequenceGeneration: Long = CaptureRecoveryPolicy.UNSEQUENCED_GENERATION
+
+    private data class CaptureRequestToken(
+        val requestGeneration: Long,
+        val sequenceGeneration: Long
+    )
 
     private fun requestedCount(quantity: Quantity): Int {
         return when (quantity) {
@@ -396,7 +402,7 @@ class ScreenCaptureService : Service() {
         val automationWasActive =
             isActionSequenceActive || BackendProcessing.isSequenceActive() || currentSession != null
         isCapturing = false
-        pendingScreenshot = false
+        invalidatePendingScreenshot("capture lost: $reason")
         screenshotRecoveryAttempts = 0
 
         if (automationWasActive) {
@@ -489,9 +495,8 @@ class ScreenCaptureService : Service() {
         isActionSequenceActive = false
         originalInputText = null
         currentInputText = null
-        currentSequenceGeneration = -1L
-        pendingScreenshot = false
-        disableScreenshots()
+        currentSequenceGeneration = CaptureRecoveryPolicy.UNSEQUENCED_GENERATION
+        invalidatePendingScreenshot("capture unavailable: $reason")
         automationOverlaySuppressed = false
         currentSession = null
         retryAttempts = 0
@@ -842,6 +847,7 @@ class ScreenCaptureService : Service() {
 
             if (intent?.action == ACTION_STOP_CAPTURE) {
                 Log.d("ScreenCaptureService", "Stop capture action received")
+                stopActionSequence()
                 stopCapture()
                 stopSelf()
                 return START_NOT_STICKY
@@ -1318,7 +1324,19 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun scheduleCaptureSurfaceRetry(reason: String): Boolean {
+    private fun scheduleCaptureSurfaceRetry(
+        reason: String,
+        requestToken: CaptureRequestToken
+    ): Boolean {
+        if (!isCaptureRequestCurrent(requestToken)) {
+            Log.w(
+                "BetaAgent",
+                "CAPTURE_SURFACE_RETRY_CANCELLED reason=stale_request " +
+                    "request_generation=${requestToken.requestGeneration} " +
+                    "sequence_generation=${requestToken.sequenceGeneration}"
+            )
+            return true
+        }
         val captureActive = isCapturing && mediaProjection != null
         if (!CaptureRecoveryPolicy.shouldRetryCaptureSurface(screenshotRecoveryAttempts, captureActive)) {
             return false
@@ -1333,12 +1351,20 @@ class ScreenCaptureService : Service() {
             "CAPTURE_SURFACE_RETRY_SCHEDULED attempt=$screenshotRecoveryAttempts reason=$reason"
         )
         Handler(Looper.getMainLooper()).postDelayed({
+            if (!isCaptureRequestCurrent(requestToken)) {
+                Log.w(
+                    "BetaAgent",
+                    "CAPTURE_SURFACE_RETRY_CANCELLED reason=stale_request " +
+                        "request_generation=${requestToken.requestGeneration} " +
+                        "sequence_generation=${requestToken.sequenceGeneration}"
+                )
+                return@postDelayed
+            }
             if (!isCapturing || mediaProjection == null) {
                 Log.w("BetaAgent", "CAPTURE_SURFACE_RETRY_CANCELLED reason=capture_inactive")
                 return@postDelayed
             }
             enableScreenshots()
-            pendingScreenshot = true
             triggerScreenshot()
         }, 1200L)
         return true
@@ -1352,7 +1378,19 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun processTreeOnlyScreenshotFallback(reason: String): Boolean {
+    private fun processTreeOnlyScreenshotFallback(
+        reason: String,
+        requestToken: CaptureRequestToken
+    ): Boolean {
+        if (!isCaptureRequestCurrent(requestToken)) {
+            Log.w(
+                "BetaAgent",
+                "TREE_ONLY_CAPTURE_CANCELLED reason=stale_request " +
+                    "request_generation=${requestToken.requestGeneration} " +
+                    "sequence_generation=${requestToken.sequenceGeneration}"
+            )
+            return true
+        }
         val treeData = currentTreeData
         if (treeData.isNullOrBlank() || width <= 0 || height <= 0) {
             Log.w("ScreenCaptureService", "Cannot use tree-only screenshot fallback for $reason")
@@ -1375,6 +1413,12 @@ class ScreenCaptureService : Service() {
                 currentInputText
             }
 
+            if (!isCaptureRequestCurrent(requestToken)) {
+                Log.w("BetaAgent", "TREE_ONLY_CAPTURE_CANCELLED reason=terminal_before_dispatch")
+                bitmap.recycle()
+                return true
+            }
+
             if (inputTextForProcessing != null) {
                 BackendProcessing.processScreenshotWithInput(
                     this,
@@ -1385,7 +1429,7 @@ class ScreenCaptureService : Service() {
                     treeData,
                     (application as? MyApplication)?.getAccessibilityService(),
                     currentSession,
-                    currentSequenceGeneration
+                    requestToken.sequenceGeneration
                 )
                 if (!isActionSequenceActive) {
                     currentInputText = null
@@ -1420,20 +1464,23 @@ class ScreenCaptureService : Service() {
 
     // ImageAvailableListener moved outside createImageReader
     private val imageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
-        if (pendingScreenshot) {
-            pendingScreenshot = false
+        val requestToken = claimPendingScreenshotRequest()
+        if (requestToken != null) {
             var image: Image? = null
             try {
                 image = reader.acquireLatestImage()
                 if (image != null) {
                     Log.i("BetaAgent", "CAPTURE_FRAME_AVAILABLE")
                     screenshotRecoveryAttempts = 0
-                    processImage(image)
+                    processImage(image, requestToken)
                 } else {
                     Log.e("ScreenCaptureService", "Failed to acquire image for pending screenshot - image is null")
                     if (
-                        !scheduleCaptureSurfaceRetry("image callback returned null") &&
-                        !processTreeOnlyScreenshotFallback("image callback returned null after recovery")
+                        !scheduleCaptureSurfaceRetry("image callback returned null", requestToken) &&
+                        !processTreeOnlyScreenshotFallback(
+                            "image callback returned null after recovery",
+                            requestToken
+                        )
                     ) {
                         screenshotRecoveryAttempts = 0
                         markCaptureLost("image callback returned null", stopProjection = true)
@@ -1441,7 +1488,12 @@ class ScreenCaptureService : Service() {
                 }
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error processing pending screenshot: ", e)
-                if (!processTreeOnlyScreenshotFallback("image callback threw ${e.javaClass.simpleName}")) {
+                if (
+                    !processTreeOnlyScreenshotFallback(
+                        "image callback threw ${e.javaClass.simpleName}",
+                        requestToken
+                    )
+                ) {
                     markCaptureLost("image callback failed", stopProjection = true)
                 }
             } finally {
@@ -1580,7 +1632,14 @@ class ScreenCaptureService : Service() {
     }
 
     // Emulator-specific screenshot processing
-    private fun processEmulatorScreenshot(image: Image) {
+    private fun processEmulatorScreenshot(
+        image: Image,
+        requestToken: CaptureRequestToken
+    ) {
+        if (!isCaptureRequestCurrent(requestToken)) {
+            Log.w("BetaAgent", "CAPTURE_FRAME_CANCELLED reason=stale_emulator_request")
+            return
+        }
         Log.d("ScreenCaptureService", "Processing emulator screenshot with reduced functionality")
         
         try {
@@ -1651,6 +1710,12 @@ class ScreenCaptureService : Service() {
                 currentInputText // Use current input for single actions
             }
             
+            if (!isCaptureRequestCurrent(requestToken)) {
+                Log.w("BetaAgent", "CAPTURE_FRAME_CANCELLED reason=terminal_before_emulator_dispatch")
+                bitmap.recycle()
+                return
+            }
+
             if (inputTextForProcessing != null) {
                 // Log.d("ScreenCaptureService", "Processing emulator screenshot with input text: $inputTextForProcessing (sequence: $isActionSequenceActive)")
                 BackendProcessing.processScreenshotWithInput(
@@ -1662,7 +1727,7 @@ class ScreenCaptureService : Service() {
                     currentTreeData,
                     (application as? MyApplication)?.getAccessibilityService(),
                     currentSession,
-                    currentSequenceGeneration
+                    requestToken.sequenceGeneration
                 )
                 
                 // Only clear data if not in a sequence
@@ -1703,11 +1768,18 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun processImage(image: Image) {
+    private fun processImage(
+        image: Image,
+        requestToken: CaptureRequestToken
+    ) {
+        if (!isCaptureRequestCurrent(requestToken)) {
+            Log.w("BetaAgent", "CAPTURE_FRAME_CANCELLED reason=stale_device_request")
+            return
+        }
         // Use emulator-specific processing if running on emulator
         if (isEmulator()) {
             Log.d("ScreenCaptureService", "Running on emulator, using emulator-specific screenshot processing")
-            processEmulatorScreenshot(image)
+            processEmulatorScreenshot(image, requestToken)
             return
         }
         
@@ -1788,6 +1860,12 @@ class ScreenCaptureService : Service() {
                 currentInputText // Use current input for single actions
             }
             
+            if (!isCaptureRequestCurrent(requestToken)) {
+                Log.w("BetaAgent", "CAPTURE_FRAME_CANCELLED reason=terminal_before_device_dispatch")
+                bitmap.recycle()
+                return
+            }
+
             if (inputTextForProcessing != null) {
                 // Log.d("ScreenCaptureService", "Processing screenshot with input text: $inputTextForProcessing (sequence: $isActionSequenceActive)")
                 BackendProcessing.processScreenshotWithInput(
@@ -1799,7 +1877,7 @@ class ScreenCaptureService : Service() {
                     currentTreeData,
                     (application as? MyApplication)?.getAccessibilityService(),
                     currentSession,
-                    currentSequenceGeneration
+                    requestToken.sequenceGeneration
                 )
                 
                 // Only clear data if not in a sequence
@@ -2004,13 +2082,22 @@ class ScreenCaptureService : Service() {
             Log.d("ScreenCaptureService", "Ignoring duplicate terminal session end: $reason")
             return
         }
+        terminalStatusActive = true
+        isActionSequenceActive = false
+        originalInputText = null
+        currentInputText = null
+        currentSequenceGeneration = CaptureRecoveryPolicy.UNSEQUENCED_GENERATION
+        currentTreeData = null
+        currentAppName = null
+        screenshotRecoveryAttempts = 0
+        invalidatePendingScreenshot("terminal session: $reason")
+        Log.i("BetaAgent", "TERMINAL_CAPTURE_INVALIDATED reason=$reason")
         currentSession?.let { session ->
             Log.d("ScreenCaptureService", "🏁 Ending session: ${session.sessionId} - Reason: $reason")
         }
         currentSession = null
         retryAttempts = 0
         consecutiveFailures = 0
-        terminalStatusActive = true
         
         // Overlay views must be touched from the main thread. Keep the block visible
         // briefly so the user can see whether the flow completed, stopped, or failed.
@@ -2653,7 +2740,15 @@ class ScreenCaptureService : Service() {
                     "OBSERVATION_DISPATCH_WATCHDOG_RECOVERY action=$actionNumber " +
                         "generation=$sequenceGeneration tree_chars=${currentTreeData?.length ?: 0}"
                 )
-                if (!processTreeOnlyScreenshotFallback("observation dispatch watchdog")) {
+                if (
+                    !processTreeOnlyScreenshotFallback(
+                        "observation dispatch watchdog",
+                        CaptureRequestToken(
+                            requestGeneration = screenshotGenerationAtSchedule,
+                            sequenceGeneration = sequenceGeneration
+                        )
+                    )
+                ) {
                     Log.e(
                         "BetaAgent",
                         "FLOW_FAILED: reason=observation_dispatch_watchdog_no_tree " +
@@ -2674,22 +2769,23 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun scheduleScreenshotRequestWatchdog(requestGeneration: Long) {
+    private fun scheduleScreenshotRequestWatchdog(requestToken: CaptureRequestToken) {
         Handler(Looper.getMainLooper()).postDelayed({
-            if (!isScreenshotRequestPending(requestGeneration)) {
+            if (!isScreenshotRequestPending(requestToken)) {
                 return@postDelayed
             }
 
             Log.w(
                 "BetaAgent",
-                "CAPTURE_REQUEST_WATCHDOG_RECOVERY request_generation=$requestGeneration " +
+                "CAPTURE_REQUEST_WATCHDOG_RECOVERY request_generation=${requestToken.requestGeneration} " +
                     "sequence_generation=$currentSequenceGeneration tree_chars=${currentTreeData?.length ?: 0}"
             )
-            if (!processTreeOnlyScreenshotFallback("capture request watchdog")) {
+            if (!processTreeOnlyScreenshotFallback("capture request watchdog", requestToken)) {
                 Log.e(
                     "BetaAgent",
                     "FLOW_FAILED: reason=capture_request_watchdog_no_tree " +
-                        "request_generation=$requestGeneration sequence_generation=$currentSequenceGeneration"
+                        "request_generation=${requestToken.requestGeneration} " +
+                        "sequence_generation=${requestToken.sequenceGeneration}"
                 )
                 markCaptureLost("capture request watchdog expired without tree", stopProjection = true)
             }
@@ -2701,7 +2797,11 @@ class ScreenCaptureService : Service() {
         isActionSequenceActive = false
         originalInputText = null
         currentInputText = null
-        currentSequenceGeneration = -1L
+        currentSequenceGeneration = CaptureRecoveryPolicy.UNSEQUENCED_GENERATION
+        currentTreeData = null
+        currentAppName = null
+        screenshotRecoveryAttempts = 0
+        invalidatePendingScreenshot("action sequence stopped")
         BackendProcessing.stopActionSequence()
     }
     
@@ -2715,23 +2815,60 @@ class ScreenCaptureService : Service() {
         Log.d("ScreenCaptureService", "🔍 DEBUG: Screenshots disabled")
     }
 
-    private fun beginScreenshotRequest(): Long = synchronized(screenshotRequestLock) {
+    private fun beginScreenshotRequest(): CaptureRequestToken = synchronized(screenshotRequestLock) {
         screenshotRequestGeneration += 1L
         pendingScreenshot = true
-        screenshotRequestGeneration
+        pendingScreenshotSequenceGeneration = currentSequenceGeneration
+        CaptureRequestToken(
+            requestGeneration = screenshotRequestGeneration,
+            sequenceGeneration = pendingScreenshotSequenceGeneration
+        )
     }
 
     private fun invalidatePendingScreenshot(reason: String) {
         synchronized(screenshotRequestLock) {
             screenshotRequestGeneration += 1L
             pendingScreenshot = false
+            pendingScreenshotSequenceGeneration = CaptureRecoveryPolicy.UNSEQUENCED_GENERATION
         }
         disableScreenshots()
         Log.d("ScreenCaptureService", "Screenshot request invalidated: $reason")
     }
 
-    private fun isScreenshotRequestPending(generation: Long): Boolean =
-        pendingScreenshot && screenshotRequestGeneration == generation
+    private fun claimPendingScreenshotRequest(): CaptureRequestToken? =
+        synchronized(screenshotRequestLock) {
+            if (!pendingScreenshot) {
+                null
+            } else {
+                pendingScreenshot = false
+                CaptureRequestToken(
+                    requestGeneration = screenshotRequestGeneration,
+                    sequenceGeneration = pendingScreenshotSequenceGeneration
+                )
+            }
+        }
+
+    private fun isCaptureRequestCurrent(token: CaptureRequestToken): Boolean {
+        val currentRequestGeneration = synchronized(screenshotRequestLock) {
+            screenshotRequestGeneration
+        }
+        val sequenceStillCurrent =
+            !CaptureRecoveryPolicy.isSequencedRequestGeneration(token.sequenceGeneration) ||
+                BackendProcessing.isCurrentSequenceTrigger(
+                    originalInputText,
+                    token.sequenceGeneration
+                )
+        return CaptureRecoveryPolicy.shouldProcessCaptureRequest(
+            terminalStatusActive = terminalStatusActive,
+            scheduledRequestGeneration = token.requestGeneration,
+            currentRequestGeneration = currentRequestGeneration,
+            sequenceGeneration = token.sequenceGeneration,
+            sequenceStillCurrent = sequenceStillCurrent
+        )
+    }
+
+    private fun isScreenshotRequestPending(token: CaptureRequestToken): Boolean =
+        pendingScreenshot && isCaptureRequestCurrent(token)
     
     fun isScreenshotEnabled(): Boolean {
         return screenshotEnabled
@@ -2803,8 +2940,8 @@ class ScreenCaptureService : Service() {
         isActionSequenceActive = false
         originalInputText = null
         currentInputText = null
-        currentSequenceGeneration = -1L
-        pendingScreenshot = false
+        currentSequenceGeneration = CaptureRecoveryPolicy.UNSEQUENCED_GENERATION
+        invalidatePendingScreenshot("capture ready")
         automationOverlaySuppressed = false
         Handler(Looper.getMainLooper()).post {
             hideInputOverlay()
@@ -3395,6 +3532,7 @@ class ScreenCaptureService : Service() {
     override fun onDestroy() {
         Log.d("ScreenCaptureService", "Service destroyed.")
         clearOverlayLongPressStop()
+        stopActionSequence()
         
         try {
             // Use emulator-specific cleanup if running on emulator
@@ -3524,15 +3662,15 @@ class ScreenCaptureService : Service() {
         Log.d("ScreenCaptureService", "Setting pending screenshot flag")
         Log.d("ScreenCaptureService", "Current input text: $currentInputText")
         drainStaleScreenshotFrame("trigger")
-        val requestGeneration = beginScreenshotRequest()
+        val requestToken = beginScreenshotRequest()
         Log.i(
             "BetaAgent",
-            "CAPTURE_REQUEST_STARTED request_generation=$requestGeneration " +
-                "sequence_generation=$currentSequenceGeneration tree_chars=${currentTreeData?.length ?: 0}"
+            "CAPTURE_REQUEST_STARTED request_generation=${requestToken.requestGeneration} " +
+                "sequence_generation=${requestToken.sequenceGeneration} tree_chars=${currentTreeData?.length ?: 0}"
         )
-        scheduleScreenshotRequestWatchdog(requestGeneration)
+        scheduleScreenshotRequestWatchdog(requestToken)
         val captureHandler = handler ?: Handler(Looper.getMainLooper()).also {
-            Log.w("BetaAgent", "CAPTURE_HANDLER_FALLBACK request_generation=$requestGeneration")
+            Log.w("BetaAgent", "CAPTURE_HANDLER_FALLBACK request_generation=${requestToken.requestGeneration}")
         }
         
         // ENHANCED: Temporarily hide the overlay during screenshot capture
@@ -3553,8 +3691,11 @@ class ScreenCaptureService : Service() {
         
         // Add delay to ensure overlay is hidden before capturing
         Handler(Looper.getMainLooper()).postDelayed({
-            if (!isScreenshotRequestPending(requestGeneration)) {
-                Log.d("ScreenCaptureService", "Ignoring stale screenshot hide callback generation=$requestGeneration")
+            if (!isScreenshotRequestPending(requestToken)) {
+                Log.d(
+                    "ScreenCaptureService",
+                    "Ignoring stale screenshot hide callback generation=${requestToken.requestGeneration}"
+                )
                 return@postDelayed
             }
 
@@ -3572,7 +3713,7 @@ class ScreenCaptureService : Service() {
             
             captureHandler.post {
                 try {
-                    if (!isScreenshotRequestPending(requestGeneration)) {
+                    if (!isScreenshotRequestPending(requestToken)) {
                         Log.d("ScreenCaptureService", "Screenshot frame arrived after overlay hide")
                         return@post
                     }
@@ -3584,7 +3725,7 @@ class ScreenCaptureService : Service() {
                     }
 
                     captureHandler.postDelayed({
-                        if (isScreenshotRequestPending(requestGeneration)) {
+                        if (isScreenshotRequestPending(requestToken)) {
                             Log.w("ScreenCaptureService", "Screenshot timeout - attempting manual image acquisition")
                             pendingScreenshot = false
 
@@ -3593,14 +3734,17 @@ class ScreenCaptureService : Service() {
                                 if (image != null) {
                                     Log.d("ScreenCaptureService", "Manual image acquisition successful after timeout")
                                     screenshotRecoveryAttempts = 0
-                                    processImage(image)
+                                    processImage(image, requestToken)
                                     image.close()
                                 } else {
                                     Log.w("ScreenCaptureService", "Manual image acquisition failed - attempting capture pipeline recovery")
-                                    if (!scheduleCaptureSurfaceRetry("timeout image null")) {
+                                    if (!scheduleCaptureSurfaceRetry("timeout image null", requestToken)) {
                                         screenshotRecoveryAttempts = 0
                                         val fallbackProcessed =
-                                            processTreeOnlyScreenshotFallback("timeout image null after recovery")
+                                            processTreeOnlyScreenshotFallback(
+                                                "timeout image null after recovery",
+                                                requestToken
+                                            )
                                         if (!fallbackProcessed && isCapturing) {
                                             markCaptureLost(
                                                 "screenshot pipeline stalled after recovery: timeout image null",

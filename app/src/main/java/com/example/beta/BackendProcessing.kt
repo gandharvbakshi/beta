@@ -1069,13 +1069,17 @@ object BackendProcessing {
         treeData: String? = null,
         accessibilityService: MyAccessibilityService? = null,
         sessionContext: SessionContext? = null,
-        sequenceGeneration: Long = getCurrentSequenceGeneration()
+        sequenceGeneration: Long = CaptureRecoveryPolicy.UNSEQUENCED_GENERATION
     ) {
         // Log.d("BackendProcessing", "processScreenshotWithInput called with filename: $filename")
 
         val requestInputText = inputText
         val requestGeneration = sequenceGeneration
-        val requestWasSequenced = isActionSequenceActive
+        // Preserve request provenance. A delayed capture from an ended sequence
+        // must remain sequenced so its stale generation is rejected; never
+        // downgrade it to an unsequenced request based on mutable global state.
+        val requestWasSequenced =
+            CaptureRecoveryPolicy.isSequencedRequestGeneration(requestGeneration)
         if (requestWasSequenced && !isCurrentSequenceTrigger(requestInputText, requestGeneration)) {
             Log.w(
                 "BackendProcessing",
@@ -1134,7 +1138,17 @@ object BackendProcessing {
                             put("class_name", "android.widget.EditText")
                         })
                     }
-                    val succeeded = actionExecutor?.executeAction(localAction, 0.9) == true
+                    val succeeded = synchronized(sequenceGenerationLock) {
+                        if (!isCurrentSequenceTrigger(requestInputText, requestGeneration)) {
+                            null
+                        } else {
+                            actionExecutor?.executeAction(localAction, 0.9) == true
+                        }
+                    }
+                    if (succeeded == null) {
+                        Log.w(TAG, "Ignoring stale local search bootstrap at action execution fence")
+                        return@Thread
+                    }
                     if (!isCurrentSequenceTrigger(requestInputText, requestGeneration)) return@Thread
                     if (!succeeded) {
                         Log.i(TAG, "LOCAL_SEARCH_BOOTSTRAP_FALLBACK reason=action_failed")
@@ -1180,7 +1194,7 @@ object BackendProcessing {
         currentAppName = appName
         currentTreeData = treeData
 
-        if (isActionSequenceActive && requestInFlight) {
+        if (requestWasSequenced && requestInFlight) {
             Log.w("BackendProcessing", "Ignoring screenshot because backend request/action is already in flight")
             updateFlowStatus(context, "Working")
             return
@@ -1210,7 +1224,7 @@ object BackendProcessing {
         
         // If this is part of an action sequence, increment action number
         var requestActionNumber = currentActionNumber
-        if (isActionSequenceActive) {
+        if (requestWasSequenced) {
             currentActionNumber++
             requestActionNumber = currentActionNumber
             updateFlowStatus(context, "Analyzing screen")
@@ -1223,7 +1237,7 @@ object BackendProcessing {
         }
         val requestTreeData = treeData
         if (
-            isActionSequenceActive &&
+            requestWasSequenced &&
             requestTreeData.isNullOrBlank() &&
             (backendAppName.isBlank() || isSupportedCommerceApp(backendAppName)) &&
             emptyBlinkitTreeRetries < 3
@@ -1237,7 +1251,7 @@ object BackendProcessing {
         }
         emptyBlinkitTreeRetries = 0
 
-        if (isActionSequenceActive && backendAppName.isBlank()) {
+        if (requestWasSequenced && backendAppName.isBlank()) {
             val foregroundAction = ForegroundLossPolicy.decide(
                 backendAppName = backendAppName,
                 activePackage = accessibilityService?.activeAppPackage,
@@ -1481,7 +1495,9 @@ object BackendProcessing {
                                 context,
                                 "backend $statusCode",
                                 errorBodyPreview.orEmpty(),
-                                sessionContext
+                                sessionContext,
+                                requestInputText,
+                                requestGeneration
                             )
                         }
                         // buttonHighlightService?.clearHighlight() - service removed
@@ -1564,7 +1580,14 @@ object BackendProcessing {
                             if (errorReason.isNotEmpty()) {
                                 Log.e("BackendProcessing", "📥 RECEIVED FROM BACKEND - Error: $errorReason - $errorDetails")
                                 clearRequestInFlight(requestGeneration, requestToken)
-                                handleBackendError(context, errorReason, errorDetails, sessionContext)
+                                handleBackendError(
+                                    context,
+                                    errorReason,
+                                    errorDetails,
+                                    sessionContext,
+                                    requestInputText,
+                                    requestGeneration
+                                )
                                 return@let
                             }
 
@@ -1787,10 +1810,6 @@ object BackendProcessing {
                                     Log.d("BackendProcessing", "  Resource ID: '$resourceId'")
                                     Log.d("BackendProcessing", "  Class Name: '$className'")
                                     Log.d("BackendProcessing", "  Content Description: '$contentDescription'")
-                                    updateFlowStatus(
-                                        context,
-                                        statusForAction(actionType, actionTarget, currentActionNumber, maxActions)
-                                    )
                                     val executableActionContext =
                                         CommerceActionClassifier.ExecutableActionContext(
                                             actionType = actionType,
@@ -1918,19 +1937,53 @@ object BackendProcessing {
                                         actionToStore.put("action_type", recommendedAction.optString("action_type", "unknown"))
                                         actionToStore.put("action_target", recommendedAction.optString("action_target", ""))
                                         actionToStore.put("confidence", recommendedAction.optDouble("confidence", 0.0))
-                                        actionHistory.add(actionToStore)
-                                        
-                                        // Update session context with current action
-                                        sessionContext?.let { ctx ->
-                                            val actionResult = ActionResult(
-                                                actionId = actionId,
-                                                status = "executing",
-                                                notes = "Action being executed"
+
+                                        val executeCurrentAction: () -> Boolean = {
+                                            updateFlowStatus(
+                                                context,
+                                                statusForAction(
+                                                    actionType,
+                                                    actionTarget,
+                                                    currentActionNumber,
+                                                    maxActions
+                                                )
                                             )
-                                            ctx.lastActionResult = actionResult
+                                            actionHistory.add(actionToStore)
+                                            sessionContext?.let { ctx ->
+                                                ctx.lastActionResult = ActionResult(
+                                                    actionId = actionId,
+                                                    status = "executing",
+                                                    notes = "Action being executed"
+                                                )
+                                            }
+                                            actionExecutor!!.executeAction(recommendedAction, minConfidence)
                                         }
-                                                        
-                                        val actionSuccess = actionExecutor!!.executeAction(recommendedAction, minConfidence)
+                                        val actionSuccess: Boolean? = if (wasSequenceAction) {
+                                            synchronized(sequenceGenerationLock) {
+                                                if (
+                                                    !isRequestStillCurrent(
+                                                        requestWasSequenced,
+                                                        requestInputText,
+                                                        requestGeneration,
+                                                        requestToken
+                                                    )
+                                                ) {
+                                                    null
+                                                } else {
+                                                    executeCurrentAction()
+                                                }
+                                            }
+                                        } else {
+                                            executeCurrentAction()
+                                        }
+                                        if (actionSuccess == null) {
+                                            Log.w(
+                                                "BackendProcessing",
+                                                "⚠️ Backend response became stale at action execution fence - ignoring action"
+                                            )
+                                            clearRequestInFlight(requestGeneration, requestToken)
+                                            return@onResponse
+                                        }
                                         Log.d("BackendProcessing", "🎯 ACTION EXECUTION RESULT: $actionSuccess")
                                         if (wasSequenceAction && !isRequestStillCurrent(requestWasSequenced, requestInputText, requestGeneration, requestToken)) {
                                             Log.w("BackendProcessing", "⚠️ Action sequence changed during execution - leaving current status untouched")
@@ -2132,7 +2185,14 @@ object BackendProcessing {
                         } catch (e: Exception) {
                             Log.e("JSONParsing", "Error parsing JSON response: ${e.message}")
                             clearRequestInFlight(requestGeneration, requestToken)
-                            handleBackendError(context, "JSON parsing error", e.message ?: "Unknown error", sessionContext)
+                            handleBackendError(
+                                context,
+                                "JSON parsing error",
+                                e.message ?: "Unknown error",
+                                sessionContext,
+                                requestInputText,
+                                requestGeneration
+                            )
                             // buttonHighlightService?.clearHighlight() - service removed
                         }
                     }
@@ -2154,14 +2214,35 @@ object BackendProcessing {
                 context = context,
                 reason = "request_construction_failed",
                 details = "Invalid backend client configuration",
-                sessionContext = sessionContext
+                sessionContext = sessionContext,
+                requestInputText = requestInputText,
+                requestGeneration = requestGeneration
             )
             stopActionSequence()
         }
     }
     
     // Handle backend errors with retry logic for transient errors
-    private fun handleBackendError(context: Context, reason: String, details: String, sessionContext: SessionContext?) {
+    private fun handleBackendError(
+        context: Context,
+        reason: String,
+        details: String,
+        sessionContext: SessionContext?,
+        requestInputText: String? = null,
+        requestGeneration: Long = CaptureRecoveryPolicy.UNSEQUENCED_GENERATION
+    ) {
+        val requestWasSequenced =
+            CaptureRecoveryPolicy.isSequencedRequestGeneration(requestGeneration)
+        if (
+            requestWasSequenced &&
+            !isCurrentSequenceTrigger(requestInputText, requestGeneration)
+        ) {
+            Log.w(
+                TAG,
+                "Ignoring stale backend error for '$requestInputText' generation=$requestGeneration"
+            )
+            return
+        }
         Log.e("BackendProcessing", "💥 Backend Error: $reason - $details")
         Log.e(TAG, "FLOW_FAILED: reason=$reason")
         
@@ -2176,6 +2257,17 @@ object BackendProcessing {
                 
                 // Trigger a fresh screenshot after a delay
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    if (
+                        requestWasSequenced &&
+                        !isCurrentSequenceTrigger(requestInputText, requestGeneration)
+                    ) {
+                        Log.w(
+                            TAG,
+                            "Skipping stale transient retry for '$requestInputText' " +
+                                "generation=$requestGeneration"
+                        )
+                        return@postDelayed
+                    }
                     screenService?.triggerScreenshot()
                 }, 1000) // 1 second delay
                 
