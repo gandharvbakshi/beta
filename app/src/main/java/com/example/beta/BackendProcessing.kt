@@ -40,6 +40,45 @@ import com.example.beta.automation.requestedCount
 import java.util.Locale
 import java.util.UUID
 
+data class VerificationOutcomeAccounting(
+    val qtyAdded: Int,
+    val notes: String,
+    val emitCartIncrementLog: Boolean
+)
+
+fun accountVerificationOutcome(
+    verificationDetails: String?,
+    requestedQty: Int
+): VerificationOutcomeAccounting {
+    val alreadyInCart = verificationDetails?.contains("already_in_cart", ignoreCase = true) == true
+    return if (alreadyInCart) {
+        VerificationOutcomeAccounting(
+            qtyAdded = 0,
+            notes = "already_in_cart",
+            emitCartIncrementLog = false
+        )
+    } else {
+        VerificationOutcomeAccounting(
+            qtyAdded = if (requestedQty > 0) requestedQty else 1,
+            notes = "verified_in_cart",
+            emitCartIncrementLog = true
+        )
+    }
+}
+
+fun normalizeOutcomeQuantityAdded(
+    status: ItemOutcomeStatus,
+    qtyAdded: Int,
+    notes: String
+): Int {
+    val explicitlyAlreadyInCart = notes.contains("already_in_cart", ignoreCase = true)
+    return if (status == ItemOutcomeStatus.SUCCESS && qtyAdded <= 0 && !explicitlyAlreadyInCart) {
+        1
+    } else {
+        qtyAdded.coerceAtLeast(0)
+    }
+}
+
 object BackendProcessing {
     private const val TAG = "BetaAgent"
     private const val SCREENSHOT_UPLOAD_JPEG_QUALITY = 70
@@ -469,7 +508,7 @@ object BackendProcessing {
         val normalizedItem = normalizeOrderOutcomeItem(item)
         val normalizedSku = matchedSku.trim()
         val normalizedQtyRequested = if (qtyRequested > 0) qtyRequested else currentQtyRequested
-        val normalizedQtyAdded = if (status == ItemOutcomeStatus.SUCCESS && qtyAdded <= 0) 1 else qtyAdded
+        val normalizedQtyAdded = normalizeOutcomeQuantityAdded(status, qtyAdded, notes)
         val normalizedNotes = notesWithParserConfidence(notes)
         val itemOutcome = guardMultiItemOutcomeTarget(ItemOutcome(
             item = normalizedItem,
@@ -1654,21 +1693,17 @@ object BackendProcessing {
                             SessionState.COMPLETED -> {
                                 Log.d("BackendProcessing", "🏁 Session completed - ending session")
                                 val completedItem = verificationStatus?.targetItem ?: requestInputText
-                                val completedNotes = if (verificationStatus?.itemFoundInCart == true) {
-                                    if (verificationStatus.verificationDetails?.contains("already_in_cart", ignoreCase = true) == true) {
-                                        "already_in_cart"
-                                    } else {
-                                        "verified_in_cart"
-                                    }
-                                } else {
-                                    "session_completed"
-                                }
+                                val accounting = accountVerificationOutcome(
+                                    verificationStatus?.verificationDetails,
+                                    currentQtyRequested
+                                )
+                                val completedNotes = if (verificationStatus?.itemFoundInCart == true) accounting.notes else "session_completed"
                                 emitPhase0Outcome(
                                     context = context,
                                     item = completedItem,
                                     status = ItemOutcomeStatus.SUCCESS,
                                     matchedSku = verificationStatus?.targetItem ?: "",
-                                    qtyAdded = currentQtyRequested,
+                                    qtyAdded = if (verificationStatus?.itemFoundInCart == true) accounting.qtyAdded else currentQtyRequested,
                                     notes = completedNotes
                                 )
                                 backOutOfCheckoutBoundaryIfActive(context)
@@ -2323,20 +2358,20 @@ object BackendProcessing {
             Log.d("BackendProcessing", "✅ VERIFICATION SUCCESSFUL!")
             Log.d("BackendProcessing", "✅ Item '${verificationStatus.targetItem}' verified in cart")
             Log.d("BackendProcessing", "✅ Details: ${verificationStatus.verificationDetails}")
-            Log.i(TAG, "BLINKIT_CART_INCREMENT_CONFIRMED")
-            Log.i(TAG, "FLOW_SUCCESS: target=${verificationStatus.targetItem}")
-            val notes = if (verificationStatus.verificationDetails?.contains("already_in_cart", ignoreCase = true) == true) {
-                "already_in_cart"
+            val accounting = accountVerificationOutcome(verificationStatus.verificationDetails, currentQtyRequested)
+            if (accounting.emitCartIncrementLog) {
+                Log.i(TAG, "BLINKIT_CART_INCREMENT_CONFIRMED")
             } else {
-                "verified_in_cart"
+                Log.i(TAG, "BLINKIT_ALREADY_IN_CART_CONFIRMED")
             }
+            Log.i(TAG, "FLOW_SUCCESS: target=${verificationStatus.targetItem}")
             emitPhase0Outcome(
                 context = context,
                 item = verificationStatus.targetItem ?: originalInputText,
                 status = ItemOutcomeStatus.SUCCESS,
                 matchedSku = verificationStatus.targetItem ?: "",
-                qtyAdded = currentQtyRequested,
-                notes = notes
+                qtyAdded = accounting.qtyAdded,
+                notes = accounting.notes
             )
             
             // Show success message to user

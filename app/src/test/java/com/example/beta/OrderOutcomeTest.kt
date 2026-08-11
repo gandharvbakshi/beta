@@ -25,6 +25,48 @@ class OrderOutcomeTest {
     }
 
     @Test
+    fun verificationOutcomeAccounting_marksAlreadyInCartAsZeroAddedAndNoIncrementLog() {
+        val accounting = accountVerificationOutcome("already_in_cart", 3)
+
+        assertEquals(0, accounting.qtyAdded)
+        assertEquals("already_in_cart", accounting.notes)
+        assertTrue(!accounting.emitCartIncrementLog)
+    }
+
+    @Test
+    fun verificationOutcomeAccounting_usesRequestedQuantityForFreshSuccess() {
+        val accounting = accountVerificationOutcome("verified_in_cart", 4)
+
+        assertEquals(4, accounting.qtyAdded)
+        assertEquals("verified_in_cart", accounting.notes)
+        assertTrue(accounting.emitCartIncrementLog)
+    }
+
+    @Test
+    fun outcomeQuantityNormalization_preservesZeroForAlreadyInCartSuccess() {
+        assertEquals(
+            0,
+            normalizeOutcomeQuantityAdded(
+                status = ItemOutcomeStatus.SUCCESS,
+                qtyAdded = 0,
+                notes = "already_in_cart"
+            )
+        )
+    }
+
+    @Test
+    fun outcomeQuantityNormalization_preservesLegacyDefaultForFreshSuccess() {
+        assertEquals(
+            1,
+            normalizeOutcomeQuantityAdded(
+                status = ItemOutcomeStatus.SUCCESS,
+                qtyAdded = 0,
+                notes = "verified_in_cart"
+            )
+        )
+    }
+
+    @Test
     fun orderResultLine_isExactForFailures() {
         val summary = OrderOutcomeSummary(
             itemsTotal = 3,

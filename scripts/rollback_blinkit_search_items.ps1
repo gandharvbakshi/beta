@@ -298,6 +298,20 @@ function Exact-Pack-Match([string]$PackText, [string]$ExpectedPack) {
     return $packNorm -eq $expectedNorm
 }
 
+function Parse-QuantityText([string]$Value) {
+    $normalized = Normalize-Text $Value
+    if (-not $normalized) {
+        return $null
+    }
+
+    $match = [regex]::Match($normalized, '^quantity\s+(\d+)$')
+    if ($match.Success) {
+        return [int]$match.Groups[1].Value
+    }
+
+    return $null
+}
+
 function Split-ProductIdentity([string]$Value) {
     $normalized = Normalize-Text $Value
     if (-not $normalized) {
@@ -372,6 +386,7 @@ function Find-MatchingDecrement {
         "${BlinkitPackage}:id/product_title"
     )
 
+    $quantityResourceId = "${BlinkitPackage}:id/tv_title"
     $productPackResourceId = "${BlinkitPackage}:id/tv_uom_title"
     $expectedPackNorm = Normalize-Text $ExpectedPack
     $productMatches = @()
@@ -420,7 +435,36 @@ function Find-MatchingDecrement {
                     }
                 }
                 $packText = if ($packNodes.Count -eq 1) { ($packNodes[0].Text + ' ' + $packNodes[0].Desc).Trim() } else { "" }
-                $productMatches += [pscustomobject]@{ Node = $node; Decrement = $decrement; PackText = $packText }
+
+                $quantityNodes = @()
+                foreach ($quantityNode in $Nodes | Where-Object {
+                    $_.Resource -eq $quantityResourceId -and
+                    $_.Package -eq $BlinkitPackage -and
+                    $_.Enabled -and
+                    $_.Y -ge ($decrement.Y - 160) -and
+                    $_.Y -le ($decrement.Y + 120) -and
+                    $_.X -ge ($decrement.X - 260) -and
+                    $_.X -le ($decrement.X + 120)
+                }) {
+                    $quantityValue = Parse-QuantityText "$($quantityNode.Text) $($quantityNode.Desc)"
+                    if ($null -ne $quantityValue) {
+                        $quantityNodes += [pscustomobject]@{ Node = $quantityNode; Quantity = $quantityValue }
+                    }
+                }
+
+                if ($quantityNodes.Count -ne 1) {
+                    throw "Expected one same-card quantity match for '$ExpectedProduct' using query '$Query', found $($quantityNodes.Count)."
+                }
+
+                $quantityValue = [int]$quantityNodes[0].Quantity
+
+                $productMatches += [pscustomobject]@{
+                    Node = $node
+                    Decrement = $decrement
+                    PackText = $packText
+                    Quantity = $quantityValue
+                    QuantityText = ($quantityNodes[0].Node.Text + ' ' + $quantityNodes[0].Node.Desc).Trim()
+                }
             } elseif ($decrementNodes.Count -gt 1) {
                 throw "Multiple decrement controls matched product-card text for '$Query'. Failing closed before interaction."
             }
@@ -438,7 +482,28 @@ function Find-MatchingDecrement {
     $product = $productMatches[0].Node
     Assert-NotPreserve "$($product.Text) $($product.Desc)" $productMatches[0].PackText
 
-    return [pscustomobject]@{ Product = $product; PackText = $productMatches[0].PackText; Decrement = $productMatches[0].Decrement }
+    return [pscustomobject]@{
+        Product = $product
+        PackText = $productMatches[0].PackText
+        Quantity = $productMatches[0].Quantity
+        QuantityText = $productMatches[0].QuantityText
+        Decrement = $productMatches[0].Decrement
+    }
+}
+
+function Assert-MatchingDecrementAbsent {
+    param([object[]]$Nodes, [string]$Query, [string]$ExpectedProduct, [string]$ExpectedPack = "")
+
+    try {
+        $remaining = Find-MatchingDecrement $Nodes $Query $ExpectedProduct $ExpectedPack
+    } catch {
+        if ($_.Exception.Message -like "No exact product-card text match found for *") {
+            return
+        }
+        throw
+    }
+
+    throw "Exact target still has an enabled decrement after removal for '$Query': '$ExpectedProduct' / '$ExpectedPack' quantity=$($remaining.Quantity)."
 }
 
 function Ensure-BlinkitForeground {
@@ -661,6 +726,8 @@ try {
                 query = $query
                 status = 'preflight_passed'
                 before_cart_count = $before
+                before_target_quantity = $freshPair.Quantity
+                after_target_quantity = $freshPair.Quantity
                 decrement_x = $target.X
                 decrement_y = $target.Y
                 matched_product = $freshProductName
@@ -672,19 +739,43 @@ try {
         Invoke-DeviceCommand @("shell", "input tap $($target.X) $($target.Y)")
         Start-Sleep -Seconds 2
 
-        Assert-SafeBlinkitSearchSurface -ExpectedQuery $query | Out-Null
+        $beforeTargetQuantity = [int]$freshPair.Quantity
+        $postNodes = Assert-SafeBlinkitSearchSurface -ExpectedQuery $query
+        $afterTargetQuantity = 0
+        if ($beforeTargetQuantity -gt 1) {
+            $postPair = Find-MatchingDecrement $postNodes $query $expectedProduct $expectedPack
+            $afterTargetQuantity = [int]$postPair.Quantity
+            if ($afterTargetQuantity -ne ($beforeTargetQuantity - 1)) {
+                throw "Same-card quantity did not drop by one for '$query'. BeforeQuantity=$beforeTargetQuantity AfterQuantity=$afterTargetQuantity"
+            }
+        } else {
+            Assert-MatchingDecrementAbsent $postNodes $query $expectedProduct $expectedPack
+        }
 
         $after = Get-CartCount
         if ($null -eq $after) {
             throw "Could not parse cart count for '$query' after decrement."
         }
-        if (($before - $after) -ne 1) {
+        if ($beforeTargetQuantity -gt 1) {
+            $cartDelta = $before - $after
+            if ($cartDelta -ne 0 -and $cartDelta -ne 1) {
+                throw "Cart count changed unexpectedly for multi-quantity '$query'. Before=$before After=$after"
+            }
+        } elseif (($before - $after) -ne 1) {
             throw "Cart count did not fall by one for '$query'. Before=$before After=$after"
         }
 
         if ($StabilitySeconds -gt 0) {
             Start-Sleep -Seconds $StabilitySeconds
-            Assert-SafeBlinkitSearchSurface -ExpectedQuery $query | Out-Null
+            $stableNodes = Assert-SafeBlinkitSearchSurface -ExpectedQuery $query
+            if ($beforeTargetQuantity -gt 1) {
+                $stablePair = Find-MatchingDecrement $stableNodes $query $expectedProduct $expectedPack
+                if ([int]$stablePair.Quantity -ne $afterTargetQuantity) {
+                    throw "Same-card quantity was not stable after decrement for '$query'. Immediate=$afterTargetQuantity Stable=$($stablePair.Quantity)"
+                }
+            } else {
+                Assert-MatchingDecrementAbsent $stableNodes $query $expectedProduct $expectedPack
+            }
             $stableAfter = Get-CartCount
             if ($stableAfter -ne $after) {
                 throw "Cart count was not stable after decrement for '$query'. Immediate=$after Stable=$stableAfter"
@@ -696,6 +787,8 @@ try {
             status = 'success'
             before_cart_count = $before
             after_cart_count = $after
+            before_target_quantity = $beforeTargetQuantity
+            after_target_quantity = $afterTargetQuantity
             decrement_x = $target.X
             decrement_y = $target.Y
             matched_product = $freshProductName
