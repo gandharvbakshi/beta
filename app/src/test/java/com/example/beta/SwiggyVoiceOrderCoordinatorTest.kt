@@ -20,6 +20,24 @@ class SwiggyVoiceOrderCoordinatorTest {
     }
 
     @Test
+    fun rememberedAddressExpiresAndAddressChoiceLeadsWithConciseLabel() {
+        assertTrue(isRememberedSwiggyAddressFresh(1_000L, 5_000L, 10_000L))
+        assertFalse(isRememberedSwiggyAddressFresh(1_000L, 20_000L, 10_000L))
+        assertFalse(isRememberedSwiggyAddressFresh(0L, 1_000L, 10_000L))
+
+        val address = SwiggyMcpClient.SwiggyAddress(
+            id = "home",
+            label = "10 Test Road, Bengaluru",
+            normalizedLabel = "10 Test Road, Bengaluru",
+            shortLabel = "Home — Bengaluru",
+        )
+        assertEquals(
+            "Home — Bengaluru\n10 Test Road, Bengaluru",
+            swiggyAddressChoiceLabel(address),
+        )
+    }
+
+    @Test
     fun preparesTwelveItemPromptWithMixedCategoriesAndUnits() {
         val items = prepareSwiggyMcpItems(promptSlice(12), lookup = { null })
 

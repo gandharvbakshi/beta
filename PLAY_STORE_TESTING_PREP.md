@@ -50,8 +50,11 @@ Normal Gradle builds do not auto-start logcat capture. Set
 - AccessibilityService description explains cart-building assistance,
   stop-before-payment behavior, backend processing, and visible grocery-screen
   data that may include name, precise delivery location, and address if shown.
-- Swiggy onboarding clearly says it currently uses the screen-assisted path
-  while the secure MCP connection is still being finalized.
+- Swiggy onboarding clearly says the MCP connection is primary and the
+  screen-assisted path is a reversible fallback.
+- Direct Swiggy disclosure covers its encrypted connection token, saved-address
+  selection, address-specific catalog, recent-choice/history signals, current
+  cart, and locally learned shorthand preferences.
 - Play Store long description explicitly documents `AccessibilityService` use.
 - App does not request broad all-files storage access.
 - Feedback logs are opt-in.
@@ -75,23 +78,28 @@ Normal Gradle builds do not auto-start logcat capture. Set
   - app/device version metadata
   - screen/accessibility-derived data used for Blinkit, Swiggy Instamart, and
     Zepto automation
+  - direct Swiggy saved addresses, selected address, address-specific catalog
+    results, go-to/recent-order product metadata, current cart contents, and
+    pseudonymous installation identity
   - precise location, name, and physical address if visible in Blinkit, Swiggy
     Instamart, or Zepto screens during the user-started flow
 - Complete AccessibilityService declaration.
 - Before the next Play release, replace the existing review video with one that
-  shows the disclosure, consent, Accessibility grant, cart-only stop, and
-  feedback for the shared screen-assisted flow.
+  shows the Swiggy MCP connection and saved-address/cart confirmation flow, plus
+  the disclosure, consent, Accessibility grant, cart-only stop, and feedback for
+  the screen-assisted fallback.
 
 ## Open Test Smoke
 
 1. Install from open testing.
 2. Start Beta and accept disclosure.
-3. Enable Accessibility and screen capture for the shared Blinkit/Swiggy
-   Instamart/Zepto path.
-4. Run one Swiggy Instamart cart-only order; confirm Beta adds only the requested
-   item, verifies the cart, and stops before checkout/payment.
-5. Run one Blinkit cart-only order.
-6. Run one Zepto cart-only order.
+3. Connect Swiggy directly; do not enable Accessibility or screen capture for
+   this primary MCP check.
+4. Run one Swiggy Instamart cart-only order; confirm Beta uses the selected
+   saved address, adds only the requested item, verifies the cart, and stops
+   before checkout/payment.
+5. Switch to the screen-assisted fallback and verify its prominent disclosure.
+6. Run one Blinkit cart-only order and one Zepto cart-only order.
 7. Submit "Worked" feedback.
 8. Submit "Report issue" feedback with logs enabled.
 9. Verify both feedback rows reach the backend.

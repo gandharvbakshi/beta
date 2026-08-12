@@ -213,6 +213,33 @@
                     android:text="@string/swiggy_connection_detail"
                     android:textSize="16sp" />
 
+                <TextView
+                    android:id="@+id/swiggySelectedAddress"
+                    style="@style/Beta.BodySoft"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:accessibilityHeading="true"
+                    android:text="@string/swiggy_selected_address_placeholder"
+                    android:textSize="17sp"
+                    android:visibility="gone" />
+
+                <Button
+                    android:id="@+id/swiggyChangeAddressAction"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/beta_btn_secondary"
+                    android:contentDescription="@string/swiggy_change_address"
+                    android:fontFamily="sans-serif-medium"
+                    android:minHeight="56dp"
+                    android:stateListAnimator="@null"
+                    android:text="@string/swiggy_change_address"
+                    android:textAllCaps="false"
+                    android:textColor="@color/beta_text_primary"
+                    android:textSize="18sp"
+                    android:visibility="gone" />
+
                 <Button
                     android:id="@+id/swiggyConnectionAction"
                     android:layout_width="match_parent"

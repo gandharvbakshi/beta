@@ -52,11 +52,15 @@
     <string name="swiggy_connection_checking">Checking Swiggy…</string>
     <string name="swiggy_connection_connecting">Connecting to Swiggy…</string>
     <string name="swiggy_connection_ready">Swiggy is ready</string>
-    <string name="swiggy_connection_ready_detail">You can speak a grocery list. Beta will use recent Swiggy choices, show the exact cart changes, and ask before adding anything.</string>
+    <string name="swiggy_connection_ready_detail">You can speak a grocery list. Beta will use your saved address, recent Swiggy choices, and learned shorthand preferences, show the exact cart changes, and ask before adding anything.</string>
     <string name="swiggy_connection_reconnect">Reconnect Swiggy</string>
     <string name="swiggy_connection_reconnect_detail">Your secure Swiggy connection has expired. Reconnect to continue.</string>
     <string name="swiggy_connection_reconnect_action">Reconnect Swiggy</string>
     <string name="swiggy_connection_disconnect">Disconnect Swiggy</string>
+    <string name="swiggy_selected_address">Delivery address: %1$s</string>
+    <string name="swiggy_selected_address_placeholder">Delivery address selected</string>
+    <string name="swiggy_change_address">Change delivery address</string>
+    <string name="swiggy_address_change_next_order">Address cleared. Beta will ask you to choose an address for your next Swiggy cart.</string>
     <string name="swiggy_connection_browser_detail">Swiggy will open in your browser. Enter your phone number and OTP there.</string>
     <string name="swiggy_connection_invalid_link">Beta received an invalid Swiggy sign-in link. Please try again later.</string>
     <string name="swiggy_connection_finishing">Finishing your secure Swiggy connection…</string>
@@ -84,7 +88,7 @@
     <string name="automation_disclosure_accept">Continue</string>
     <string name="automation_disclosure_cancel">Not now</string>
     <string name="accessibility_setup_title">Turn on Beta in Accessibility</string>
-    <string name="accessibility_setup_message">Beta needs Accessibility permission before it can help in Blinkit, Swiggy Instamart, or Zepto. On the next screen, tap Beta ordering assistant and turn it on. Then come back to Beta.</string>
+    <string name="accessibility_setup_message">Beta needs Accessibility permission for Blinkit, Zepto, and the optional screen-assisted Swiggy fallback. Direct Swiggy connection does not need it. On the next screen, tap Beta ordering assistant and turn it on. Then come back to Beta.</string>
     <string name="accessibility_setup_open_settings">Open Settings</string>
     <string name="overlay_status_ready">Tap to tell Beta</string>
     <string name="overlay_status_listening">Beta is listening…</string>

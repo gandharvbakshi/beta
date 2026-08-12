@@ -79,11 +79,10 @@ class SwiggyMcpClientTest {
             """.trimIndent()
         )
 
-        assertEquals(2, parsed.size)
+        assertEquals(1, parsed.size)
         assertEquals("home-1", parsed[0].id)
         assertEquals("12, Main Street, Apt 4B, Bengaluru, 560001", parsed[0].normalizedLabel)
-        assertEquals("Work Address", parsed[1].id)
-        assertEquals("Work Address", parsed[1].normalizedLabel)
+        assertEquals("Saved address 1 — Bengaluru", parsed[0].shortLabel)
         assertTrue(
             SwiggyMcpClient.describeAddressSchema(
                 """{"success":true,"data":{"addresses":[{"addressId":"home-1","line1":"Test"}]}}"""
@@ -112,6 +111,16 @@ class SwiggyMcpClientTest {
         assertEquals(1, parsed.size)
         assertEquals("saved-1", parsed.single().id)
         assertEquals("10 Test Road, Bengaluru", parsed.single().normalizedLabel)
+        assertEquals("Home — Bengaluru", parsed.single().shortLabel)
+    }
+
+    @Test
+    fun parseAddressesRejectsEntriesWithoutAProviderId() {
+        val parsed = SwiggyMcpClient.parseAddresses(
+            """{"addresses":[{"addressLine":"10 Test Road, Bengaluru","addressCategory":"HOME"}]}"""
+        )
+
+        assertTrue(parsed.isEmpty())
     }
 
     @Test
@@ -123,7 +132,7 @@ class SwiggyMcpClientTest {
               "data": {
                 "requires_confirmation": true,
                 "candidates": [
-                  {"spinId": "a", "label": "Fresh Milk", "variant": "1L"},
+                  {"spinId": "a", "skuId": "sku-a", "label": "Fresh Milk", "variant": "1L"},
                   {"spinId": "b", "title": "Toned Milk", "suggested": true}
                 ]
               }
@@ -135,6 +144,7 @@ class SwiggyMcpClientTest {
         assertEquals(2, parsed.candidates.size)
         assertEquals("a", parsed.candidates[0].spinId)
         assertEquals("1L", parsed.candidates[0].variant)
+        assertEquals("sku-a", parsed.candidates[0].skuId)
         assertEquals("b", parsed.suggested?.spinId)
         assertEquals("Toned Milk", parsed.suggested?.label)
     }

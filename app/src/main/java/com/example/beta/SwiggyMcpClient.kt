@@ -228,7 +228,8 @@ object SwiggyMcpClient {
     data class SwiggyAddress(
         val id: String,
         val label: String,
-        val normalizedLabel: String = label
+        val normalizedLabel: String = label,
+        val shortLabel: String = normalizedLabel,
     )
 
     data class RecommendationCandidate(
@@ -236,7 +237,8 @@ object SwiggyMcpClient {
         val label: String,
         val variant: String? = null,
         val subtitle: String? = null,
-        val suggested: Boolean = false
+        val suggested: Boolean = false,
+        val skuId: String? = null,
     )
 
     data class Recommendations(
@@ -258,7 +260,8 @@ object SwiggyMcpClient {
     data class RequestedItem(
         val spinId: String,
         val quantity: Int,
-        val displayName: String
+        val displayName: String,
+        val skuId: String? = null,
     )
 
     data class CartPlan(
@@ -398,6 +401,7 @@ object SwiggyMcpClient {
                     put(
                         JSONObject()
                             .put("spinId", item.spinId)
+                            .apply { item.skuId?.takeIf { it.isNotBlank() }?.let { put("skuId", it) } }
                             .put("quantity", item.quantity)
                             .put("displayName", item.displayName)
                     )
@@ -474,18 +478,9 @@ object SwiggyMcpClient {
         return array.items.mapIndexed { index, value ->
             when (value) {
                 is JsonValue.Obj -> parseAddressObject(value, index)
-                is JsonValue.Str -> SwiggyAddress(
-                    id = value.value,
-                    label = normalizeLabel(value.value),
-                    normalizedLabel = normalizeLabel(value.value)
-                )
-                else -> SwiggyAddress(
-                    id = index.toString(),
-                    label = "Address ${index + 1}",
-                    normalizedLabel = "Address ${index + 1}"
-                )
+                else -> null
             }
-        }.filter { it.normalizedLabel.isNotBlank() }
+        }.filterNotNull().filter { it.id.isNotBlank() && it.normalizedLabel.isNotBlank() }
     }
 
     internal fun parseRecommendations(body: String): Recommendations {
@@ -686,6 +681,8 @@ object SwiggyMcpClient {
             reason == "cart_update_in_progress" -> "Another Swiggy cart update is still finishing. Please wait a moment, then repeat the voice order."
             reason == "cart_update_outcome_unknown" -> "Swiggy may have changed the cart, but Beta could not verify it. Please open Swiggy and review the cart before trying again."
             reason == "cart_update_not_verified" -> "Swiggy did not match the reviewed cart change. Please open Swiggy and review the cart before trying again."
+            reason == "cart_address_unverified" -> "Beta could not verify the current Swiggy delivery address for this cart. Please reopen Swiggy and choose the right address again."
+            reason == "cart_address_mismatch" -> "Swiggy's current cart address does not match the selected delivery address. Please choose the right address again."
             reason == "cart_schema_unrecognized" -> "Beta could not safely read this Swiggy cart. Nothing was changed."
             reason == "cart_mutation_disabled" -> "Swiggy cart updates are not enabled yet. Nothing was changed."
             reason == "cart_no_changes" -> "Your Swiggy cart already has those quantities."
@@ -725,13 +722,77 @@ object SwiggyMcpClient {
                 "addressLine"
             ) ?: buildAddressLabel(value)
         )
+        val providerId = firstString(value, "id", "addressId", "address_id", "value", "placeId", "place_id")
+            ?.trim()
+            .orEmpty()
         return SwiggyAddress(
-            id = firstString(value, "id", "addressId", "address_id", "value", "placeId", "place_id")
-                ?: label.ifBlank { index.toString() },
+            id = providerId,
             label = label,
-            normalizedLabel = label
+            normalizedLabel = label,
+            shortLabel = conciseAddressLabel(
+                fullLabel = label,
+                category = firstString(value, "addressCategory", "address_category", "category", "type"),
+                tag = firstString(value, "addressTag", "address_tag", "tag"),
+                index = index,
+            ),
         )
     }
+
+    internal fun conciseAddressLabel(
+        fullLabel: String,
+        category: String?,
+        tag: String?,
+        index: Int,
+    ): String {
+        val categoryLabel = readableAddressName(category).takeIf(::isUsefulAddressName)
+        val tagLabel = readableAddressName(tag).takeIf(::isUsefulAddressName)
+        val name = categoryLabel ?: tagLabel ?: "Saved address ${index + 1}"
+        val locality = deriveAddressLocality(fullLabel)
+            ?.takeUnless { it.equals(name, ignoreCase = true) }
+        return listOfNotNull(name, locality).joinToString(" — ").take(64)
+    }
+
+    private fun isUsefulAddressName(value: String): Boolean {
+        return value.isNotBlank() &&
+            value.length <= 32 &&
+            value.lowercase() !in setOf("address", "saved address", "other")
+    }
+
+    private fun readableAddressName(value: String?): String {
+        val normalized = normalizeLabel(value.orEmpty())
+        return if (normalized.length > 1 && normalized.all { !it.isLetter() || it.isUpperCase() }) {
+            normalized.lowercase().replaceFirstChar { it.uppercase() }
+        } else {
+            normalized
+        }
+    }
+
+    private fun deriveAddressLocality(fullLabel: String): String? {
+        val segments = normalizeLabel(fullLabel)
+            .split(',')
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .toMutableList()
+        if (segments.size < 2) return null
+        while (segments.isNotEmpty()) {
+            val last = segments.last()
+            val normalized = last.lowercase()
+            val isCountry = normalized in setOf("india", "bharat")
+            val isStateOrPostcode = Regex("\\b\\d{6}\\b").containsMatchIn(last) ||
+                normalized in INDIAN_STATE_NAMES
+            if (!isCountry && !isStateOrPostcode) break
+            segments.removeAt(segments.lastIndex)
+        }
+        return segments.lastOrNull()
+            ?.takeIf { it.length in 2..40 && !Regex("\\b\\d{6}\\b").containsMatchIn(it) }
+    }
+
+    private val INDIAN_STATE_NAMES = setOf(
+        "andhra pradesh", "assam", "bihar", "chhattisgarh", "delhi", "goa", "gujarat",
+        "haryana", "himachal pradesh", "jharkhand", "karnataka", "kerala", "madhya pradesh",
+        "maharashtra", "odisha", "punjab", "rajasthan", "tamil nadu", "telangana",
+        "uttar pradesh", "uttarakhand", "west bengal",
+    )
 
     private fun buildAddressLabel(value: JsonValue.Obj): String {
         val parts = listOf(
@@ -762,6 +823,7 @@ object SwiggyMcpClient {
         return RecommendationCandidate(
             spinId = firstString(value, "spinId", "spin_id", "id", "candidateId", "candidate_id", "value", "slug")
                 ?: label.ifBlank { index.toString() },
+            skuId = firstString(value, "skuId", "sku_id"),
             label = label,
             variant = firstString(value, "variant", "pack", "packSize", "pack_size", "size", "quantityLabel"),
             subtitle = firstString(value, "subtitle", "description", "details"),

@@ -15,14 +15,14 @@ This is the current owner-only checklist for getting `Beta` live on Google Play 
 - App name: `Beta`
 - Package / application ID: `live.betaapp.android`
 - Android namespace: `com.example.beta`
-- Current release config: `versionCode 12`, `versionName 0.2.10`
+- Current release config: `versionCode 15`, `versionName 0.2.13`
 - Release backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
 - Local Play Publisher credentials and Beta upload signing files exist in ignored local files.
 - The Play listing drafts for `en-US` and default locale `en-GB` were updated through the Android Publisher API to name Blinkit, Swiggy Instamart, and Zepto.
 - The in-app prominent disclosure was updated.
 - The public privacy policy asset was updated.
-- The existing AccessibilityService review video predates the temporary shared
-  Swiggy screen-assisted flow; replace it before the next Play release.
+- The existing AccessibilityService review video predates the current Swiggy
+  MCP-first flow; replace it before the next Play release.
 - A signed local `0.2.6` release AAB was built at `app/build/outputs/bundle/release/app-release.aab`.
 - Open testing / API track `beta` now has version code `8` assigned with status `completed`, release name `0.2.6 open testing`, and pause / overlay reliability release notes.
 - The 2026-06-06 Android pause / overlay hardening patch was uploaded to Play open testing in Play edit `02021199645127430828`.
@@ -92,12 +92,12 @@ Do not use the old SMS Classifier URLs for Beta. Do not use the Beta GitHub Page
 
 ### 1. Confirm The Draft Store Listing
 
-Check that the long description explicitly says `AccessibilityService`, names Blinkit, Swiggy Instamart, and Zepto, and describes the current shared screen-assisted flow:
+Check that the long description explicitly says `AccessibilityService`, names Blinkit, Swiggy Instamart, and Zepto, and describes the current Swiggy MCP-first flow with the reversible screen-assisted fallback:
 
 ```text
-Beta helps testers build grocery carts in Swiggy Instamart, Blinkit, and Zepto from a typed or spoken instruction. Swiggy is selected first and currently uses the same screen-assisted flow as the other grocery apps while MCP is being finalized. Beta reads the visible app screen to find requested products, add them to the cart, verify the result, and stop before checkout or payment.
+Beta helps testers build grocery carts in Swiggy Instamart, Blinkit, and Zepto from a typed or spoken instruction. Swiggy Instamart uses Beta's direct MCP connection first. The user chooses a saved Swiggy address; Beta searches the address-specific Instamart catalog, uses learned preferences and recent product choices to rank live results, shows the exact cart changes, and asks before updating the cart. A reversible screen-assisted Swiggy fallback remains available.
 
-Swiggy Instamart currently uses the same screen-assisted flow as the other supported grocery apps while MCP is being finalized. The Android app never stores the user's OTP. During a user-started flow, Beta may read visible screen data such as product names, prices, cart contents, buttons, and delivery details including name, precise delivery location, delivery address, locality, or delivery-area header text if shown. Beta uses this data only to build the requested cart. It does not place orders, make payments, complete checkout, sell personal data, or use this data for advertising.
+For direct Swiggy use, Beta processes a pseudonymous installation identity, an encrypted Swiggy connection token, saved address details, address-specific catalog results and availability, go-to and recent-order product history, the current cart, and the saved address the user confirms. For Blinkit, Zepto, and the optional Swiggy fallback, Beta may read visible screen data such as product names, prices, cart contents, buttons, and delivery details only during a user-started flow. Beta uses this data only to build the requested cart. It does not see the Swiggy OTP, use GPS as the authoritative delivery selector, place orders, make payments, complete checkout, sell personal data, or use this data for advertising.
 ```
 
 ### 2. Set Privacy Policy And Deletion Details
@@ -128,6 +128,9 @@ Data types to declare:
 - Location -> Approximate location and Precise location: visible supported-app delivery area, locality, map pin, or precise delivery location text if shown.
 - Personal info -> Name: visible name in supported-app account, delivery, or address UI if shown.
 - Personal info -> Physical address: visible supported-app delivery address, apartment/building details, or home header text if shown.
+- Personal info -> Physical address: saved Swiggy addresses returned through the direct MCP connection and shown for explicit user selection.
+- App activity -> App interactions: Swiggy go-to/recent-order product metadata, address-specific catalog results, selected products, and current cart contents used for app functionality and personalization.
+- User IDs: pseudonymous Beta installation identity used to bind the encrypted Swiggy connection and one-time cart confirmation.
 - App info and performance -> Diagnostics: optional feedback logs, app version, device model, Android version, and order result when the tester submits feedback.
 
 Data types to mark `No` unless code changes:
@@ -135,6 +138,7 @@ Data types to mark `No` unless code changes:
 - Financial info: Beta stops before payment and does not process payment details.
 - Messages: Beta does not read SMS or email.
 - Audio files: Android speech recognition may produce order text, but Beta does not store or upload raw audio in the current release.
+- Beta does not collect device GPS coordinates for the direct Swiggy address-selection flow.
 
 API note: `applications.dataSafety` expects an exact `safetyLabels` CSV payload. It does not export or generate the form. Export/download the current Data Safety CSV/template first if you want me to upload it by API.
 

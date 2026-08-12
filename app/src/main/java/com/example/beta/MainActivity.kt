@@ -54,6 +54,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var swiggyConnectionPanel: View
     private lateinit var swiggyConnectionStatus: TextView
     private lateinit var swiggyConnectionDetail: TextView
+    private lateinit var swiggySelectedAddress: TextView
+    private lateinit var swiggyChangeAddressAction: Button
     private lateinit var swiggyConnectionAction: Button
     private lateinit var swiggyExecutionModeAction: Button
     private lateinit var mediaProjectionManager: MediaProjectionManager
@@ -73,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private var pendingSwiggyInstruction: String? = null
     private var swiggyConnectPromptShowing = false
     private var swiggyConnectPrompt: AlertDialog? = null
+    private var selectedSwiggyAddressLabel: String? = null
     private lateinit var swiggyOrderCoordinator: SwiggyVoiceOrderCoordinator
 
     /*// Activity result launcher for screen capture
@@ -123,6 +126,8 @@ class MainActivity : ComponentActivity() {
         swiggyConnectionPanel = findViewById(R.id.swiggyConnectionPanel)
         swiggyConnectionStatus = findViewById(R.id.swiggyConnectionStatus)
         swiggyConnectionDetail = findViewById(R.id.swiggyConnectionDetail)
+        swiggySelectedAddress = findViewById(R.id.swiggySelectedAddress)
+        swiggyChangeAddressAction = findViewById(R.id.swiggyChangeAddressAction)
         swiggyConnectionAction = findViewById(R.id.swiggyConnectionAction)
         swiggyExecutionModeAction = findViewById(R.id.swiggyExecutionModeAction)
         configureProviderChoice()
@@ -142,6 +147,7 @@ class MainActivity : ComponentActivity() {
             onReconnectRequired = {
                 updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED)
             },
+            onAddressChanged = ::renderSwiggySelectedAddress,
         )
         SwiggyCartMutationGuard.register(this) { inFlight ->
             runOnUiThread {
@@ -278,6 +284,14 @@ class MainActivity : ComponentActivity() {
                 SwiggyMcpClient.ConnectionState.READY -> confirmSwiggyDisconnect()
                 SwiggyMcpClient.ConnectionState.DISCONNECTED,
                 SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED -> startSwiggyConnection()
+            }
+        }
+
+        swiggyChangeAddressAction.setOnClickListener {
+            if (swiggyOrderCoordinator.clearRememberedAddress()) {
+                announceSwiggy(getString(R.string.swiggy_address_change_next_order))
+            } else {
+                announceSwiggy(getString(R.string.swiggy_cart_update_in_progress))
             }
         }
 
@@ -526,6 +540,8 @@ class MainActivity : ComponentActivity() {
             swiggyConnectionStatus.setText(R.string.swiggy_screen_assisted_status)
             swiggyConnectionDetail.setText(R.string.swiggy_screen_assisted_detail)
             swiggyConnectionAction.visibility = View.GONE
+            swiggySelectedAddress.visibility = View.GONE
+            swiggyChangeAddressAction.visibility = View.GONE
             swiggyExecutionModeAction.apply {
                 visibility = View.VISIBLE
                 isEnabled = !isSwiggyMutationInFlight()
@@ -536,6 +552,7 @@ class MainActivity : ComponentActivity() {
         }
 
         swiggyConnectionAction.visibility = View.VISIBLE
+        renderSwiggySelectedAddress(selectedSwiggyAddressLabel)
         swiggyExecutionModeAction.apply {
             visibility = View.VISIBLE
             isEnabled = !isSwiggyMutationInFlight()
@@ -636,6 +653,9 @@ class MainActivity : ComponentActivity() {
         state: SwiggyMcpClient.ConnectionState,
         detailOverride: String? = null,
     ) {
+        if (state != SwiggyMcpClient.ConnectionState.READY && ::swiggyOrderCoordinator.isInitialized) {
+            swiggyOrderCoordinator.clearRememberedAddress()
+        }
         swiggyConnectionState = state
         renderSwiggyConnectionPanel(detailOverride)
         swiggyConnectionAction.isEnabled = !isSwiggyMutationInFlight()
@@ -697,6 +717,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (data.getQueryParameter("status") == "connected") {
+            swiggyOrderCoordinator.clearRememberedAddress()
             swiggyConnectionStatus.setText(R.string.swiggy_connection_checking)
             swiggyConnectionDetail.setText(R.string.swiggy_connection_finishing)
             refreshSwiggyConnectionStatus(resumePendingOrder = true)
@@ -841,6 +862,7 @@ class MainActivity : ComponentActivity() {
         swiggyConnectPrompt = null
         if (::swiggyOrderCoordinator.isInitialized) {
             swiggyOrderCoordinator.cancel()
+            swiggyOrderCoordinator.clearRememberedAddress()
         }
         Log.i("BetaAgent", "SWIGGY_MCP_PENDING_WORK_CANCELLED reason=$reason")
     }
@@ -855,6 +877,9 @@ class MainActivity : ComponentActivity() {
         }
         if (::swiggyConnectionAction.isInitialized) {
             swiggyConnectionAction.isEnabled = !inFlight
+        }
+        if (::swiggyChangeAddressAction.isInitialized) {
+            swiggyChangeAddressAction.isEnabled = !inFlight
         }
     }
 
@@ -873,6 +898,23 @@ class MainActivity : ComponentActivity() {
         if (::swiggyConnectionDetail.isInitialized) swiggyConnectionDetail.text = message
         speak(message)
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun renderSwiggySelectedAddress(label: String?) {
+        selectedSwiggyAddressLabel = label?.trim()?.takeIf { it.isNotBlank() }
+        if (!::swiggySelectedAddress.isInitialized || !::swiggyChangeAddressAction.isInitialized) return
+        val visible = selectedSwiggyAddressLabel != null &&
+            SwiggyExecutionMode.usesMcpExperience() &&
+            swiggyConnectionState == SwiggyMcpClient.ConnectionState.READY
+        swiggySelectedAddress.visibility = if (visible) View.VISIBLE else View.GONE
+        swiggyChangeAddressAction.visibility = if (visible) View.VISIBLE else View.GONE
+        if (visible) {
+            swiggySelectedAddress.text = getString(
+                R.string.swiggy_selected_address,
+                selectedSwiggyAddressLabel,
+            )
+            swiggySelectedAddress.contentDescription = swiggySelectedAddress.text
+        }
     }
 
     private fun checkPermissionsAndStartCapture() {

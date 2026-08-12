@@ -1,6 +1,7 @@
 package com.example.beta
 
 import android.app.Activity
+import android.os.SystemClock
 import androidx.appcompat.app.AlertDialog
 import com.example.beta.SwiggyMcpClient.RecommendationCandidate
 import com.example.beta.SwiggyMcpClient.Recommendations
@@ -94,17 +95,35 @@ internal fun rememberedSwiggyAddress(
     ?.takeIf { it.isNotBlank() }
     ?.let { id -> addresses.firstOrNull { it.id == id } }
 
+internal fun isRememberedSwiggyAddressFresh(
+    selectedAtElapsedRealtime: Long,
+    nowElapsedRealtime: Long,
+    ttlMillis: Long,
+): Boolean = selectedAtElapsedRealtime > 0L &&
+    nowElapsedRealtime >= selectedAtElapsedRealtime &&
+    nowElapsedRealtime - selectedAtElapsedRealtime <= ttlMillis
+
+internal fun swiggyAddressChoiceLabel(address: SwiggyAddress): String {
+    val short = address.shortLabel.trim()
+    val full = address.normalizedLabel.trim()
+    return if (full.isBlank() || full.equals(short, ignoreCase = true)) short else {
+        "$short\n${full.take(120)}"
+    }
+}
+
 /** Coordinates the user-visible, no-checkout Swiggy voice flow. */
 class SwiggyVoiceOrderCoordinator(
     private val activity: Activity,
     private val announce: (String) -> Unit,
     private val onReconnectRequired: () -> Unit,
+    private val onAddressChanged: (String?) -> Unit = {},
 ) {
     private var running = false
     private var operationGeneration = 0L
     private var mutationInFlight = false
     private var activeDialog: AlertDialog? = null
     private var selectedAddressId: String? = null
+    private var selectedAddressAtElapsedRealtime = 0L
 
     fun start(instruction: String) {
         if (SwiggyCartMutationGuard.isInFlight()) {
@@ -149,6 +168,14 @@ class SwiggyVoiceOrderCoordinator(
         return true
     }
 
+    fun clearRememberedAddress(): Boolean {
+        if (mutationInFlight) return false
+        selectedAddressId = null
+        selectedAddressAtElapsedRealtime = 0L
+        onAddressChanged(null)
+        return true
+    }
+
     fun isMutationInFlight(): Boolean = mutationInFlight
 
     private fun chooseAddress(operationId: Long, addresses: List<SwiggyAddress>, items: List<ParsedItem>) {
@@ -157,23 +184,29 @@ class SwiggyVoiceOrderCoordinator(
             finish(operationId, "No saved Swiggy delivery address was found. Add an address in Swiggy, then try again.")
             return
         }
-        rememberedSwiggyAddress(usable, selectedAddressId)?.let { remembered ->
-            announce("Using the same Swiggy delivery address as earlier in this session.")
-            collectRecommendations(operationId, remembered, items)
-            return
+        if (
+            isRememberedSwiggyAddressFresh(
+                selectedAtElapsedRealtime = selectedAddressAtElapsedRealtime,
+                nowElapsedRealtime = SystemClock.elapsedRealtime(),
+                ttlMillis = ADDRESS_CONFIRMATION_TTL_MS,
+            )
+        ) {
+            rememberedSwiggyAddress(usable, selectedAddressId)?.let { remembered ->
+                onAddressChanged(remembered.shortLabel)
+                announce("Using ${remembered.shortLabel}, the Swiggy address you confirmed earlier in this session.")
+                collectRecommendations(operationId, remembered, items)
+                return
+            }
         }
-        if (usable.size == 1) {
-            selectedAddressId = usable.first().id
-            collectRecommendations(operationId, usable.first(), items)
-            return
-        }
+        clearRememberedAddress()
 
         showTrackedDialog(
             AlertDialog.Builder(activity)
             .setTitle("Where should Swiggy deliver?")
-            .setItems(usable.map { it.normalizedLabel }.toTypedArray()) { _, which ->
+            .setMessage("Choose the saved address for this cart. Beta will show it again before any cart update.")
+            .setItems(usable.map(::swiggyAddressChoiceLabel).toTypedArray()) { _, which ->
                 if (isCurrent(operationId)) {
-                    selectedAddressId = usable[which].id
+                    rememberAddress(usable[which])
                     collectRecommendations(operationId, usable[which], items)
                 }
             }
@@ -229,7 +262,7 @@ class SwiggyVoiceOrderCoordinator(
         selected: MutableList<RequestedItem>,
     ) {
         if (index >= items.size) {
-            planCart(operationId, address, selected)
+            planCart(operationId, address, items, selected)
             return
         }
         val item = items[index]
@@ -264,12 +297,17 @@ class SwiggyVoiceOrderCoordinator(
         )
     }
 
-    private fun planCart(operationId: Long, address: SwiggyAddress, selected: List<RequestedItem>) {
+    private fun planCart(
+        operationId: Long,
+        address: SwiggyAddress,
+        items: List<ParsedItem>,
+        selected: List<RequestedItem>,
+    ) {
         announce("Reading your current Swiggy cart and preparing the exact changes.")
         SwiggyMcpClient.planCart(activity, address.id, selected) { result ->
             onUi(operationId) {
                 when (result) {
-                    is SwiggyMcpResult.Success -> reviewPlan(operationId, selected, result.value)
+                    is SwiggyMcpResult.Success -> reviewPlan(operationId, address, items, selected, result.value)
                     is SwiggyMcpResult.Failure -> fail(operationId, result)
                 }
             }
@@ -278,6 +316,8 @@ class SwiggyVoiceOrderCoordinator(
 
     private fun reviewPlan(
         operationId: Long,
+        address: SwiggyAddress,
+        items: List<ParsedItem>,
         selected: List<RequestedItem>,
         plan: SwiggyMcpClient.CartPlan,
     ) {
@@ -295,7 +335,7 @@ class SwiggyVoiceOrderCoordinator(
             val to = change.toQuantity ?: from
             if (from == 0) "Add ${change.displayName}, quantity $to" else "${change.displayName}: $from to $to"
         }
-        val safetyText = "$changeText\n\nYour other cart items stay. Beta will stop before checkout and payment."
+        val safetyText = "Deliver to: ${address.shortLabel}\n\n$changeText\n\nYour other cart items stay. Beta will stop before checkout and payment."
 
         if (!plan.cartMutationEnabled) {
             showTrackedDialog(
@@ -303,6 +343,7 @@ class SwiggyVoiceOrderCoordinator(
                 .setTitle("Swiggy cart preview")
                 .setMessage("$safetyText\n\nCart updates are not enabled on the Beta backend yet, so nothing was changed.")
                 .setPositiveButton("Okay") { _, _ -> finish(operationId, "Your Swiggy cart preview is ready. Nothing was changed.") }
+                .setNeutralButton("Change address") { _, _ -> restartAddressSelection(operationId, items) }
                 .setOnCancelListener { finish(operationId, "Your Swiggy cart preview is ready. Nothing was changed.") }
             )
             return
@@ -316,8 +357,32 @@ class SwiggyVoiceOrderCoordinator(
                 if (isCurrent(operationId)) applyPlan(operationId, token)
             }
             .setNegativeButton("Cancel") { _, _ -> finish(operationId, "Swiggy cart changes cancelled.") }
+            .setNeutralButton("Change address") { _, _ -> restartAddressSelection(operationId, items) }
             .setOnCancelListener { finish(operationId, "Swiggy cart changes cancelled.") }
         )
+    }
+
+    private fun restartAddressSelection(
+        operationId: Long,
+        items: List<ParsedItem>,
+    ) {
+        if (!isCurrent(operationId)) return
+        clearRememberedAddress()
+        announce("Choose a different Swiggy address. Beta will search every item again for that address.")
+        SwiggyMcpClient.fetchAddresses(activity) { result ->
+            onUi(operationId) {
+                when (result) {
+                    is SwiggyMcpResult.Success -> chooseAddress(operationId, result.value, items)
+                    is SwiggyMcpResult.Failure -> fail(operationId, result)
+                }
+            }
+        }
+    }
+
+    private fun rememberAddress(address: SwiggyAddress) {
+        selectedAddressId = address.id
+        selectedAddressAtElapsedRealtime = SystemClock.elapsedRealtime()
+        onAddressChanged(address.shortLabel)
     }
 
     private fun applyPlan(operationId: Long, token: String) {
@@ -412,6 +477,7 @@ class SwiggyVoiceOrderCoordinator(
     private fun RecommendationCandidate.toRequestedItem(item: ParsedItem): RequestedItem {
         return RequestedItem(
             spinId = spinId,
+            skuId = skuId,
             quantity = item.quantity.requestedCount(),
             displayName = candidateLabel(this),
         )
@@ -426,7 +492,8 @@ class SwiggyVoiceOrderCoordinator(
     }
 
     private companion object {
-        const val MAX_ADDRESSES = 8
+        const val MAX_ADDRESSES = 50
         const val MAX_CANDIDATES = 5
+        const val ADDRESS_CONFIRMATION_TTL_MS = 15 * 60 * 1000L
     }
 }
