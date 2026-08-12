@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Beta</string>
     <string name="accessibility_service_name">Beta ordering assistant</string>
-    <string name="accessibility_service_description">For Blinkit, Swiggy Instamart, and Zepto, Beta uses AccessibilityService only with your permission after you start a cart-building flow. It may read visible grocery app screen data, including product details, cart contents, buttons, prices, and delivery details such as name, precise delivery location, and address if shown, so it can build the cart you requested and stop before payment.</string>
+    <string name="accessibility_service_description">For Blinkit, Zepto, and the optional Swiggy screen-assisted fallback, Beta uses AccessibilityService only with your permission after you start a cart-building flow. Direct Swiggy MCP use does not require AccessibilityService. During a screen-assisted flow, Beta may read visible grocery app data, including product details, cart contents, buttons, prices, and delivery details such as name, precise delivery location, and address if shown, so it can build the cart you requested and stop before payment.</string>
     <string name="main_title">Hi. Let\'s make grocery ordering easier.</string>
     <string name="main_subtitle">Tell Beta what you need. It can help you build the cart, and you decide when to pay.</string>
     <string name="main_primary_action">Get started</string>

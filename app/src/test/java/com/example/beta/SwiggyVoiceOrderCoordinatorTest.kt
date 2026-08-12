@@ -32,8 +32,12 @@ class SwiggyVoiceOrderCoordinatorTest {
             shortLabel = "Home — Bengaluru",
         )
         assertEquals(
-            "Home — Bengaluru\n10 Test Road, Bengaluru",
+            "Home — Bengaluru",
             swiggyAddressChoiceLabel(address),
+        )
+        assertEquals(
+            listOf("Home — Bengaluru — saved address 1", "Home — Bengaluru — saved address 2"),
+            swiggyAddressChoiceLabels(listOf(address, address.copy(id = "home-2"))),
         )
     }
 
@@ -138,6 +142,45 @@ class SwiggyVoiceOrderCoordinatorTest {
         assertEquals("organic whole milk", items.single().query)
         assertEquals(listOf("lactose", "regular"), items.single().avoidPhrases)
         assertEquals("organic whole milk", items.single().strictMatchPhrase)
+    }
+
+    @Test
+    fun noCandidateMessageCallsOutStrictMatchAtSelectedAddress() {
+        val item = com.example.beta.automation.ParsedItem(
+            rawText = "organic whole milk",
+            query = "milk",
+            strictMatchPhrase = "organic whole milk",
+        )
+        val address = SwiggyMcpClient.SwiggyAddress(
+            id = "home",
+            label = "10 Test Road, Bengaluru",
+            normalizedLabel = "10 Test Road, Bengaluru",
+            shortLabel = "Home",
+        )
+
+        assertEquals(
+            "I could not find your preferred exact product, organic whole milk, at your selected address (Home). Beta did not substitute it. Nothing was added.",
+            swiggyNoCandidateMessage(item, address),
+        )
+    }
+
+    @Test
+    fun noCandidateMessageKeepsGenericBehaviorWithoutStrictMatchPhrase() {
+        val item = com.example.beta.automation.ParsedItem(
+            rawText = "milk",
+            query = "milk",
+        )
+        val address = SwiggyMcpClient.SwiggyAddress(
+            id = "home",
+            label = "10 Test Road, Bengaluru",
+            normalizedLabel = "10 Test Road, Bengaluru",
+            shortLabel = "Home",
+        )
+
+        assertEquals(
+            "I could not find milk on Swiggy Instamart. Nothing was added.",
+            swiggyNoCandidateMessage(item, address),
+        )
     }
 
     @Test

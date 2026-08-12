@@ -153,25 +153,25 @@ Answers:
 Core purpose:
 
 ```text
-For Blinkit, Swiggy Instamart, and Zepto, Beta uses AccessibilityService after the user starts a cart-building flow. It reads visible text, content descriptions, buttons, window structure, and delivery details such as name, precise delivery location, and address if shown so it can tap the controls needed to add user-requested items to the cart. Beta stops before checkout/payment and never places an order or pays.
+For Blinkit, Zepto, and the optional Swiggy screen-assisted fallback, Beta uses AccessibilityService after the user starts a cart-building flow. Direct Swiggy MCP use does not use AccessibilityService. In a screen-assisted flow, Beta reads visible text, content descriptions, buttons, window structure, and delivery details such as name, precise delivery location, and address if shown so it can tap the controls needed to add user-requested items to the cart. Beta stops before checkout/payment and never places an order or pays.
 ```
 
 Data accessed:
 
 ```text
-Visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text from Blinkit, Swiggy Instamart, or Zepto screens during an active user-started flow.
+Visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text from Blinkit, Zepto, or the optional Swiggy screen-assisted fallback during an active user-started flow.
 ```
 
 Collection/sharing explanation:
 
 ```text
-During an active user-started Blinkit, Swiggy Instamart, or Zepto cart-building flow, Beta accesses visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text if shown. Beta sends this screen context to the Beta backend only to build the grocery cart requested by the user. Beta does not start this flow until the user accepts the prominent disclosure and grants Android permissions. Beta stops before checkout/payment and does not place orders or make payments.
+During an active user-started Blinkit, Zepto, or optional Swiggy screen-assisted cart-building flow, Beta accesses visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text if shown. Beta sends this screen context to the Beta backend only to build the grocery cart requested by the user. Direct Swiggy MCP use does not use AccessibilityService or screen capture. Beta does not start a screen-assisted flow until the user accepts the prominent disclosure and grants Android permissions. Beta stops before checkout/payment and does not place orders or make payments.
 ```
 
 Why AccessibilityService is needed:
 
 ```text
-Blinkit, Swiggy Instamart, and Zepto do not expose an approved cart/search integration used by this prototype. AccessibilityService lets Beta understand and interact with the same visible controls the user sees, after the user starts the flow, so it can build a cart and stop for manual review before checkout. MCP remains the planned secure future path for Swiggy.
+Blinkit and Zepto do not expose an approved cart/search integration used by this prototype. AccessibilityService lets Beta understand and interact with the same visible controls the user sees after the user starts the flow, so it can build a cart and stop for manual review before checkout. Swiggy uses the direct MCP connection first; AccessibilityService is used for Swiggy only when the user explicitly switches to the reversible screen-assisted fallback.
 ```
 
 Video URL: use the AccessibilityService review video URL above.

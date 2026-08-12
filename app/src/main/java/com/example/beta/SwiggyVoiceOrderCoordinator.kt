@@ -54,6 +54,18 @@ internal fun swiggyMcpItemValidationMessage(
     }
 }
 
+internal fun swiggyNoCandidateMessage(
+    item: ParsedItem,
+    address: SwiggyAddress,
+): String {
+    val strictMatchPhrase = item.strictMatchPhrase?.trim().takeIf { !it.isNullOrBlank() }
+    return if (strictMatchPhrase != null) {
+        "I could not find your preferred exact product, $strictMatchPhrase, at your selected address (${address.shortLabel}). Beta did not substitute it. Nothing was added."
+    } else {
+        "I could not find ${item.query} on Swiggy Instamart. Nothing was added."
+    }
+}
+
 internal fun isSafeSwiggyCartPlan(
     plan: SwiggyMcpClient.CartPlan,
     selected: List<RequestedItem>,
@@ -104,10 +116,14 @@ internal fun isRememberedSwiggyAddressFresh(
     nowElapsedRealtime - selectedAtElapsedRealtime <= ttlMillis
 
 internal fun swiggyAddressChoiceLabel(address: SwiggyAddress): String {
-    val short = address.shortLabel.trim()
-    val full = address.normalizedLabel.trim()
-    return if (full.isBlank() || full.equals(short, ignoreCase = true)) short else {
-        "$short\n${full.take(120)}"
+    return address.shortLabel.trim().ifBlank { "Saved Swiggy address" }
+}
+
+internal fun swiggyAddressChoiceLabels(addresses: List<SwiggyAddress>): List<String> {
+    val baseLabels = addresses.map(::swiggyAddressChoiceLabel)
+    val counts = baseLabels.groupingBy { it.lowercase() }.eachCount()
+    return baseLabels.mapIndexed { index, label ->
+        if (counts[label.lowercase()] == 1) label else "$label — saved address ${index + 1}"
     }
 }
 
@@ -203,7 +219,7 @@ class SwiggyVoiceOrderCoordinator(
         showTrackedDialog(
             AlertDialog.Builder(activity)
             .setTitle("Choose Swiggy delivery address")
-            .setItems(usable.map(::swiggyAddressChoiceLabel).toTypedArray()) { _, which ->
+            .setItems(swiggyAddressChoiceLabels(usable).toTypedArray()) { _, which ->
                 if (isCurrent(operationId)) {
                     rememberAddress(usable[which])
                     collectRecommendations(operationId, usable[which], items)
@@ -271,7 +287,7 @@ class SwiggyVoiceOrderCoordinator(
         val requiresConfirmation = recommendation.requiresConfirmation
         val usable = candidates.filter { it.spinId.isNotBlank() }.take(MAX_CANDIDATES)
         if (usable.isEmpty()) {
-            finish(operationId, "I could not find ${item.query} on Swiggy Instamart. Nothing was added.")
+            finish(operationId, swiggyNoCandidateMessage(item, address))
             return
         }
 
