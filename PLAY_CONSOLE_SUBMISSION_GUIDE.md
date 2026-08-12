@@ -1,6 +1,6 @@
 # Beta Play Store Go-Live Tasks
 
-Last updated: 2026-07-23
+Last updated: 2026-08-12
 
 This is the current owner-only checklist for getting `Beta` live on Google Play after the AccessibilityService rejection. API-doable build/listing/release tasks are separated from actions that require Play Console owner review or policy attestation.
 
@@ -18,29 +18,32 @@ This is the current owner-only checklist for getting `Beta` live on Google Play 
 - Current release config: `versionCode 15`, `versionName 0.2.13`
 - Release backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
 - Local Play Publisher credentials and Beta upload signing files exist in ignored local files.
-- The Play listing drafts for `en-US` and default locale `en-GB` were updated through the Android Publisher API to name Blinkit, Swiggy Instamart, and Zepto.
+- The live Play listings for `en-US` and default locale `en-GB` disclose the Swiggy MCP-first flow, saved-address processing, the reversible screen-assisted fallback, and the no-checkout boundary.
 - The in-app prominent disclosure was updated.
 - The public privacy policy asset was updated.
 - The existing AccessibilityService review video predates the current Swiggy
-  MCP-first flow; replace it before the next Play release.
-- A signed local `0.2.6` release AAB was built at `app/build/outputs/bundle/release/app-release.aab`.
-- Open testing / API track `beta` now has version code `8` assigned with status `completed`, release name `0.2.6 open testing`, and pause / overlay reliability release notes.
-- The 2026-06-06 Android pause / overlay hardening patch was uploaded to Play open testing in Play edit `02021199645127430828`.
+  MCP-first flow. Replace it if Play requests a new declaration review; direct
+  Swiggy MCP use itself does not invoke AccessibilityService.
+- A signed local `0.2.13` release AAB was built at `app/build/outputs/bundle/release/app-release.aab` and passed release lint.
+- Open testing / API track `beta` has version code `15` assigned with status `completed`, release name `0.2.13 - Swiggy Instamart MCP cart reliability`, and MCP cart-reliability release notes.
+- The 2026-08-12 release was uploaded only after a real eight-item Instamart MCP cart mutation was verified on the physical phone and the cart was restored to empty without entering checkout or payment.
 - The raw GitHub privacy-policy and review-video URLs were verified as publicly reachable.
 - Data Safety was not updated by API because there is no current Play Console CSV export/template in the repo.
-- The privacy-policy URL, Data Safety form, AccessibilityService declaration, foreground service / media projection declaration, and final send-for-review are still owner-only Play Console actions.
+- The Data Safety form, AccessibilityService declaration, and foreground
+  service / media projection declaration remain owner-attested Play Console
+  surfaces and cannot be read back through the Android Publisher API.
 
-## Only You Must Do
+## Owner-Attested Play Console Follow-Up
 
-Do these in Play Console with the owner account:
+Keep these declarations aligned in Play Console with the shipped behavior:
 
-1. Set the privacy-policy URL and deletion instructions.
-2. Complete the Data Safety form for the data categories below.
-3. Complete the AccessibilityService declaration.
-4. Complete the foreground service / media projection declaration.
-5. Open Publishing overview, review the pending changes, and click send changes for review.
+1. Confirm the privacy-policy URL and deletion instructions remain current.
+2. Confirm the Data Safety form includes the data categories below.
+3. Confirm the AccessibilityService declaration covers Blinkit, Zepto, and the optional Swiggy screen-assisted fallback, but not direct Swiggy MCP use.
+4. Confirm the foreground service / media projection declaration remains current.
+5. If Play surfaces a pending policy declaration or review action, complete it before expanding beyond Open Testing.
 
-For the Zepto release, confirm the committed Play changes in Play Console Publishing overview before final owner submission/review steps.
+For the current Swiggy MCP release, check Publishing overview for any Google-generated policy or review action before widening tester access.
 
 ## URLs To Use
 
