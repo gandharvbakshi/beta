@@ -202,8 +202,7 @@ class SwiggyVoiceOrderCoordinator(
 
         showTrackedDialog(
             AlertDialog.Builder(activity)
-            .setTitle("Where should Swiggy deliver?")
-            .setMessage("Choose the saved address for this cart. Beta will show it again before any cart update.")
+            .setTitle("Choose Swiggy delivery address")
             .setItems(usable.map(::swiggyAddressChoiceLabel).toTypedArray()) { _, which ->
                 if (isCurrent(operationId)) {
                     rememberAddress(usable[which])
