@@ -4,7 +4,8 @@ param(
     [switch]$SkipCartReset,
     [switch]$UseBetaAutoLaunch,
     [int]$FlowTimeoutSeconds = 0,
-    [switch]$AllowExpectedOos
+    [switch]$AllowExpectedOos,
+    [switch]$SelfTestOutcomeParser
 )
 
 $ErrorActionPreference = "Stop"
@@ -1434,11 +1435,19 @@ function Test-BackendCartVerified {
 }
 
 function Get-FlowTerminalLogText {
-    $logs = adb logcat -d | Select-String "BLINKIT_ADD_TO_CART_CLICKED|FLOW_FAILED|STATE: FAILED|ITEM_RESULT|ORDER_RESULT|checkout_boundary|MediaProjection state: null|Cannot trigger screenshot: Service not capturing"
+    $logs = adb logcat -d | Select-String "BLINKIT_ADD_TO_CART_CLICKED|BLINKIT_ALREADY_IN_CART_CONFIRMED|FLOW_FAILED|STATE: FAILED|ITEM_RESULT|ORDER_RESULT|checkout_boundary|MediaProjection state: null|Cannot trigger screenshot: Service not capturing"
     if (-not $logs) {
         return ""
     }
     return (($logs | ForEach-Object { $_.Line }) -join "`n")
+}
+
+function Test-IdempotentSuccessItemResult([string]$Line) {
+    return (
+        $Line -match 'ITEM_RESULT\s+.*?status=success\b' -and
+        $Line -match '\bqty_added=0\b' -and
+        $Line -match '\bnotes=[^\r\n]*already_in_cart'
+    )
 }
 
 function Test-FlowFailureLog {
@@ -1571,6 +1580,7 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120, [int]$ExpectedItemCount
         $latestItemsSucceeded = 0
         $latestNonSuccessStatuses = @()
         $addClickCount = 0
+        $idempotentSuccessCount = 0
         if ($script:BlinkitAddToCartClicked) {
             if (($addClickedAt -ne $null) -and ((Get-Date) -gt $addClickedAt.AddSeconds(25))) {
                 if (Dismiss-AnrFromWindowState) {
@@ -1613,6 +1623,8 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120, [int]$ExpectedItemCount
                     $itemStatus = $matches[1].ToLowerInvariant()
                     if ($itemStatus -ne "success") {
                         $latestNonSuccessStatuses += $itemStatus
+                    } elseif (Test-IdempotentSuccessItemResult $line) {
+                        $idempotentSuccessCount++
                     }
                 }
                 if ($line -match "ORDER_RESULT") {
@@ -1641,7 +1653,7 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120, [int]$ExpectedItemCount
                     $latestNonSuccessStatuses.Count -gt 0 -and
                     @($latestNonSuccessStatuses | Where-Object { $_ -ne "oos" }).Count -eq 0 -and
                     ($latestItemsSucceeded + $latestNonSuccessStatuses.Count) -eq $latestItemsTotal -and
-                    $addClickCount -ge $latestItemsSucceeded
+                    ($addClickCount + $idempotentSuccessCount) -ge $latestItemsSucceeded
                 )
                 if ($onlyExpectedOos) {
                     Write-Phase "ORDER_RESULT completed with expected out-of-stock items only."
@@ -1653,8 +1665,11 @@ function Wait-ForFlowOutcome([int]$TimeoutSeconds = 120, [int]$ExpectedItemCount
                 $latestOrderResultHasItemsFailed -and
                 $latestItemsTotal -gt 0 -and
                 $latestItemsSucceeded -eq $latestItemsTotal -and
-                $addClickCount -ge $latestItemsSucceeded
+                ($addClickCount + $idempotentSuccessCount) -ge $latestItemsSucceeded
             ) {
+                if ($idempotentSuccessCount -gt 0) {
+                    Write-Phase "ORDER_RESULT includes $idempotentSuccessCount explicit already-in-cart success item(s)."
+                }
                 return "success"
             }
             Write-Phase "ORDER_RESULT lacks matching real add-click evidence; continuing instead of false-passing."
@@ -1935,8 +1950,26 @@ function Set-TextByClipboard([string]$Text) {
     adb shell input keyevent 279
 }
 
+if ($SelfTestOutcomeParser) {
+    $idempotent = 'ITEM_RESULT item=butter status=success matched_sku=amul qty_requested=1 qty_added=0 notes=already_in_cart'
+    $fresh = 'ITEM_RESULT item=butter status=success matched_sku=amul qty_requested=1 qty_added=1 notes=verified_in_cart'
+    $invalid = 'ITEM_RESULT item=butter status=success matched_sku=amul qty_requested=1 qty_added=0 notes=verified_in_cart'
+    if (-not (Test-IdempotentSuccessItemResult $idempotent)) {
+        throw "Outcome parser rejected explicit already-in-cart evidence."
+    }
+    if ((Test-IdempotentSuccessItemResult $fresh) -or (Test-IdempotentSuccessItemResult $invalid)) {
+        throw "Outcome parser accepted non-idempotent or ambiguous evidence."
+    }
+    Write-Host "outcome_parser_self_test=passed"
+    return
+}
+
 Require-Device
 Require-Package $BlinkitPackage
+
+if (-not $SkipCartReset) {
+    throw "Broad Blinkit cart reset is disabled. Re-run with -SkipCartReset and use rollback_blinkit_search_items.ps1 with an exact product, pack, and quantity map for search-only cleanup."
+}
 
 Clear-BackendDebugArtifacts
 
