@@ -50,7 +50,7 @@ $quotedProfile = Join-Path $env:TEMP "personal_preference_profile_quoted.json"
   "preferences": [
     {
     "token": "mints",
-    "preferredPhrase": "Impact Sugar Free Mint Candies (Strong Mints)",
+    "preferredPhrase": "Impact Sugar Free Mint Candies Ice Mints",
     "avoidPhrases": ["weak mint's"],
     "confidence": 1.0
     }
@@ -72,7 +72,7 @@ try {
     Assert ($preferredIndex -ge 0) "Expected preferred_phrase broadcast argument."
     Assert ($avoidIndex -ge 0) "Expected avoid_phrases broadcast argument."
     Assert (
-        $global:CapturedAdbArguments[$preferredIndex + 1] -eq "'Impact Sugar Free Mint Candies (Strong Mints)'"
+        $global:CapturedAdbArguments[$preferredIndex + 1] -eq "'Impact Sugar Free Mint Candies Ice Mints'"
     ) "Preferred phrase must be quoted as one Android shell argument."
     Assert (
         $global:CapturedAdbArguments[$avoidIndex + 1] -eq "'weak mint'`"'`"'s'"

@@ -35,7 +35,7 @@ class InstructionParserPreferenceTest {
                 if (query == "mints") {
                     Preference(
                         token = "mints",
-                        preferredPhrase = "Impact Sugar Free Mint Candies Strong Mints",
+                        preferredPhrase = "Impact Sugar Free Mint Candies Ice Mints",
                         confidence = 1.0f
                     )
                 } else {
@@ -45,7 +45,8 @@ class InstructionParserPreferenceTest {
         ).single()
 
         assertEquals(1, lookupCount)
-        assertEquals("impact sugar free mint candies strong mints", item.query)
+        assertEquals("impact sugar free mint candies ice mints", item.query)
+        assertEquals("impact sugar free mint candies ice mints", item.strictMatchPhrase)
     }
 
     @Test
@@ -55,7 +56,7 @@ class InstructionParserPreferenceTest {
             lookup = {
                 Preference(
                     token = "mints",
-                    preferredPhrase = "Impact Sugar Free Mint Candies Strong Mints",
+                    preferredPhrase = "Impact Sugar Free Mint Candies Ice Mints",
                     confidence = 1.0f
                 )
             }
@@ -63,7 +64,7 @@ class InstructionParserPreferenceTest {
 
         assertEquals(Quantity.Count(2), item.quantity)
         assertEquals(
-            "2 impact sugar free mint candies strong mints",
+            "2 impact sugar free mint candies ice mints",
             item.backendInputText()
         )
     }
@@ -76,7 +77,7 @@ class InstructionParserPreferenceTest {
                 if (query == "mints") {
                     Preference(
                         token = "mints",
-                        preferredPhrase = "Impact Sugar Free Mint Candies Strong Mints",
+                        preferredPhrase = "Impact Sugar Free Mint Candies Ice Mints",
                         confidence = 1.0f
                     )
                 } else {
@@ -86,6 +87,7 @@ class InstructionParserPreferenceTest {
         ).single()
 
         assertEquals("fresh mints", item.query)
+        assertEquals(null, item.strictMatchPhrase)
     }
 
     @Test
@@ -104,6 +106,7 @@ class InstructionParserPreferenceTest {
         )
 
         assertEquals("unsalted butter", items.single().query)
+        assertEquals("unsalted butter", items.single().strictMatchPhrase)
         assertTrue(logs.single().contains("PREFERENCE_APPLIED"))
     }
 
@@ -135,6 +138,7 @@ class InstructionParserPreferenceTest {
         )
 
         assertEquals("butter", items.single().query)
+        assertEquals(null, items.single().strictMatchPhrase)
         assertTrue(logs.single().contains("PREFERENCE_NONE"))
     }
 

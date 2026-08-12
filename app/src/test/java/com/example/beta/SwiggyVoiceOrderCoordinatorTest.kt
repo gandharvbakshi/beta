@@ -119,6 +119,7 @@ class SwiggyVoiceOrderCoordinatorTest {
         assertEquals(1, items.size)
         assertEquals("organic whole milk", items.single().query)
         assertEquals(listOf("lactose", "regular"), items.single().avoidPhrases)
+        assertEquals("organic whole milk", items.single().strictMatchPhrase)
     }
 
     @Test

@@ -358,11 +358,21 @@ object SwiggyMcpClient {
         context: Context,
         addressId: String,
         queries: List<String>,
+        strictMatchPhrases: List<String?> = List(queries.size) { null },
         callback: SwiggyCallback<List<Recommendations>>,
     ) {
+        require(strictMatchPhrases.size == queries.size) {
+            "Strict match phrases must align with recommendation queries."
+        }
         val body = JSONObject()
             .put("addressId", addressId)
             .put("queries", JSONArray().apply { queries.forEach(::put) })
+            .put(
+                "strictMatchPhrases",
+                JSONArray().apply {
+                    strictMatchPhrases.forEach { phrase -> put(phrase ?: JSONObject.NULL) }
+                },
+            )
             .toString()
         executeJsonRequest(
             context = context,

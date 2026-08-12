@@ -193,6 +193,7 @@ class SwiggyVoiceOrderCoordinator(
             context = activity,
             addressId = address.id,
             queries = queries,
+            strictMatchPhrases = items.map { it.strictMatchPhrase },
         ) { result ->
             onUi(operationId) {
                 when (result) {

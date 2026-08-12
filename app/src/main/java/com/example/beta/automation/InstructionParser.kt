@@ -14,7 +14,8 @@ data class ParsedItem(
     val query: String,
     val quantity: Quantity = Quantity.Default,
     val parserConfidence: Float = 1.0f,
-    val avoidPhrases: List<String> = emptyList()
+    val avoidPhrases: List<String> = emptyList(),
+    val strictMatchPhrase: String? = null,
 )
 
 fun Quantity.requestedCount(): Int = when (this) {
@@ -170,7 +171,8 @@ object InstructionParser {
                     avoidPhrases = (item.avoidPhrases + preference.avoidPhrases)
                         .map(::cleanAvoidPhrase)
                         .filter { it.isNotBlank() }
-                        .distinct()
+                        .distinct(),
+                    strictMatchPhrase = preferred,
                 )
             } else {
                 log("PREFERENCE_NONE token=\"${item.query}\"")
