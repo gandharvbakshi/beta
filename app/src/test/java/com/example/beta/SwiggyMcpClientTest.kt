@@ -7,6 +7,26 @@ import org.junit.Test
 
 class SwiggyMcpClientTest {
     @Test
+    fun onlyCartApplyUsesTheNonRetryingMutationTransport() {
+        assertTrue(SwiggyMcpClient.isCartMutationPath("/swiggy/cart/apply"))
+        assertFalse(SwiggyMcpClient.isCartMutationPath("/swiggy/status"))
+        assertFalse(SwiggyMcpClient.isCartMutationPath("/swiggy/recommendations/batch"))
+        assertFalse(SwiggyMcpClient.isCartMutationPath("/swiggy/cart/plan"))
+    }
+
+    @Test
+    fun cartApplyNetworkLossWarnsThatOutcomeMayBeUnknown() {
+        assertTrue(
+            SwiggyMcpClient.swiggyNetworkFailureMessage("/swiggy/cart/apply")
+                .contains("may have changed the cart")
+        )
+        assertEquals(
+            "Unable to reach Swiggy backend right now.",
+            SwiggyMcpClient.swiggyNetworkFailureMessage("/swiggy/recommendations/batch")
+        )
+    }
+
+    @Test
     fun parseStatusDetectsReconnectRequiredAndAuthorizationUrl() {
         val parsed = SwiggyMcpClient.parseStatus(
             """
@@ -24,6 +44,17 @@ class SwiggyMcpClientTest {
         assertEquals(SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED, parsed.state)
         assertEquals("https://auth.example/swiggy", parsed.authorizationUrl)
         assertEquals("Please reconnect", parsed.message)
+    }
+
+    @Test
+    fun parseStatusDoesNotTreatDisconnectedAsConnected() {
+        val disconnected = SwiggyMcpClient.parseStatus("""{"status":"disconnected"}""")
+        val notConnected = SwiggyMcpClient.parseStatus("""{"status":"not_connected"}""")
+        val connected = SwiggyMcpClient.parseStatus("""{"status":"connected"}""")
+
+        assertEquals(SwiggyMcpClient.ConnectionState.DISCONNECTED, disconnected.state)
+        assertEquals(SwiggyMcpClient.ConnectionState.DISCONNECTED, notConnected.state)
+        assertEquals(SwiggyMcpClient.ConnectionState.READY, connected.state)
     }
 
     @Test
@@ -53,6 +84,34 @@ class SwiggyMcpClientTest {
         assertEquals("12, Main Street, Apt 4B, Bengaluru, 560001", parsed[0].normalizedLabel)
         assertEquals("Work Address", parsed[1].id)
         assertEquals("Work Address", parsed[1].normalizedLabel)
+        assertTrue(
+            SwiggyMcpClient.describeAddressSchema(
+                """{"success":true,"data":{"addresses":[{"addressId":"home-1","line1":"Test"}]}}"""
+            ).contains("firstAddressKeys=addressId|line1")
+        )
+    }
+
+    @Test
+    fun parseAddressesSupportsLiveSwiggyAddressLineShape() {
+        val parsed = SwiggyMcpClient.parseAddresses(
+            """
+            {
+              "addresses": [
+                {
+                  "id": "saved-1",
+                  "addressLine": "  10 Test Road, Bengaluru  ",
+                  "phoneNumber": "redacted",
+                  "addressCategory": "HOME",
+                  "addressTag": "Home"
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(1, parsed.size)
+        assertEquals("saved-1", parsed.single().id)
+        assertEquals("10 Test Road, Bengaluru", parsed.single().normalizedLabel)
     }
 
     @Test

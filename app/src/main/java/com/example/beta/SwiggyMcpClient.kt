@@ -1,6 +1,7 @@
 package com.example.beta
 
 import android.content.Context
+import android.util.Log
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -197,7 +198,8 @@ object SwiggyMcpClient {
     private const val HEADER_BACKEND_KEY = "x-beta-backend-key"
     private const val HEADER_INSTALLATION_TOKEN = "x-beta-installation-token"
     private val jsonMediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
-    private val client = provideClient()
+    private val safeRequestClient = provideClient(retryOnConnectionFailure = true)
+    private val cartMutationClient = provideClient(retryOnConnectionFailure = false)
 
     enum class ConnectionState {
         DISCONNECTED,
@@ -320,7 +322,14 @@ object SwiggyMcpClient {
             method = "GET",
             path = "/swiggy/addresses",
             callback = callback,
-            parser = ::parseAddresses
+            parser = { body ->
+                parseAddresses(body).also { parsed ->
+                    Log.i(
+                        "BetaAgent",
+                        "SWIGGY_MCP_ADDRESSES_PARSED count=${parsed.size} ${describeAddressSchema(body)}",
+                    )
+                }
+            }
         )
     }
 
@@ -561,12 +570,12 @@ object SwiggyMcpClient {
             .trim()
     }
 
-    private fun provideClient(): OkHttpClient {
+    private fun provideClient(retryOnConnectionFailure: Boolean): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(false)
+            .retryOnConnectionFailure(retryOnConnectionFailure)
 
         return builder.build()
     }
@@ -602,14 +611,15 @@ object SwiggyMcpClient {
             else -> requestBuilder.build()
         }
 
+        val baseClient = if (isCartMutationPath(path)) cartMutationClient else safeRequestClient
         val requestClient = timeoutSeconds?.let { seconds ->
-            client.newBuilder().readTimeout(seconds, TimeUnit.SECONDS).build()
-        } ?: client
+            baseClient.newBuilder().readTimeout(seconds, TimeUnit.SECONDS).build()
+        } ?: baseClient
         val call = requestClient.newCall(request)
         timeoutSeconds?.let { call.timeout().timeout(it, TimeUnit.SECONDS) }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                callback(SwiggyMcpResult.Failure(userMessage = "Unable to reach Swiggy backend right now."))
+                callback(SwiggyMcpResult.Failure(userMessage = swiggyNetworkFailureMessage(path)))
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -634,6 +644,28 @@ object SwiggyMcpClient {
         })
     }
 
+    internal fun describeAddressSchema(body: String): String {
+        val root = parseRoot(body)
+        val rootKeys = (root as? JsonValue.Obj)?.members?.keys.orEmpty().take(12)
+        val addressArray = firstArray(root, "addresses", "items", "results")
+        val firstAddressKeys = (addressArray?.items?.firstOrNull() as? JsonValue.Obj)
+            ?.members
+            ?.keys
+            .orEmpty()
+            .take(16)
+        return "rootKeys=${rootKeys.joinToString("|")} addressEntries=${addressArray?.items?.size ?: -1} firstAddressKeys=${firstAddressKeys.joinToString("|")}"
+    }
+
+    internal fun swiggyNetworkFailureMessage(path: String): String {
+        return if (path == "/swiggy/cart/apply") {
+            "Swiggy may have changed the cart, but Beta lost the connection before it could verify it. Please open Swiggy and review the cart before trying again."
+        } else {
+            "Unable to reach Swiggy backend right now."
+        }
+    }
+
+    internal fun isCartMutationPath(path: String): Boolean = path == "/swiggy/cart/apply"
+
     private fun userMessageForHttpCode(code: Int, body: String): String {
         val reason = firstString(parseRoot(body), "reason")
         return when {
@@ -642,6 +674,8 @@ object SwiggyMcpClient {
             reason == "cart_confirmation_already_used" -> "That cart confirmation was already used. Please repeat the voice order."
             reason == "cart_confirmation_expired" -> "That cart review expired. Please repeat the voice order so Beta can check the cart again."
             reason == "cart_update_in_progress" -> "Another Swiggy cart update is still finishing. Please wait a moment, then repeat the voice order."
+            reason == "cart_update_outcome_unknown" -> "Swiggy may have changed the cart, but Beta could not verify it. Please open Swiggy and review the cart before trying again."
+            reason == "cart_update_not_verified" -> "Swiggy did not match the reviewed cart change. Please open Swiggy and review the cart before trying again."
             reason == "cart_schema_unrecognized" -> "Beta could not safely read this Swiggy cart. Nothing was changed."
             reason == "cart_mutation_disabled" -> "Swiggy cart updates are not enabled yet. Nothing was changed."
             reason == "cart_no_changes" -> "Your Swiggy cart already has those quantities."
@@ -660,7 +694,7 @@ object SwiggyMcpClient {
         val normalized = raw?.trim()?.lowercase().orEmpty()
         return when {
             normalized.contains("reconnect") || normalized.contains("reauth") -> ConnectionState.RECONNECT_REQUIRED
-            normalized.contains("ready") || normalized.contains("connected") || normalized.contains("active") -> ConnectionState.READY
+            normalized in setOf("ready", "connected", "active") -> ConnectionState.READY
             else -> ConnectionState.DISCONNECTED
         }
     }
@@ -677,7 +711,8 @@ object SwiggyMcpClient {
                 "address",
                 "formattedAddress",
                 "formatted_address",
-                "text"
+                "text",
+                "addressLine"
             ) ?: buildAddressLabel(value)
         )
         return SwiggyAddress(
@@ -691,6 +726,7 @@ object SwiggyMcpClient {
     private fun buildAddressLabel(value: JsonValue.Obj): String {
         val parts = listOf(
             firstString(value, "line1", "addressLine1", "address_line_1"),
+            firstString(value, "addressLine"),
             firstString(value, "line2", "addressLine2", "address_line_2"),
             firstString(value, "area", "locality", "neighborhood"),
             firstString(value, "city", "town"),

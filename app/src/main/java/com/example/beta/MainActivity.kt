@@ -583,6 +583,10 @@ class MainActivity : ComponentActivity() {
         if (swiggyStatusRequestGeneration != null) return
         val requestGeneration = swiggyMcpRequestGeneration
         swiggyStatusRequestGeneration = requestGeneration
+        Log.i(
+            "BetaAgent",
+            "SWIGGY_MCP_STATUS_REQUEST_STARTED generation=$requestGeneration resumePending=$resumePendingOrder",
+        )
         swiggyConnectionStatus.setText(R.string.swiggy_connection_checking)
         swiggyConnectionAction.isEnabled = false
         SwiggyMcpClient.fetchStatus(this) { result ->
@@ -599,6 +603,10 @@ class MainActivity : ComponentActivity() {
                 resumeSwiggyOrderAfterStatus = false
                 when (result) {
                     is SwiggyMcpResult.Success -> {
+                        Log.i(
+                            "BetaAgent",
+                            "SWIGGY_MCP_STATUS_REQUEST_SUCCEEDED state=${result.value.state} resumePending=$shouldResumePendingOrder",
+                        )
                         updateSwiggyConnectionUi(result.value.state)
                         if (shouldResumePendingOrder && result.value.state == SwiggyMcpClient.ConnectionState.READY) {
                             startPendingSwiggyOrder()
@@ -607,6 +615,10 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     is SwiggyMcpResult.Failure -> {
+                        Log.w(
+                            "BetaAgent",
+                            "SWIGGY_MCP_STATUS_REQUEST_FAILED httpCode=${result.httpCode} reconnect=${result.reconnectRequired} resumePending=$shouldResumePendingOrder",
+                        )
                         val state = if (result.reconnectRequired) {
                             SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED
                         } else {

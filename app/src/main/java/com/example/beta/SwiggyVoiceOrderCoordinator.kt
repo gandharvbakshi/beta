@@ -87,6 +87,13 @@ internal fun areSwiggyRecommendationsOrdered(
         }
 }
 
+internal fun rememberedSwiggyAddress(
+    addresses: List<SwiggyAddress>,
+    rememberedAddressId: String?,
+): SwiggyAddress? = rememberedAddressId
+    ?.takeIf { it.isNotBlank() }
+    ?.let { id -> addresses.firstOrNull { it.id == id } }
+
 /** Coordinates the user-visible, no-checkout Swiggy voice flow. */
 class SwiggyVoiceOrderCoordinator(
     private val activity: Activity,
@@ -97,6 +104,7 @@ class SwiggyVoiceOrderCoordinator(
     private var operationGeneration = 0L
     private var mutationInFlight = false
     private var activeDialog: AlertDialog? = null
+    private var selectedAddressId: String? = null
 
     fun start(instruction: String) {
         if (SwiggyCartMutationGuard.isInFlight()) {
@@ -149,7 +157,13 @@ class SwiggyVoiceOrderCoordinator(
             finish(operationId, "No saved Swiggy delivery address was found. Add an address in Swiggy, then try again.")
             return
         }
+        rememberedSwiggyAddress(usable, selectedAddressId)?.let { remembered ->
+            announce("Using the same Swiggy delivery address as earlier in this session.")
+            collectRecommendations(operationId, remembered, items)
+            return
+        }
         if (usable.size == 1) {
+            selectedAddressId = usable.first().id
             collectRecommendations(operationId, usable.first(), items)
             return
         }
@@ -159,6 +173,7 @@ class SwiggyVoiceOrderCoordinator(
             .setTitle("Where should Swiggy deliver?")
             .setItems(usable.map { it.normalizedLabel }.toTypedArray()) { _, which ->
                 if (isCurrent(operationId)) {
+                    selectedAddressId = usable[which].id
                     collectRecommendations(operationId, usable[which], items)
                 }
             }

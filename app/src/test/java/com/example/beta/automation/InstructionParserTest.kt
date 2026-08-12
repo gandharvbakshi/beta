@@ -6,7 +6,7 @@ import org.junit.Test
 class InstructionParserTest {
     @Test
     fun parserVersion_tracksLearningContract() {
-        assertEquals("2026.08.10.1", InstructionParser.PARSER_VERSION)
+        assertEquals("2026.08.12.1", InstructionParser.PARSER_VERSION)
     }
 
     @Test
@@ -57,6 +57,23 @@ class InstructionParserTest {
         assertEquals("butter", items[0].query)
         assertEquals(Quantity.Count(2), items[0].quantity)
         assertEquals("2 butter", items[0].backendInputText())
+    }
+
+    @Test
+    fun parse_keepsTrailingPieceAndPackCountsInsideProductVariant() {
+        val items = InstructionParser.parse(
+            "Pampers Premium Care Pant Style Baby Diapers small medium 70 pieces, tissues 2 packs"
+        )
+
+        assertEquals(2, items.size)
+        assertEquals(
+            listOf(
+                "pampers premium care pant style baby diapers small medium 70 pieces",
+                "tissues 2 packs",
+            ),
+            items.map { it.query },
+        )
+        assertEquals(listOf(Quantity.Default, Quantity.Default), items.map { it.quantity })
     }
 
     @Test

@@ -32,7 +32,7 @@ fun ParsedItem.backendInputText(): String {
 }
 
 object InstructionParser {
-    const val PARSER_VERSION = "2026.08.10.1"
+    const val PARSER_VERSION = "2026.08.12.1"
 
     private val leadingCommandRegex = Regex(
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
@@ -83,7 +83,7 @@ object InstructionParser {
         RegexOption.IGNORE_CASE
     )
     private val quantityBoundaryRegex = Regex(
-        "\\s+(?=\\d+(?:\\.\\d+)?\\s*(?:g|gm|gms|gram|grams|kg|kgs|ml|l|ltr|liter|litre|liters|litres)\\b|[1-9]\\d?\\s+\\w)",
+        "\\s+(?=\\d+(?:\\.\\d+)?\\s*(?:g|gm|gms|gram|grams|kg|kgs|ml|l|ltr|liter|litre|liters|litres)\\b|[1-9]\\d?\\s+(?!(?:pack|packs|pk|pc|pcs|piece|pieces)\\b)\\w)",
         RegexOption.IGNORE_CASE
     )
     private val noOpRegex = Regex("^(?:i\\s+want\\s+)?(?:nothing|none|no\\s+items?)$", RegexOption.IGNORE_CASE)
