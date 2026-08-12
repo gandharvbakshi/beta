@@ -14,7 +14,6 @@ import com.example.beta.automation.Preference
 import com.example.beta.automation.PreferenceStore
 import com.example.beta.automation.Quantity
 import com.example.beta.automation.backendInputText
-import com.example.beta.automation.requestedCount
 
 internal const val MAX_SWIGGY_MCP_ITEMS = 25
 
@@ -127,6 +126,45 @@ internal fun swiggyAddressChoiceLabels(addresses: List<SwiggyAddress>): List<Str
     }
 }
 
+internal fun swiggyRecommendationQuery(item: ParsedItem): String {
+    val quantityAware = when (item.quantity) {
+        is Quantity.Count, is Quantity.Weight, is Quantity.Volume -> item.backendInputText()
+        Quantity.Default -> item.query
+    }
+    return if (item.avoidPhrases.isEmpty()) quantityAware else {
+        "$quantityAware without ${item.avoidPhrases.joinToString(" or ")}"
+    }
+}
+
+private val candidatePieceCountRegex = Regex(
+    "\\b([1-9]\\d?)\\s*(?:pieces?|pcs?|eggs?)\\b",
+    RegexOption.IGNORE_CASE,
+)
+
+internal fun isSwiggyCandidateCountCompatible(
+    item: ParsedItem,
+    candidate: RecommendationCandidate,
+): Boolean {
+    val requested = item.quantity as? Quantity.Count ?: return true
+    val explicitPackCount = candidatePieceCountRegex
+        .find(listOfNotNull(candidate.label, candidate.variant, candidate.subtitle).joinToString(" "))
+        ?.groupValues
+        ?.get(1)
+        ?.toIntOrNull()
+    return explicitPackCount == null || explicitPackCount == requested.n
+}
+
+internal fun swiggyRequestedCartQuantity(
+    item: ParsedItem,
+    candidate: RecommendationCandidate,
+): Int {
+    val requested = item.quantity as? Quantity.Count ?: return 1
+    return if (isSwiggyCandidateCountCompatible(item, candidate) && candidatePieceCountRegex.containsMatchIn(
+            listOfNotNull(candidate.label, candidate.variant, candidate.subtitle).joinToString(" ")
+        )
+    ) 1 else requested.n
+}
+
 /** Coordinates the user-visible, no-checkout Swiggy voice flow. */
 class SwiggyVoiceOrderCoordinator(
     private val activity: Activity,
@@ -235,7 +273,7 @@ class SwiggyVoiceOrderCoordinator(
         address: SwiggyAddress,
         items: List<ParsedItem>,
     ) {
-        val queries = items.map(::recommendationQuery)
+        val queries = items.map(::swiggyRecommendationQuery)
         announce("Finding options for all ${items.size} items using your recent Swiggy choices.")
         SwiggyMcpClient.fetchRecommendationBatch(
             context = activity,
@@ -285,7 +323,9 @@ class SwiggyVoiceOrderCoordinator(
         val candidates = recommendation.candidates
         val suggested = recommendation.suggested
         val requiresConfirmation = recommendation.requiresConfirmation
-        val usable = candidates.filter { it.spinId.isNotBlank() }.take(MAX_CANDIDATES)
+        val usable = candidates
+            .filter { it.spinId.isNotBlank() && isSwiggyCandidateCountCompatible(item, it) }
+            .take(MAX_CANDIDATES)
         if (usable.isEmpty()) {
             finish(operationId, swiggyNoCandidateMessage(item, address))
             return
@@ -409,7 +449,12 @@ class SwiggyVoiceOrderCoordinator(
                 when (result) {
                     is SwiggyMcpResult.Success -> {
                         if (result.value.verified) {
-                            finish(operationId, "Your Swiggy cart was updated and checked. Open Swiggy to review it. Beta has stopped before checkout.")
+                            val providerNote = result.value.message
+                                ?.trim()
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let { " $it" }
+                                .orEmpty()
+                            finish(operationId, "Your Swiggy cart was updated and checked.$providerNote Open Swiggy to review it. Beta has stopped before checkout.")
                         } else {
                             finish(operationId, "Swiggy did not confirm the cart change. Please review your cart before continuing.")
                         }
@@ -479,21 +524,11 @@ class SwiggyVoiceOrderCoordinator(
         activeDialog = null
     }
 
-    private fun recommendationQuery(item: ParsedItem): String {
-        val quantityAware = when (item.quantity) {
-            is Quantity.Weight, is Quantity.Volume -> item.backendInputText()
-            else -> item.query
-        }
-        return if (item.avoidPhrases.isEmpty()) quantityAware else {
-            "$quantityAware without ${item.avoidPhrases.joinToString(" or ")}"
-        }
-    }
-
     private fun RecommendationCandidate.toRequestedItem(item: ParsedItem): RequestedItem {
         return RequestedItem(
             spinId = spinId,
             skuId = skuId,
-            quantity = item.quantity.requestedCount(),
+            quantity = swiggyRequestedCartQuantity(item, this),
             displayName = candidateLabel(this),
         )
     }

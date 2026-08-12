@@ -245,6 +245,49 @@ class SwiggyVoiceOrderCoordinatorTest {
     }
 
     @Test
+    fun countQueriesSearchForTheRequestedCountAndDoNotMultiplyMatchingPacks() {
+        val sixEggs = com.example.beta.automation.ParsedItem(
+            rawText = "6 eggs",
+            query = "eggs",
+            quantity = Quantity.Count(6),
+        )
+        val sixPack = SwiggyMcpClient.RecommendationCandidate(
+            spinId = "eggs-6",
+            label = "Farm Fresh Eggs · 6 Pieces",
+        )
+        val thirtyPack = SwiggyMcpClient.RecommendationCandidate(
+            spinId = "eggs-30",
+            label = "Farm Fresh Eggs · 30 Pieces",
+        )
+        val twelveEggPack = SwiggyMcpClient.RecommendationCandidate(
+            spinId = "eggs-12",
+            label = "Farm Fresh White Eggs · 12 Eggs · 1 Pack",
+        )
+
+        assertEquals("6 eggs", swiggyRecommendationQuery(sixEggs))
+        assertTrue(isSwiggyCandidateCountCompatible(sixEggs, sixPack))
+        assertFalse(isSwiggyCandidateCountCompatible(sixEggs, thirtyPack))
+        assertFalse(isSwiggyCandidateCountCompatible(sixEggs, twelveEggPack))
+        assertEquals(1, swiggyRequestedCartQuantity(sixEggs, sixPack))
+    }
+
+    @Test
+    fun unpackedCountRequestsStillUseTheRequestedCartQuantity() {
+        val toothpaste = com.example.beta.automation.ParsedItem(
+            rawText = "3 toothpaste",
+            query = "toothpaste",
+            quantity = Quantity.Count(3),
+        )
+        val tube = SwiggyMcpClient.RecommendationCandidate(
+            spinId = "paste",
+            label = "Colgate Strong Teeth Toothpaste · 150 g",
+        )
+
+        assertTrue(isSwiggyCandidateCountCompatible(toothpaste, tube))
+        assertEquals(3, swiggyRequestedCartQuantity(toothpaste, tube))
+    }
+
+    @Test
     fun rejectsMoreThanTwentyFiveItemsInsteadOfSilentlyDroppingThem() {
         val prompts = promptItems.map { it.raw } + "1 extra item"
         val items = prepareSwiggyMcpItems(
