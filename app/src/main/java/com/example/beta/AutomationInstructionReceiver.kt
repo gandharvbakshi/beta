@@ -47,14 +47,38 @@ class AutomationInstructionReceiver : BroadcastReceiver() {
             return
         }
 
+        Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
+        CommerceProviderRouter.selectProviderFromInstruction(instruction)
+        if (
+            CommerceProviderRouter.currentSessionProvider() ==
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
+            SwiggyExecutionMode.usesMcpExperience() &&
+            !CommerceProviderRouter.isOpenCommerceAppInstruction(instruction)
+        ) {
+            val handoffToken = SwiggyOrderHandoff.issue(instruction)
+            runCatching {
+                context.startActivity(
+                    Intent(context, MainActivity::class.java)
+                        .putExtra(SwiggyOrderHandoff.EXTRA_TOKEN, handoffToken)
+                        .addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        )
+                )
+            }.onFailure { error ->
+                SwiggyOrderHandoff.consume(handoffToken)
+                Log.e("BetaAgent", "SWIGGY_MCP_RECEIVER_ROUTE_FAILED: ${error.javaClass.simpleName}")
+            }
+            return
+        }
+
         val service = (context.applicationContext as? MyApplication)?.getScreenCaptureService()
         if (service == null) {
             Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE: $instruction")
             return
         }
 
-        Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
-        CommerceProviderRouter.selectProviderFromInstruction(instruction)
         if (
             CommerceProviderRouter.currentSessionProvider() ==
             CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&

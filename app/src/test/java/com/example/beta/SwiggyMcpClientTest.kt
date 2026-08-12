@@ -91,6 +91,7 @@ class SwiggyMcpClientTest {
                 "confirmation_token": "confirm-123",
                 "changes": [
                   {
+                    "spinId": "pencil-spin",
                     "type": "add",
                     "displayName": "Pencil",
                     "fromQuantity": 0,
@@ -115,6 +116,7 @@ class SwiggyMcpClientTest {
         assertTrue(plan.cartMutationEnabled)
         assertEquals("confirm-123", plan.confirmationToken)
         assertEquals(1, plan.changes.size)
+        assertEquals("pencil-spin", plan.changes[0].spinId)
         assertEquals("add", plan.changes[0].kind)
         assertEquals("Pencil", plan.changes[0].displayName)
         assertEquals(0, plan.changes[0].fromQuantity)
@@ -122,6 +124,43 @@ class SwiggyMcpClientTest {
         assertTrue(apply.verified)
         assertFalse(apply.reconnectRequired)
         assertEquals("Applied", apply.message)
+    }
+
+    @Test
+    fun parseRecommendationBatchKeepsInputOrderAndQueryCorrelation() {
+        val results = SwiggyMcpClient.parseRecommendationBatch(
+            """
+            {
+              "results": [
+                {"query":"milk", "candidates":[{"spinId":"m","label":"Milk"}]},
+                {"query":"bread", "candidates":[{"spinId":"b","label":"Bread"}]}
+              ]
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(listOf("milk", "bread"), results.map { it.query })
+        assertEquals(listOf("m", "b"), results.map { it.candidates.single().spinId })
+    }
+
+    @Test
+    fun malformedBatchCandidatesNeverBecomeAutomaticChoices() {
+        val result = SwiggyMcpClient.parseRecommendationBatch(
+            """
+            {
+              "results": [
+                {
+                  "query":"milk",
+                  "candidates":["invented", {"label":"Missing id"}, {"spinId":"missing-label"}]
+                }
+              ]
+            }
+            """.trimIndent()
+        ).single()
+
+        assertTrue(result.candidates.isEmpty())
+        assertEquals(null, result.suggested)
+        assertTrue(result.requiresConfirmation)
     }
 
     @Test

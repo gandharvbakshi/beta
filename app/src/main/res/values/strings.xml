@@ -39,7 +39,8 @@
     <string name="works_with_instamart">Swiggy Instamart</string>
     <string name="works_with_zepto">Zepto</string>
     <string name="provider_choice_label">Grocery app for this session</string>
-    <string name="provider_choice_note">Swiggy Instamart is selected first and uses the screen-assisted path for now. Change it anytime during this session.</string>
+    <string name="provider_choice_note">Swiggy Instamart is selected first and uses a direct, secure connection. Change the grocery app anytime during this session.</string>
+    <string name="provider_choice_swiggy_mcp">Swiggy Instamart is selected. Beta will connect directly for a faster, more reliable cart experience.</string>
     <string name="provider_choice_swiggy_screen_assisted">Swiggy Instamart is selected. For now, Beta will use the screen you see to help build your cart.</string>
     <string name="provider_selected_for_session">%1$s selected for this session</string>
     <string name="provider_choice_current">%1$s is selected for this session. You can change it anytime.</string>
@@ -60,6 +61,13 @@
     <string name="swiggy_connection_invalid_link">Beta received an invalid Swiggy sign-in link. Please try again later.</string>
     <string name="swiggy_connection_finishing">Finishing your secure Swiggy connection…</string>
     <string name="swiggy_connection_failed">Swiggy could not be connected. Please try again.</string>
+    <string name="swiggy_use_screen_assisted">Use screen-assisted instead</string>
+    <string name="swiggy_use_mcp">Use direct Swiggy connection</string>
+    <string name="swiggy_screen_assisted_status">Screen-assisted fallback</string>
+    <string name="swiggy_screen_assisted_detail">Beta will use accessibility and screen capture for Swiggy in this session. You can return to the direct connection anytime.</string>
+    <string name="swiggy_mode_mcp_selected">Direct Swiggy connection selected.</string>
+    <string name="swiggy_mode_screen_assisted_selected">Screen-assisted Swiggy selected for this session.</string>
+    <string name="swiggy_cart_update_in_progress">Swiggy is finishing the confirmed cart update. Wait for the cart check before changing apps or modes.</string>
     <string name="swiggy_primary_note_disconnected">No screen access is needed for Swiggy. Connect securely in your browser, then speak your grocery list.</string>
     <string name="swiggy_primary_note_ready">Swiggy is connected. Tap below and speak your grocery list.</string>
     <string name="swiggy_primary_action_ready">Speak your Swiggy order</string>

@@ -240,10 +240,12 @@ object SwiggyMcpClient {
     data class Recommendations(
         val candidates: List<RecommendationCandidate>,
         val suggested: RecommendationCandidate? = null,
-        val requiresConfirmation: Boolean = false
+        val requiresConfirmation: Boolean = false,
+        val query: String? = null,
     )
 
     data class CartPlanChange(
+        val spinId: String? = null,
         val kind: String,
         val displayName: String,
         val fromQuantity: Int? = null,
@@ -340,6 +342,27 @@ object SwiggyMcpClient {
             path = path,
             callback = callback,
             parser = ::parseRecommendations
+        )
+    }
+
+    fun fetchRecommendationBatch(
+        context: Context,
+        addressId: String,
+        queries: List<String>,
+        callback: SwiggyCallback<List<Recommendations>>,
+    ) {
+        val body = JSONObject()
+            .put("addressId", addressId)
+            .put("queries", JSONArray().apply { queries.forEach(::put) })
+            .toString()
+        executeJsonRequest(
+            context = context,
+            method = "POST",
+            path = "/swiggy/recommendations/batch",
+            body = body,
+            callback = callback,
+            parser = ::parseRecommendationBatch,
+            timeoutSeconds = 120,
         )
     }
 
@@ -447,35 +470,51 @@ object SwiggyMcpClient {
     }
 
     internal fun parseRecommendations(body: String): Recommendations {
+        return parseRecommendationsValue(parseRoot(body))
+    }
+
+    internal fun parseRecommendationBatch(body: String): List<Recommendations> {
         val root = parseRoot(body)
+        val results = firstArray(root, "results")
+            ?: throw IllegalArgumentException("Swiggy recommendation batch has no results")
+        return results.items.map(::parseRecommendationsValue)
+    }
+
+    private fun parseRecommendationsValue(root: JsonValue?): Recommendations {
         val array = firstArray(root, "candidates", "recommendations", "items", "results")
             ?: JsonValue.Arr(emptyList())
-        val candidates = array.items.mapIndexed { index, value ->
+        val candidates = array.items.mapIndexedNotNull { index, value ->
             when (value) {
-                is JsonValue.Obj -> parseRecommendationCandidate(value, index)
-                is JsonValue.Str -> RecommendationCandidate(
-                    spinId = value.value,
-                    label = normalizeLabel(value.value),
-                    variant = null,
-                    subtitle = null,
-                    suggested = false
-                )
-                else -> RecommendationCandidate(
-                    spinId = index.toString(),
-                    label = "Suggestion ${index + 1}",
-                    variant = null,
-                    subtitle = null,
-                    suggested = false
-                )
+                is JsonValue.Obj -> {
+                    val spinId = firstString(value, "spinId", "spin_id", "id", "productId", "product_id")
+                    val label = firstString(value, "label", "name", "title", "productName", "product_name")
+                    if (spinId.isNullOrBlank() || label.isNullOrBlank()) null
+                    else parseRecommendationCandidate(value, index)
+                }
+                else -> null
             }
         }
         val suggested = firstObject(root, "suggested", "recommended", "default", "primaryCandidate")?.let {
-            parseRecommendationCandidate(it, -1)
-        } ?: candidates.firstOrNull { it.suggested } ?: candidates.firstOrNull()
+            val spinId = firstString(it, "spinId", "spin_id", "id", "productId", "product_id")
+            val label = firstString(it, "label", "name", "title", "productName", "product_name")
+            if (spinId.isNullOrBlank() || label.isNullOrBlank()) null else parseRecommendationCandidate(it, -1)
+        } ?: candidates.firstOrNull { it.suggested }
+        val confirmationValue = findField(
+            root,
+            "requiresConfirmation",
+            "requires_confirmation",
+            "confirmationRequired",
+        )
         return Recommendations(
             candidates = candidates,
             suggested = suggested,
-            requiresConfirmation = isTruthy(root, "requiresConfirmation", "requires_confirmation", "confirmationRequired")
+            requiresConfirmation = confirmationValue == null || isTruthy(
+                root,
+                "requiresConfirmation",
+                "requires_confirmation",
+                "confirmationRequired",
+            ),
+            query = firstString(root, "query"),
         )
     }
 
@@ -538,7 +577,8 @@ object SwiggyMcpClient {
         path: String,
         body: String? = null,
         callback: SwiggyCallback<T>,
-        parser: (String) -> T
+        parser: (String) -> T,
+        timeoutSeconds: Long? = null,
     ) {
         val installationToken = runCatching {
             SwiggyInstallationIdentity.installationToken(context)
@@ -562,7 +602,12 @@ object SwiggyMcpClient {
             else -> requestBuilder.build()
         }
 
-        client.newCall(request).enqueue(object : Callback {
+        val requestClient = timeoutSeconds?.let { seconds ->
+            client.newBuilder().readTimeout(seconds, TimeUnit.SECONDS).build()
+        } ?: client
+        val call = requestClient.newCall(request)
+        timeoutSeconds?.let { call.timeout().timeout(it, TimeUnit.SECONDS) }
+        call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 callback(SwiggyMcpResult.Failure(userMessage = "Unable to reach Swiggy backend right now."))
             }
@@ -685,6 +730,7 @@ object SwiggyMcpClient {
                 ?: "Change ${index + 1}"
         )
         return CartPlanChange(
+            spinId = firstString(value, "spinId", "spin_id", "productId", "product_id"),
             kind = kind,
             displayName = label,
             fromQuantity = firstInt(value, "fromQuantity", "from_quantity", "quantityBefore", "quantity_before"),

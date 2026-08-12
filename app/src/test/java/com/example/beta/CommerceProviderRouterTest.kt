@@ -3,13 +3,57 @@ package com.example.beta
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 
 class CommerceProviderRouterTest {
     @Before
     fun setUp() {
+        SwiggyCartMutationGuard.resetForTests()
         CommerceProviderRouter.resetSession()
+    }
+
+    @After
+    fun tearDown() {
+        SwiggyCartMutationGuard.resetForTests()
+    }
+
+    @Test
+    fun providerSelectionIsLockedDuringConfirmedSwiggyCartMutation() {
+        SwiggyCartMutationGuard.begin()
+
+        CommerceProviderRouter.selectProviderFromUi(CommerceProviderRouter.CommerceProvider.BLINKIT)
+        CommerceProviderRouter.selectProviderFromInstruction("add milk on zepto")
+        val launchDecision = CommerceProviderRouter.routeLaunch(
+            "open blinkit",
+            setOf(
+                installedApp(
+                    CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART,
+                    "in.swiggy.android",
+                ),
+                installedApp(
+                    CommerceProviderRouter.CommerceProvider.BLINKIT,
+                    "com.grofers.customerapp",
+                ),
+            ),
+        )
+
+        assertEquals(
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART,
+            CommerceProviderRouter.currentSessionProvider(),
+        )
+        assertEquals(
+            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART,
+            launchDecision.selectedProvider,
+        )
+
+        SwiggyCartMutationGuard.end()
+        CommerceProviderRouter.selectProviderFromUi(CommerceProviderRouter.CommerceProvider.BLINKIT)
+        assertEquals(
+            CommerceProviderRouter.CommerceProvider.BLINKIT,
+            CommerceProviderRouter.currentSessionProvider(),
+        )
     }
 
     private fun installedApp(

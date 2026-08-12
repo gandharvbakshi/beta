@@ -85,12 +85,14 @@ object CommerceProviderRouter {
 
     @Synchronized
     fun selectProviderFromUi(provider: CommerceProvider): SessionSelection {
+        if (SwiggyCartMutationGuard.isInFlight()) return sessionSelection
         sessionSelection = SessionSelection(provider = provider, source = PreferenceSource.UI)
         return sessionSelection
     }
 
     @Synchronized
     fun selectProviderFromInstruction(instruction: String?): SessionSelection? {
+        if (SwiggyCartMutationGuard.isInFlight()) return null
         val explicitProvider = parseExplicitProvider(instruction) ?: return null
         sessionSelection = SessionSelection(provider = explicitProvider, source = PreferenceSource.VOICE_OR_TEXT)
         return sessionSelection
@@ -145,6 +147,14 @@ object CommerceProviderRouter {
 
     @Synchronized
     fun routeLaunch(instruction: String?, installedApps: Set<InstalledCommerceApp>): LaunchDecision {
+        if (SwiggyCartMutationGuard.isInFlight()) {
+            return decisionForProvider(
+                provider = sessionSelection.provider,
+                source = sessionSelection.source,
+                installedApps = installedApps,
+                fallbackUsed = false,
+            )
+        }
         val explicitProvider = parseExplicitProvider(instruction)
         if (explicitProvider != null) {
             sessionSelection = SessionSelection(provider = explicitProvider, source = PreferenceSource.VOICE_OR_TEXT)

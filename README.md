@@ -19,18 +19,18 @@ This project is an early prototype. It is not production-ready and parts of the 
 - Assisted ordering flows that guide the user step by step
 - Cart-building support for Blinkit, Swiggy Instamart, and Zepto
 
-## Planned Grocery MCP Integration
+## Swiggy MCP Integration (Staged)
 
-Grocery MCP integrations are not live yet.
+The Android and backend support for Swiggy MCP is implemented but has not yet completed live verification. When Swiggy Instamart is selected, the app now uses the direct MCP experience by default and offers the existing screen-assisted path as an explicit, temporary session fallback. Blinkit and Zepto keep their existing screen-assisted behavior.
 
-The plan is to replace brittle screen-based automation with reliable, explicit APIs for commerce actions where supported by providers such as Blinkit, Swiggy Instamart, and Zepto. Once integrated, MCP or provider APIs will be used for:
+Where a supported provider connection is available, MCP or provider APIs may be used for:
 
 - Search and discovery
-- Cart creation and updates
-- Checkout validation (address, timing, fees, availability)
-- Order placement only after explicit user confirmation
+- Product recommendations
+- Cart planning and confirmed updates
+- Cart readback so the user can review the result
 
-Until MCP is integrated, any ordering assistance is best-effort and should be treated as prototype behavior.
+The app does not automate checkout, payment, or order placement. Live Swiggy MCP activation and store testing remain separate approval-gated steps.
 
 ## Architecture
 
@@ -46,18 +46,18 @@ Until MCP is integrated, any ordering assistance is best-effort and should be tr
 - **Android app UI**: voice-first experience, confirmations, and review screens
 - **Intent and flow logic**: determines the next best action and required confirmations
 - **MCP/API client**: performs commerce actions through supported grocery-provider tools
-- **Validation and guardrails**: checks totals, address, delivery slot, and constraints before showing a final confirmation
-- **Explicit confirmation gate**: order placement happens only after the user approves the final summary
+- **Validation and guardrails**: checks the proposed cart and constraints before making cart changes
+- **Review boundary**: stops after cart readback so the user remains in control of checkout and payment
 
 ### 3) User flow
 
 1. User speaks or types an intent, for example "Order a spicy paneer bowl under 250".
 2. The assistant clarifies constraints if needed, for example location, budget, dietary preferences.
-3. The assistant gathers context from the current screen (prototype) or via MCP (target).
+3. The assistant gathers context from the current screen or, for Swiggy, via MCP.
 4. The assistant proposes a short list or a recommended choice.
-5. The assistant builds the cart and validates checkout details.
-6. The assistant presents a final review with total cost and key details.
-7. User explicitly confirms, then the order is placed.
+5. The assistant proposes cart changes for confirmation.
+6. After confirmation, the assistant updates the cart and presents a readback.
+7. The automated flow stops before checkout and payment.
 
 ### 4) Privacy and consent principles
 
@@ -84,5 +84,5 @@ If the project uses local keys or environment configuration, keep them out of gi
 - Improve screen understanding quality (OCR and accessibility parsing)
 - Add robust guided flows with better error handling
 - Introduce a review-and-confirmation summary screen for all ordering actions
-- Integrate supported grocery MCP/provider APIs for search, cart, checkout validation, and order placement
+- Complete approval-gated live verification of Swiggy MCP search and cart updates
 - Add privacy controls and clear consent UX for any captured screen context

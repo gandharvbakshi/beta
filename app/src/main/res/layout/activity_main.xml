@@ -227,6 +227,21 @@
                     android:textColor="@color/white"
                     android:textSize="18sp"
                     android:fontFamily="sans-serif-medium" />
+
+                <Button
+                    android:id="@+id/swiggyExecutionModeAction"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/beta_btn_secondary"
+                    android:contentDescription="@string/swiggy_use_screen_assisted"
+                    android:minHeight="56dp"
+                    android:stateListAnimator="@null"
+                    android:text="@string/swiggy_use_screen_assisted"
+                    android:textAllCaps="false"
+                    android:textColor="@color/beta_text_primary"
+                    android:textSize="18sp"
+                    android:fontFamily="sans-serif-medium" />
             </LinearLayout>
         </LinearLayout>
 

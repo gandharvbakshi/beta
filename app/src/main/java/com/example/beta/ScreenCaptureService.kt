@@ -2382,10 +2382,11 @@ class ScreenCaptureService : Service() {
         isActionSequenceActive = false
         currentSequenceGeneration = -1L
         Log.i("BetaAgent", "SWIGGY_MCP_ROUTE_SELECTED")
+        val handoffToken = SwiggyOrderHandoff.issue(instruction)
         return runCatching {
             startActivity(
                 Intent(this, MainActivity::class.java)
-                    .putExtra(MainActivity.EXTRA_SWIGGY_ORDER_INSTRUCTION, instruction)
+                    .putExtra(SwiggyOrderHandoff.EXTRA_TOKEN, handoffToken)
                     .addFlags(
                         Intent.FLAG_ACTIVITY_NEW_TASK or
                             Intent.FLAG_ACTIVITY_CLEAR_TOP or
@@ -2394,6 +2395,7 @@ class ScreenCaptureService : Service() {
             )
             true
         }.getOrElse { error ->
+            SwiggyOrderHandoff.consume(handoffToken)
             Log.e("BetaAgent", "SWIGGY_MCP_ROUTE_FAILED: ${error.javaClass.simpleName}")
             Toast.makeText(this, "Beta could not open the Swiggy assistant. Please try again.", Toast.LENGTH_LONG).show()
             true
