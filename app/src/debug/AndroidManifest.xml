@@ -7,6 +7,10 @@
             android:name=".AutomationInstructionReceiver"
             android:exported="true"
             tools:replace="android:exported" />
+        <activity
+            android:name=".SwiggyDesignPreviewActivity"
+            android:exported="true"
+            android:label="Swiggy Design Preview" />
     </application>
 
 </manifest>

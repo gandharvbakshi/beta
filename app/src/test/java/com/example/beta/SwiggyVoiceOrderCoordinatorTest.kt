@@ -10,6 +10,38 @@ import org.junit.Test
 
 class SwiggyVoiceOrderCoordinatorTest {
     @Test
+    fun questionCounterCountsOnlyItemsThatNeedAChoice() {
+        val needsQuestion = listOf(false, true, false, true)
+
+        assertEquals(1 to 2, swiggyQuestionPosition(needsQuestion, 1))
+        assertEquals(2 to 2, swiggyQuestionPosition(needsQuestion, 3))
+        assertEquals(null, swiggyQuestionPosition(needsQuestion, 0))
+        assertEquals(null, swiggyQuestionPosition(needsQuestion, 4))
+    }
+
+    @Test
+    fun providerAddedCardAppearsOnlyForAnExplicitFreeGiftOrSample() {
+        assertEquals(
+            "Swiggy also included a free gift at no charge.",
+            swiggyProviderAddedMessage("Swiggy also included a free gift at no charge."),
+        )
+        assertEquals(
+            "Swiggy added a free sample.",
+            swiggyProviderAddedMessage("Swiggy added a free sample."),
+        )
+        assertEquals(null, swiggyProviderAddedMessage("Applied"))
+        assertEquals(null, swiggyProviderAddedMessage(null))
+    }
+
+    @Test
+    fun unavailableItemCountIncludesChosenAndUnprocessedItemsButNotEarlierSkips() {
+        assertEquals(7, swiggyContinuableItemCount(selectedCount = 0, itemCount = 8, unavailableIndex = 0))
+        assertEquals(7, swiggyContinuableItemCount(selectedCount = 3, itemCount = 8, unavailableIndex = 3))
+        assertEquals(6, swiggyContinuableItemCount(selectedCount = 3, itemCount = 8, unavailableIndex = 4))
+        assertEquals(0, swiggyContinuableItemCount(selectedCount = 0, itemCount = 1, unavailableIndex = 0))
+    }
+
+    @Test
     fun rememberedAddressIsReusedOnlyWhenStillAvailable() {
         val home = SwiggyMcpClient.SwiggyAddress("home", "Home", "Home")
         val work = SwiggyMcpClient.SwiggyAddress("work", "Work", "Work")
