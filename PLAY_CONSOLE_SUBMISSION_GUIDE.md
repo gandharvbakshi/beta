@@ -15,21 +15,26 @@ This is the current owner-only checklist for getting `Beta` live on Google Play 
 - App name: `Beta`
 - Package / application ID: `live.betaapp.android`
 - Android namespace: `com.example.beta`
-- Release candidate config: `versionCode 16`, `versionName 0.2.14`
+- Current release config: `versionCode 16`, `versionName 0.2.14`
 - Release backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
 - Local Play Publisher credentials and Beta upload signing files exist in ignored local files.
-- The checked-in `en-US` and default-locale `en-GB` listing candidates disclose
-  the Swiggy MCP-first flow, smart saved-address ranking, voice/text input, the
-  reversible screen-assisted fallback, and the no-checkout boundary. Confirm
-  them by fresh Play API readback after committing the release edit.
+- Fresh Play API readback confirmed that the live-edit `en-US` and
+  default-locale `en-GB` listings disclose the Swiggy MCP-first flow, smart
+  saved-address ranking, voice/text input, the reversible screen-assisted
+  fallback, and the no-checkout boundary. Each locale has four phone, four
+  7-inch tablet, and four 10-inch tablet screenshots.
 - The in-app prominent disclosure was updated.
 - The public privacy policy asset was updated.
 - The existing AccessibilityService review video predates the current Swiggy
   MCP-first flow. Replace it if Play requests a new declaration review; direct
   Swiggy MCP use itself does not invoke AccessibilityService.
-- Before this release, Play API track `beta` had version code `15` assigned with
-  status `completed`, release name `0.2.13 - Swiggy Instamart MCP cart
-  reliability`. Build and verify the signed `0.2.14` AAB before upload.
+- The signed `0.2.14` release AAB was built at
+  `app/build/outputs/bundle/release/app-release.aab`, passed release lint, and
+  its signature, package, version, hosted backend, and non-empty release keys
+  were verified without exposing secrets.
+- Fresh Play API readback confirmed open-testing track `beta` at version code
+  `16`, status `completed`, release name `0.2.14 - Voice and smart Swiggy
+  addresses`.
 - The 2026-08-12 release was uploaded only after a real eight-item Instamart MCP cart mutation was verified on the physical phone and the cart was restored to empty without entering checkout or payment.
 - The raw GitHub privacy-policy and review-video URLs were verified as publicly reachable.
 - Data Safety was not updated by API because there is no current Play Console CSV export/template in the repo.
@@ -88,8 +93,9 @@ Do not use the old SMS Classifier URLs for Beta. Do not use the Beta GitHub Page
 - The 2026-06-04 `0.2.4` upload returned `uploaded_bundle_version_code=6` and committed edit `15314746252293635489`.
 - The 2026-06-04 `0.2.5` upload returned `uploaded_bundle_version_code=7` and committed edit `07289748393267164803`.
 - The 2026-06-06 `0.2.6` upload returned `uploaded_bundle_version_code=8` and committed edit `02021199645127430828`.
-- The 2026-08-15 Play readback showed version code `15`; this release candidate
-  therefore uses `versionCode 16` / `versionName 0.2.14`. Always re-read the
+- The 2026-08-15 release commit used edit `13165206850685336359`. Fresh
+  readback confirmed version code `16` / version name `0.2.14`, both localized
+  descriptions, and all 24 localized screenshot uploads. Always re-read the
   track immediately before a later upload.
 - Do not upload a release AAB unless `BETA_BACKEND_API_KEY` and `BETA_FEEDBACK_API_KEY` are set for `:app:bundleRelease`; a release built without them may install but fail backend calls.
 - On 2026-06-06, `D:\Projects\beta\beta-496723-040570e7b0fa.json` could query Android Publisher, but could not read Secret Manager (`403`). The active `gcloud` user account needed normal PowerShell `gcloud auth login --no-launch-browser --account gandharv@musicaigeneration.com` before it could fetch `BETA_BACKEND_API_KEY` / `BETA_FEEDBACK_API_KEY`.
@@ -99,7 +105,7 @@ Do not use the old SMS Classifier URLs for Beta. Do not use the Beta GitHub Page
 
 ## Play Console Owner Steps
 
-### 1. Confirm The Draft Store Listing
+### 1. Confirm The Store Listing
 
 Check that the long description explicitly says `AccessibilityService`, names Swiggy Instamart and Blinkit, and describes the current Swiggy MCP-first flow with the reversible screen-assisted fallback:
 
