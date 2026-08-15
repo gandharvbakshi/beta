@@ -230,6 +230,8 @@ object SwiggyMcpClient {
         val label: String,
         val normalizedLabel: String = label,
         val shortLabel: String = normalizedLabel,
+        val categoryLabel: String = shortLabel.substringBefore(" —").trim(),
+        val confirmationDetail: String? = null,
     )
 
     data class RecommendationCandidate(
@@ -333,6 +335,20 @@ object SwiggyMcpClient {
                     )
                 }
             }
+        )
+    }
+
+    fun fetchRecentAddressIds(context: Context, callback: SwiggyCallback<List<String>>) {
+        executeJsonRequest(
+            context = context,
+            method = "GET",
+            path = "/swiggy/orders",
+            callback = callback,
+            parser = { body ->
+                parseRecentAddressIds(body).also { ids ->
+                    Log.i("BetaAgent", "SWIGGY_MCP_RECENT_ADDRESS_IDS_PARSED count=${ids.size}")
+                }
+            },
         )
     }
 
@@ -485,6 +501,18 @@ object SwiggyMcpClient {
 
     internal fun parseRecommendations(body: String): Recommendations {
         return parseRecommendationsValue(parseRoot(body))
+    }
+
+    internal fun parseRecentAddressIds(body: String): List<String> {
+        val root = parseRoot(body)
+        val orders = firstArray(root, "orders", "results") ?: return emptyList()
+        return orders.items.mapNotNull { value ->
+            val order = value as? JsonValue.Obj ?: return@mapNotNull null
+            firstString(order, "deliveryAddressId", "delivery_address_id")
+                ?: firstObject(order, "deliveryAddress", "delivery_address")?.let { address ->
+                    firstString(address, "addressId", "address_id", "id")
+                }
+        }.filter(String::isNotBlank).distinct()
     }
 
     internal fun parseRecommendationBatch(body: String): List<Recommendations> {
@@ -725,16 +753,21 @@ object SwiggyMcpClient {
         val providerId = firstString(value, "id", "addressId", "address_id", "value", "placeId", "place_id")
             ?.trim()
             .orEmpty()
+        val category = firstString(value, "addressCategory", "address_category", "category", "type")
+        val tag = firstString(value, "addressTag", "address_tag", "tag")
+        val categoryLabel = conciseAddressCategory(category, tag, index)
         return SwiggyAddress(
             id = providerId,
             label = label,
             normalizedLabel = label,
             shortLabel = conciseAddressLabel(
                 fullLabel = label,
-                category = firstString(value, "addressCategory", "address_category", "category", "type"),
-                tag = firstString(value, "addressTag", "address_tag", "tag"),
+                category = category,
+                tag = tag,
                 index = index,
             ),
+            categoryLabel = categoryLabel,
+            confirmationDetail = conciseAddressConfirmationDetail(label, categoryLabel),
         )
     }
 
@@ -744,12 +777,48 @@ object SwiggyMcpClient {
         tag: String?,
         index: Int,
     ): String {
-        val categoryLabel = readableAddressName(category).takeIf(::isUsefulAddressName)
-        val tagLabel = readableAddressName(tag).takeIf(::isUsefulAddressName)
-        val name = categoryLabel ?: tagLabel ?: "Saved address ${index + 1}"
+        val name = conciseAddressCategory(category, tag, index)
         val locality = deriveAddressLocality(fullLabel)
             ?.takeUnless { it.equals(name, ignoreCase = true) }
         return listOfNotNull(name, locality).joinToString(" — ").take(64)
+    }
+
+    private fun conciseAddressCategory(category: String?, tag: String?, index: Int): String {
+        val categoryLabel = readableAddressName(category).takeIf(::isUsefulAddressName)
+        val tagLabel = readableAddressName(tag).takeIf(::isUsefulAddressName)
+        return categoryLabel ?: tagLabel ?: "Saved address ${index + 1}"
+    }
+
+    internal fun conciseAddressConfirmationDetail(
+        fullLabel: String,
+        categoryLabel: String,
+    ): String? {
+        val segments = normalizeLabel(fullLabel)
+            .split(',')
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .filterNot { it.equals(categoryLabel, ignoreCase = true) }
+            .filterNot { segment ->
+                val normalized = segment.lowercase()
+                normalized in setOf("india", "bharat") ||
+                    normalized in INDIAN_STATE_NAMES ||
+                    Regex("^\\d{6}$").matches(normalized)
+            }
+        if (segments.isEmpty()) return null
+
+        val first = segments[0].take(32)
+        if (segments.size == 1) return first
+        val second = segments[1].take(40)
+        val structuralSecond = Regex(
+            "\\b(block|floor|wing|tower|building|apartment|flat)\\b",
+            RegexOption.IGNORE_CASE,
+        ).containsMatchIn(second)
+        val detail = if (structuralSecond && segments.size >= 3) {
+            "$first, $second in ${segments[2].take(48)}"
+        } else {
+            "$first in $second"
+        }
+        return detail.take(96)
     }
 
     private fun isUsefulAddressName(value: String): Boolean {

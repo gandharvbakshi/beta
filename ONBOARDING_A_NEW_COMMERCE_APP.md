@@ -1,5 +1,7 @@
 # Onboarding a New Grocery/Commerce App Adapter
 
+> Archive note (2026-08-15): the Zepto observations below are inactive restoration research. Zepto is not compiled, routed, advertised, or tested in the current product. The exact pre-removal source snapshot is recorded in `archive/zepto/README.md`.
+
 Use this as the fast-start checklist when adding a new shopping app adapter.
 It is intentionally practical: learn the app, define the guardrails, prove
 search-and-cart behavior, and only then widen the test matrix.

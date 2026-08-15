@@ -14,7 +14,9 @@ import com.example.beta.automation.PreferenceStore
 import com.example.beta.automation.Quantity
 import com.example.beta.automation.backendInputText
 
-internal const val MAX_SWIGGY_MCP_ITEMS = 25
+internal const val MAX_SWIGGY_MCP_ITEMS = 50
+internal const val SWIGGY_RECOMMENDATION_BATCH_SIZE = 25
+internal const val SWIGGY_ADDRESS_PAGE_SIZE = 8
 
 internal fun prepareSwiggyMcpItems(
     instruction: String,
@@ -125,6 +127,20 @@ internal fun swiggyAddressChoiceLabels(addresses: List<SwiggyAddress>): List<Str
     }
 }
 
+internal fun swiggySpokenAddressConfirmation(address: SwiggyAddress): String {
+    val category = address.categoryLabel.trim().ifBlank { "saved address" }
+    val prefix = if (category.startsWith("Saved address", ignoreCase = true)) {
+        "You have selected your $category"
+    } else {
+        "You have selected your address marked $category"
+    }
+    return address.confirmationDetail
+        ?.trim()
+        ?.takeIf(String::isNotBlank)
+        ?.let { "$prefix, which is $it." }
+        ?: "$prefix."
+}
+
 internal fun swiggyRecommendationQuery(item: ParsedItem): String {
     val quantityAware = when (item.quantity) {
         is Quantity.Count, is Quantity.Weight, is Quantity.Volume -> item.backendInputText()
@@ -198,6 +214,8 @@ class SwiggyVoiceOrderCoordinator(
     private var operationGeneration = 0L
     private var mutationInFlight = false
     private val stepDialog = SwiggyOrderStepDialog(activity)
+    private val addressIntelligence = SwiggyAddressIntelligence(activity.applicationContext)
+    private var addressSuggestionReasons: Map<String, String> = emptyMap()
     private var selectedAddressId: String? = null
     private var selectedAddressAtElapsedRealtime = 0L
 
@@ -231,7 +249,7 @@ class SwiggyVoiceOrderCoordinator(
         SwiggyMcpClient.fetchAddresses(activity) { result ->
             onUi(operationId) {
                 when (result) {
-                    is SwiggyMcpResult.Success -> chooseAddress(operationId, result.value, items)
+                    is SwiggyMcpResult.Success -> rankAndChooseAddress(operationId, result.value, items)
                     is SwiggyMcpResult.Failure -> fail(operationId, result)
                 }
             }
@@ -256,6 +274,26 @@ class SwiggyVoiceOrderCoordinator(
 
     fun isMutationInFlight(): Boolean = mutationInFlight
 
+    private fun rankAndChooseAddress(
+        operationId: Long,
+        addresses: List<SwiggyAddress>,
+        items: List<ParsedItem>,
+    ) {
+        SwiggyMcpClient.fetchRecentAddressIds(activity) { result ->
+            onUi(operationId) {
+                val recentAddressIds = (result as? SwiggyMcpResult.Success)?.value.orEmpty()
+                addressIntelligence.rank(addresses, recentAddressIds) { ranked ->
+                    onUi(operationId) {
+                        addressSuggestionReasons = ranked
+                            .mapNotNull { entry -> entry.reason?.let { entry.address.id to it } }
+                            .toMap()
+                        chooseAddress(operationId, ranked.map(RankedSwiggyAddress::address), items)
+                    }
+                }
+            }
+        }
+    }
+
     private fun showYourList(operationId: Long, items: List<ParsedItem>, caption: String) {
         stepDialog.show(
             SwiggyStepScreen(
@@ -277,14 +315,20 @@ class SwiggyVoiceOrderCoordinator(
         )
     }
 
-    private fun chooseAddress(operationId: Long, addresses: List<SwiggyAddress>, items: List<ParsedItem>) {
-        val usable = addresses.filter { it.id.isNotBlank() }.take(MAX_ADDRESSES)
+    private fun chooseAddress(
+        operationId: Long,
+        addresses: List<SwiggyAddress>,
+        items: List<ParsedItem>,
+        pageIndex: Int = 0,
+        allowRememberedAddress: Boolean = true,
+    ) {
+        val usable = addresses.filter { it.id.isNotBlank() }.distinctBy { it.id }.take(MAX_ADDRESSES)
         if (usable.isEmpty()) {
             finish(operationId, "No saved Swiggy delivery address was found. Add an address in Swiggy, then try again.")
             return
         }
         if (
-            isRememberedSwiggyAddressFresh(
+            allowRememberedAddress && isRememberedSwiggyAddressFresh(
                 selectedAtElapsedRealtime = selectedAddressAtElapsedRealtime,
                 nowElapsedRealtime = SystemClock.elapsedRealtime(),
                 ttlMillis = ADDRESS_CONFIRMATION_TTL_MS,
@@ -329,17 +373,27 @@ class SwiggyVoiceOrderCoordinator(
             }
         }
         clearRememberedAddress()
-        val caption = "Choose the saved Swiggy delivery address for this cart."
+        val pageCount = (usable.size + SWIGGY_ADDRESS_PAGE_SIZE - 1) / SWIGGY_ADDRESS_PAGE_SIZE
+        val safePageIndex = pageIndex.coerceIn(0, pageCount - 1)
+        val pageStart = safePageIndex * SWIGGY_ADDRESS_PAGE_SIZE
+        val pageEnd = minOf(pageStart + SWIGGY_ADDRESS_PAGE_SIZE, usable.size)
+        val labels = swiggyAddressChoiceLabels(usable)
+        val suggested = usable.firstOrNull()?.takeIf { addressSuggestionReasons.containsKey(it.id) }
+        val caption = suggested?.let {
+            "${it.shortLabel} is suggested. Choose it or another saved Swiggy delivery address. Showing ${pageStart + 1} to $pageEnd of ${usable.size}."
+        } ?: "Choose the saved Swiggy delivery address for this cart. Showing ${pageStart + 1} to $pageEnd of ${usable.size}."
         stepDialog.show(
             SwiggyStepScreen(
                 eyebrow = "Step 1 of 4 · Delivery address",
                 title = "Where should Swiggy deliver?",
-                message = "Choose one saved address. Beta shows only the short name here and searches every item again if you change it.",
+                message = "Choose one saved address. Beta shows ${SWIGGY_ADDRESS_PAGE_SIZE.coerceAtMost(usable.size)} at a time so the list stays easy to read.",
                 caption = caption,
-                choices = swiggyAddressChoiceLabels(usable).mapIndexed { index, label ->
+                choices = (pageStart until pageEnd).map { index ->
                     SwiggyStepChoice(
-                        title = label,
-                        detail = "Saved in Swiggy",
+                        title = labels[index],
+                        detail = addressSuggestionReasons[usable[index].id]
+                            ?.let { reason -> "Suggested · $reason" }
+                            ?: "Saved in Swiggy",
                         onClick = {
                             if (isCurrent(operationId)) {
                                 rememberAddress(usable[index])
@@ -348,6 +402,32 @@ class SwiggyVoiceOrderCoordinator(
                         },
                     )
                 },
+                primary = if (pageEnd < usable.size) {
+                    SwiggyStepAction("Show next ${minOf(SWIGGY_ADDRESS_PAGE_SIZE, usable.size - pageEnd)} addresses") {
+                        if (isCurrent(operationId)) {
+                            chooseAddress(
+                                operationId,
+                                usable,
+                                items,
+                                pageIndex = safePageIndex + 1,
+                                allowRememberedAddress = false,
+                            )
+                        }
+                    }
+                } else null,
+                secondary = if (safePageIndex > 0) {
+                    SwiggyStepAction("Show previous addresses") {
+                        if (isCurrent(operationId)) {
+                            chooseAddress(
+                                operationId,
+                                usable,
+                                items,
+                                pageIndex = safePageIndex - 1,
+                                allowRememberedAddress = false,
+                            )
+                        }
+                    }
+                } else null,
                 tertiary = SwiggyStepAction(activity.getString(R.string.swiggy_step_cancel_list)) {
                     cancelAndDismiss(operationId, "Swiggy cart changes cancelled.")
                 },
@@ -363,7 +443,32 @@ class SwiggyVoiceOrderCoordinator(
         items: List<ParsedItem>,
     ) {
         val queries = items.map(::swiggyRecommendationQuery)
-        val caption = "Finding options for all ${items.size} items using your recent Swiggy choices."
+        val strictMatchPhrases = items.map { it.strictMatchPhrase }
+        showRecommendationProgress(operationId, address, items, completedCount = 0)
+        fetchRecommendationChunk(
+            operationId = operationId,
+            address = address,
+            items = items,
+            queries = queries,
+            strictMatchPhrases = strictMatchPhrases,
+            offset = 0,
+            accumulated = mutableListOf(),
+        )
+    }
+
+    private fun showRecommendationProgress(
+        operationId: Long,
+        address: SwiggyAddress,
+        items: List<ParsedItem>,
+        completedCount: Int,
+    ) {
+        if (!isCurrent(operationId)) return
+        val batchEnd = minOf(completedCount + SWIGGY_RECOMMENDATION_BATCH_SIZE, items.size)
+        val caption = if (items.size <= SWIGGY_RECOMMENDATION_BATCH_SIZE) {
+            "Finding options for all ${items.size} items using your recent Swiggy choices."
+        } else {
+            "Finding options for items ${completedCount + 1} to $batchEnd of ${items.size}."
+        }
         stepDialog.show(
             SwiggyStepScreen(
                 eyebrow = "Step 2 of 4 · Searching",
@@ -371,41 +476,81 @@ class SwiggyVoiceOrderCoordinator(
                 message = activity.getString(R.string.swiggy_step_progress_detail),
                 caption = caption,
                 rows = items.mapIndexed { index, item ->
-                    val searching = index < 2
+                    val completed = index < completedCount
+                    val searching = index in completedCount until minOf(completedCount + 4, batchEnd)
+                    val queuedInBatch = index in completedCount until batchEnd
                     SwiggyStepRow(
                         title = displayItem(item),
-                        detail = if (searching) "Searching live stock at ${address.shortLabel}" else "Waiting in your list order",
-                        badge = if (searching) "Searching" else "Queued",
-                        tone = if (searching) SwiggyStepTone.AMBER else SwiggyStepTone.NEUTRAL,
+                        detail = when {
+                            completed -> "Options found in your list order"
+                            searching -> "Searching live stock at ${address.shortLabel}"
+                            queuedInBatch -> "Queued in this search group"
+                            else -> "Waiting in your list order"
+                        },
+                        badge = when {
+                            completed -> "Found"
+                            searching -> "Searching"
+                            else -> "Queued"
+                        },
+                        tone = when {
+                            completed -> SwiggyStepTone.SUCCESS
+                            searching -> SwiggyStepTone.AMBER
+                            else -> SwiggyStepTone.NEUTRAL
+                        },
                     )
                 },
-                safetyNote = "At most two searches run together. Beta keeps every result in the order you said it.",
+                safetyNote = "Beta searches a few products at a time and keeps every result in the order you said it.",
                 cancel = { cancelAndDismiss(operationId, "Swiggy cart changes cancelled.") },
             )
         )
         announce(caption)
+    }
+
+    private fun fetchRecommendationChunk(
+        operationId: Long,
+        address: SwiggyAddress,
+        items: List<ParsedItem>,
+        queries: List<String>,
+        strictMatchPhrases: List<String?>,
+        offset: Int,
+        accumulated: MutableList<Recommendations>,
+    ) {
+        if (!isCurrent(operationId)) return
+        if (offset >= queries.size) {
+            if (!areSwiggyRecommendationsOrdered(accumulated, queries)) {
+                finish(operationId, "Swiggy returned incomplete or out-of-order choices. Nothing was changed.")
+                return
+            }
+            announce("Found options for all ${items.size} items. Reviewing them in your list order.")
+            chooseCandidate(operationId, address, items, accumulated, 0, mutableListOf())
+            return
+        }
+        if (offset > 0) {
+            showRecommendationProgress(operationId, address, items, completedCount = offset)
+        }
+        val end = minOf(offset + SWIGGY_RECOMMENDATION_BATCH_SIZE, queries.size)
+        val batchQueries = queries.subList(offset, end)
         SwiggyMcpClient.fetchRecommendationBatch(
             context = activity,
             addressId = address.id,
-            queries = queries,
-            strictMatchPhrases = items.map { it.strictMatchPhrase },
+            queries = batchQueries,
+            strictMatchPhrases = strictMatchPhrases.subList(offset, end),
         ) { result ->
             onUi(operationId) {
                 when (result) {
                     is SwiggyMcpResult.Success -> {
-                        val recommendations = result.value
-                        val orderMatches = areSwiggyRecommendationsOrdered(recommendations, queries)
-                        if (!orderMatches) {
+                        if (!areSwiggyRecommendationsOrdered(result.value, batchQueries)) {
                             finish(operationId, "Swiggy returned incomplete or out-of-order choices. Nothing was changed.")
                         } else {
-                            announce("Found options for all ${items.size} items. Reviewing them in your list order.")
-                            chooseCandidate(
+                            accumulated += result.value
+                            fetchRecommendationChunk(
                                 operationId,
                                 address,
                                 items,
-                                recommendations,
-                                0,
-                                mutableListOf(),
+                                queries,
+                                strictMatchPhrases,
+                                offset = end,
+                                accumulated = accumulated,
                             )
                         }
                     }
@@ -549,13 +694,14 @@ class SwiggyVoiceOrderCoordinator(
             )
         }
         val caption = "Reading your current Swiggy cart and preparing the exact changes."
+        val addressConfirmation = swiggySpokenAddressConfirmation(address)
 
         if (!plan.cartMutationEnabled) {
             stepDialog.show(
                 SwiggyStepScreen(
                     eyebrow = "Step 3 of 4 · Cart preview",
                     title = "Check these cart changes",
-                    message = "Deliver to ${address.shortLabel}. Cart updates are not enabled on the Beta backend, so this is a preview only.",
+                    message = "$addressConfirmation Cart updates are not enabled on the Beta backend, so this is a preview only.",
                     caption = caption,
                     rows = rows,
                     safetyNote = activity.getString(R.string.swiggy_step_no_checkout),
@@ -568,6 +714,7 @@ class SwiggyVoiceOrderCoordinator(
                     cancel = { completeAndDismiss(operationId, "Your Swiggy cart preview is ready. Nothing was changed.") },
                 )
             )
+            announce(addressConfirmation)
             return
         }
 
@@ -575,7 +722,7 @@ class SwiggyVoiceOrderCoordinator(
             SwiggyStepScreen(
                 eyebrow = "Step 4 of 4 · Review",
                 title = "Please check these cart changes",
-                message = "Deliver to ${address.shortLabel}. " + activity.getString(
+                message = "$addressConfirmation " + activity.getString(
                     if (cartStartsEmpty) R.string.swiggy_step_review_empty else R.string.swiggy_step_review_existing
                 ),
                 caption = caption,
@@ -595,6 +742,7 @@ class SwiggyVoiceOrderCoordinator(
                 cancel = { cancelAndDismiss(operationId, "Swiggy cart changes cancelled.") },
             )
         )
+        announce("$addressConfirmation Please review these cart changes before anything is added.")
     }
 
     private fun restartAddressSelection(
@@ -607,7 +755,7 @@ class SwiggyVoiceOrderCoordinator(
         SwiggyMcpClient.fetchAddresses(activity) { result ->
             onUi(operationId) {
                 when (result) {
-                    is SwiggyMcpResult.Success -> chooseAddress(operationId, result.value, items)
+                    is SwiggyMcpResult.Success -> rankAndChooseAddress(operationId, result.value, items)
                     is SwiggyMcpResult.Failure -> fail(operationId, result)
                 }
             }
@@ -617,6 +765,7 @@ class SwiggyVoiceOrderCoordinator(
     private fun rememberAddress(address: SwiggyAddress) {
         selectedAddressId = address.id
         selectedAddressAtElapsedRealtime = SystemClock.elapsedRealtime()
+        addressIntelligence.recordSelection(address.id)
         onAddressChanged(address.shortLabel)
     }
 

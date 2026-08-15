@@ -1,4 +1,11 @@
 pluginManagement {
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == "com.android.application") {
+                useModule("com.android.tools.build:gradle:8.13.1")
+            }
+        }
+    }
     repositories {
         google {
             content {
@@ -21,4 +28,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "beta"
 include(":app")
- 

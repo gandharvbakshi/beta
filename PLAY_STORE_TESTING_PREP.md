@@ -46,7 +46,7 @@ Normal Gradle builds do not auto-start logcat capture. Set
 
 ## Policy Checklist
 
-- AccessibilityService disclosure appears before a Blinkit, Swiggy Instamart, or Zepto screen-automation flow starts.
+- AccessibilityService disclosure appears before a Blinkit or optional Swiggy screen-assisted flow starts.
 - AccessibilityService description explains cart-building assistance,
   stop-before-payment behavior, backend processing, and visible grocery-screen
   data that may include name, precise delivery location, and address if shown.
@@ -76,13 +76,16 @@ Normal Gradle builds do not auto-start logcat capture. Set
   - feedback text
   - optional diagnostics logs
   - app/device version metadata
-  - screen/accessibility-derived data used for Blinkit, Swiggy Instamart, and
-    Zepto automation
+  - screen/accessibility-derived data used for Blinkit and the optional Swiggy
+    screen-assisted automation
   - direct Swiggy saved addresses, selected address, address-specific catalog
     results, go-to/recent-order product metadata, current cart contents, and
     pseudonymous installation identity
-  - precise location, name, and physical address if visible in Blinkit, Swiggy
-    Instamart, or Zepto screens during the user-started flow
+  - approximate and precise current device location when the user enables smart
+    address suggestions; Beta reverse-geocodes it on-device only to rank saved
+    Swiggy addresses and does not send or persist raw GPS coordinates
+  - precise location, name, and physical address if visible in Blinkit or the
+    optional Swiggy screen-assisted flow
 - Complete AccessibilityService declaration.
 - Before the next Play release, replace the existing review video with one that
   shows the Swiggy MCP connection and saved-address/cart confirmation flow, plus
@@ -99,7 +102,7 @@ Normal Gradle builds do not auto-start logcat capture. Set
    saved address, adds only the requested item, verifies the cart, and stops
    before checkout/payment.
 5. Switch to the screen-assisted fallback and verify its prominent disclosure.
-6. Run one Blinkit cart-only order and one Zepto cart-only order.
+6. Run one Blinkit cart-only smoke test and confirm the app stops before checkout/payment.
 7. Submit "Worked" feedback.
 8. Submit "Report issue" feedback with logs enabled.
 9. Verify both feedback rows reach the backend.

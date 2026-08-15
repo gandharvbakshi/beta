@@ -48,8 +48,8 @@ android {
         applicationId = "live.betaapp.android"
         minSdk = 33
         targetSdk = 36
-        versionCode = configIntValue("BETA_VERSION_CODE", 15)
-        versionName = configValue("BETA_VERSION_NAME", "0.2.13")
+        versionCode = configIntValue("BETA_VERSION_CODE", 16)
+        versionName = configValue("BETA_VERSION_NAME", "0.2.14")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

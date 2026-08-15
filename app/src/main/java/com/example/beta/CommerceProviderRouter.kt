@@ -21,12 +21,6 @@ object CommerceProviderRouter {
             packageAliases = listOf("com.grofers.customerapp"),
             aliases = setOf("blinkit", "grofers"),
         ),
-        ZEPTO(
-            appName = "Zepto",
-            packageName = "com.zeptoconsumerapp",
-            packageAliases = listOf("com.zeptoconsumerapp"),
-            aliases = setOf("zepto"),
-        ),
     }
 
     enum class PreferenceSource {
@@ -59,7 +53,9 @@ object CommerceProviderRouter {
     private val supportedProvidersInFallbackOrder = listOf(
         CommerceProvider.SWIGGY_INSTAMART,
         CommerceProvider.BLINKIT,
-        CommerceProvider.ZEPTO,
+    )
+    private val unsupportedProviderAliases = linkedMapOf(
+        "zepto" to "Zepto",
     )
 
     private var sessionSelection: SessionSelection = SessionSelection(
@@ -68,6 +64,13 @@ object CommerceProviderRouter {
     )
 
     fun supportedProviders(): List<CommerceProvider> = supportedProvidersInFallbackOrder
+
+    fun unsupportedProviderName(instruction: String?): String? {
+        val normalized = normalize(instruction)
+        return unsupportedProviderAliases.entries
+            .firstOrNull { (alias, _) -> normalized.containsWord(alias) }
+            ?.value
+    }
 
     @Synchronized
     fun resetSession() {
@@ -103,7 +106,7 @@ object CommerceProviderRouter {
         if (trimmed.isBlank() || isOpenCommerceAppInstruction(trimmed)) return trimmed
 
         val safeUseForPattern = Regex(
-            "^(?:please\\s+)?use\\s+(swiggy|instamart|blinkit|grofers|zepto)\\s+for\\s+(.+?)(?:\\s+please)?$",
+            "^(?:please\\s+)?use\\s+(swiggy|instamart|blinkit|grofers)\\s+for\\s+(.+?)(?:\\s+please)?$",
             RegexOption.IGNORE_CASE,
         )
         safeUseForPattern.matchEntire(trimmed)?.let { match ->
@@ -113,7 +116,7 @@ object CommerceProviderRouter {
         return trimmed
             .replace(
                 Regex(
-                    "\\b(?:from|on|via|using)\\s+(swiggy|instamart|blinkit|grofers|zepto)(?:\\s+please)?[.!]?$",
+                    "\\b(?:from|on|via|using)\\s+(swiggy|instamart|blinkit|grofers)(?:\\s+please)?[.!]?$",
                     RegexOption.IGNORE_CASE,
                 ),
                 "",
@@ -207,7 +210,7 @@ object CommerceProviderRouter {
                 selectedProvider = CommerceProvider.SWIGGY_INSTAMART,
                 appName = CommerceProvider.SWIGGY_INSTAMART.appName,
                 packageName = CommerceProvider.SWIGGY_INSTAMART.packageName,
-                message = "Swiggy Instamart is unavailable. Install Swiggy Instamart, Blinkit, or Zepto to use Beta grocery automation.",
+                message = "Swiggy Instamart is unavailable. Install Swiggy Instamart or Blinkit to use Beta grocery automation.",
                 preferenceSource = PreferenceSource.DEFAULT,
                 fallbackUsed = false,
                 launchable = false,

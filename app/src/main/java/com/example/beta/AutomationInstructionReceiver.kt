@@ -46,8 +46,17 @@ class AutomationInstructionReceiver : BroadcastReceiver() {
             Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_EMPTY")
             return
         }
+        CommerceProviderRouter.unsupportedProviderName(instruction)?.let { providerName ->
+            Toast.makeText(
+                context,
+                context.getString(R.string.provider_not_supported, providerName),
+                Toast.LENGTH_LONG,
+            ).show()
+            Log.i("BetaAgent", "ORDER_INSTRUCTION_REJECTED_UNSUPPORTED_PROVIDER provider=$providerName")
+            return
+        }
 
-        Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
+        Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED characters=${instruction.length}")
         CommerceProviderRouter.selectProviderFromInstruction(instruction)
         if (
             CommerceProviderRouter.currentSessionProvider() ==
@@ -75,7 +84,7 @@ class AutomationInstructionReceiver : BroadcastReceiver() {
 
         val service = (context.applicationContext as? MyApplication)?.getScreenCaptureService()
         if (service == null) {
-            Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE: $instruction")
+            Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE characters=${instruction.length}")
             return
         }
 
@@ -91,7 +100,7 @@ class AutomationInstructionReceiver : BroadcastReceiver() {
             val launchResult = CommerceAppLauncher.launchPreferred(context, instruction)
             if (!launchResult.launched) {
                 Toast.makeText(context, launchResult.message, Toast.LENGTH_LONG).show()
-                Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_COMMERCE_APP: $instruction")
+                Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_COMMERCE_APP characters=${instruction.length}")
                 return
             }
             Toast.makeText(context, launchResult.message, Toast.LENGTH_SHORT).show()

@@ -1,6 +1,6 @@
 # Beta Privacy Policy Draft
 
-Beta helps users add requested grocery items to a supported grocery app cart, currently Blinkit, Swiggy Instamart, or Zepto.
+Beta helps users add requested grocery items to a supported grocery app cart, currently Swiggy Instamart or Blinkit.
 For Swiggy Instamart, Beta uses MCP first and keeps a reversible screen-assisted fallback if needed.
 It stops before payment and requires the user to review the cart.
 
@@ -11,7 +11,7 @@ It stops before payment and requires the user to review the cart.
   encrypted Swiggy connection token, saved address details, address-specific
   product results and availability, go-to and recent-order product history,
   current cart contents, and the user's selected address.
-- For Blinkit, Zepto, and the optional Swiggy screen-assisted fallback: screen
+- For Blinkit and the optional Swiggy screen-assisted fallback: screen
   capture and AccessibilityService information while a user-started
   cart-building flow is running.
 - Visible supported grocery app screen details that may include product names, prices,
@@ -19,6 +19,9 @@ It stops before payment and requires the user to review the cart.
 - App version, build type, device model, Android version, and order result.
 - Optional feedback text.
 - Optional diagnostic logs when the user enables log sharing.
+- If the user grants location permission, the current device location is
+  reverse-geocoded on the phone only to rank nearby saved Swiggy addresses.
+  Raw GPS coordinates are not sent to Beta's backend or persisted by Beta.
 
 ## Why Data Is Used
 
@@ -32,12 +35,14 @@ It stops before payment and requires the user to review the cart.
 ## User Control
 
 - The user starts each automation flow.
-- The user explicitly chooses a saved Swiggy address before direct MCP product
-  discovery. Beta does not infer or change it from GPS.
+- Beta can suggest a saved Swiggy address using recent choices and, with
+  optional permission, an on-device current-location match. The user still
+  explicitly chooses and confirms the address before direct MCP product discovery.
 - Swiggy Instamart uses MCP first, while the screen-assisted fallback remains
   available if needed.
 - Beta stops before checkout/payment.
-- Beta does not use GPS as the authoritative delivery selector.
+- Beta does not use GPS as the authoritative delivery selector or silently
+  change a delivery address.
 - Beta may use learned grocery preferences, including shorthand category words
   that resolve to a specific item, to reduce repeated typing without adding
   per-order latency.

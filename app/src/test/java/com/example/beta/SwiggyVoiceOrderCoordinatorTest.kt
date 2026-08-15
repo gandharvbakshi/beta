@@ -10,6 +10,22 @@ import org.junit.Test
 
 class SwiggyVoiceOrderCoordinatorTest {
     @Test
+    fun spokenAddressConfirmationUsesCategoryAndShortPrivateDetail() {
+        val address = SwiggyMcpClient.SwiggyAddress(
+            id = "home",
+            label = "8/18, Lynwood Avenue, Bengaluru, Karnataka, 560047, India",
+            shortLabel = "Home — Bengaluru",
+            categoryLabel = "Home",
+            confirmationDetail = "8/18 in Lynwood Avenue",
+        )
+
+        assertEquals(
+            "You have selected your address marked Home, which is 8/18 in Lynwood Avenue.",
+            swiggySpokenAddressConfirmation(address),
+        )
+    }
+
+    @Test
     fun questionCounterCountsOnlyItemsThatNeedAChoice() {
         val needsQuestion = listOf(false, true, false, true)
 
@@ -129,7 +145,7 @@ class SwiggyVoiceOrderCoordinatorTest {
     }
 
     @Test
-    fun preparesTwentyFiveItemPromptAtTheCurrentSwiggyItemLimit() {
+    fun preparesTwentyFiveItemPromptWithinTheSwiggyItemLimit() {
         val items = prepareSwiggyMcpItems(promptSlice(25), lookup = { null })
 
         assertEquals(25, items.size)
@@ -320,17 +336,31 @@ class SwiggyVoiceOrderCoordinatorTest {
     }
 
     @Test
-    fun rejectsMoreThanTwentyFiveItemsInsteadOfSilentlyDroppingThem() {
-        val prompts = promptItems.map { it.raw } + "1 extra item"
-        val items = prepareSwiggyMcpItems(
-            instruction = prompts.joinToString(", "),
-            lookup = { null },
-        )
+    fun acceptsFiftyItemsAcrossTwoOrderedDiscoveryBatches() {
+        val items = (1..50).map { index ->
+            com.example.beta.automation.ParsedItem(
+                rawText = "item $index",
+                query = "item $index",
+            )
+        }
 
-        assertEquals(26, items.size)
+        assertEquals(50, items.size)
+        assertEquals(25, SWIGGY_RECOMMENDATION_BATCH_SIZE)
+        assertEquals(null, swiggyMcpItemValidationMessage("fifty-item list", items))
+    }
+
+    @Test
+    fun rejectsMoreThanFiftyItemsInsteadOfSilentlyDroppingThem() {
+        val items = (1..51).map { index ->
+            com.example.beta.automation.ParsedItem(
+                rawText = "item $index",
+                query = "item $index",
+            )
+        }
+
         assertEquals(
-            "Swiggy supports up to 25 items in one Beta cart run. Please split this list so nothing is skipped.",
-            swiggyMcpItemValidationMessage(prompts.joinToString(", "), items),
+            "Swiggy supports up to 50 items in one Beta cart run. Please split this list so nothing is skipped.",
+            swiggyMcpItemValidationMessage("fifty-one-item list", items),
         )
     }
 

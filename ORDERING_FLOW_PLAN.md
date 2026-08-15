@@ -1,5 +1,7 @@
 # Beta Ordering Flow — Multi-Phase Implementation & Test Plan
 
+> Archive note (2026-08-15): Zepto was removed from the active Beta product because it was not part of the approved test surface. Zepto-specific material below is retained only as restoration research; the exact former code is preserved at commit `ed662ccc104da7bb361b70338750f79bc921ed32` and the archive branch named in `archive/zepto/README.md`.
+
 This brief is written for Codex (or any coding agent) to execute end-to-end. It
 extends the existing prototype that today reliably handles single-product
 ordering ("order butter", "order pencil", "order apples") into a robust,

@@ -39,6 +39,7 @@ class SwiggyDesignPreviewActivity : Activity() {
     private fun screenFor(rawState: String?): SwiggyStepScreen {
         return when (rawState?.trim()?.lowercase()) {
             "address", "address_reassurance", "address-reassurance" -> addressReassuranceScreen()
+            "address_suggestions", "smart_address", "smart-address" -> addressSuggestionsScreen()
             "searching", "search" -> searchingScreen()
             "whole_cart_review", "cart_review", "review" -> wholeCartReviewScreen()
             "applying", "apply" -> applyingScreen()
@@ -46,6 +47,31 @@ class SwiggyDesignPreviewActivity : Activity() {
             "mismatch", "warning" -> mismatchScreen()
             else -> unknownStateScreen(rawState)
         }
+    }
+
+    private fun addressSuggestionsScreen(): SwiggyStepScreen {
+        val choices = listOf(
+            "Home — Bengaluru" to "Suggested · Near you · recently used",
+            "Work — Bengaluru" to "Suggested · Recently used",
+            "Family — Bengaluru" to "Saved in Swiggy",
+            "Saved address 4 — Bengaluru" to "Saved in Swiggy",
+            "Saved address 5 — Bengaluru" to "Saved in Swiggy",
+            "Saved address 6 — Bengaluru" to "Saved in Swiggy",
+            "Saved address 7 — Bengaluru" to "Saved in Swiggy",
+            "Saved address 8 — Bengaluru" to "Saved in Swiggy",
+        )
+        return SwiggyStepScreen(
+            eyebrow = "Step 1 of 4 · Delivery address",
+            title = "Where should Swiggy deliver?",
+            message = "Choose one saved address. Beta shows 8 at a time so the list stays easy to read.",
+            caption = "Home is suggested. Choose it or another saved Swiggy delivery address. Showing 1 to 8 of 12.",
+            choices = choices.map { (title, detail) ->
+                SwiggyStepChoice(title = title, detail = detail) { finish() }
+            },
+            primary = SwiggyStepAction("Show next 4 addresses") { finish() },
+            tertiary = SwiggyStepAction("Cancel this list") { finish() },
+            cancel = { finish() },
+        )
     }
 
     private fun addressReassuranceScreen(): SwiggyStepScreen {
@@ -75,7 +101,7 @@ class SwiggyDesignPreviewActivity : Activity() {
         return SwiggyStepScreen(
             eyebrow = "Step 2 of 4 · Finding options",
             title = "Looking for your 8 items",
-            message = "Beta searches two products at a time so Swiggy stays reliable. Questions stay in the order you said them.",
+            message = "Beta searches a few products at a time so Swiggy stays reliable. Questions stay in the order you said them.",
             caption = "Finding options for all 8 items using your recent Swiggy choices.",
             rows = itemNames.mapIndexed { index, itemName ->
                 val searching = index < 2
@@ -90,7 +116,7 @@ class SwiggyDesignPreviewActivity : Activity() {
                     tone = if (searching) SwiggyStepTone.AMBER else SwiggyStepTone.NEUTRAL,
                 )
             },
-            safetyNote = "At most two searches run together. Beta keeps every result in the order you said it.",
+            safetyNote = "Beta searches a few products at a time and keeps every result in the order you said it.",
             cancel = { finish() },
         )
     }
@@ -201,7 +227,7 @@ class SwiggyDesignPreviewActivity : Activity() {
         return SwiggyStepScreen(
             eyebrow = "Preview mode",
             title = "Unknown state",
-            message = "Use one of: address_reassurance, searching, whole_cart_review, applying, verified, mismatch.",
+            message = "Use one of: address_suggestions, address_reassurance, searching, whole_cart_review, applying, verified, mismatch.",
             caption = "state=${rawState ?: "missing"}",
             rows = listOf(
                 SwiggyStepRow(

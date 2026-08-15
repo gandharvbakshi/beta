@@ -9,13 +9,11 @@ internal object ForegroundLossPolicy {
     private const val BLINKIT_PACKAGE = "com.grofers.customerapp"
     private const val SWIGGY_MAIN_PACKAGE = "in.swiggy.android"
     private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
-    private const val ZEPTO_PACKAGE = "com.zeptoconsumerapp"
 
     private val supportedCommercePackages = setOf(
         BLINKIT_PACKAGE,
         SWIGGY_MAIN_PACKAGE,
         SWIGGY_INSTAMART_PACKAGE,
-        ZEPTO_PACKAGE
     )
 
     internal fun decide(

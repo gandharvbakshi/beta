@@ -12,14 +12,14 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.speech.RecognizerIntent
-import android.speech.tts.TextToSpeech
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
@@ -30,15 +30,16 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.beta.SwiggyMcpClient.SwiggyMcpResult
-import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var captureScreenButton: Button
     private lateinit var agentStatusText: TextView
     private lateinit var primaryNoteText: TextView
-    private lateinit var textRecognitionButton: Button
-    private lateinit var voiceOrderButton: Button
+    private lateinit var orderCommandInput: EditText
+    private lateinit var orderVoiceInputButton: ImageButton
+    private lateinit var orderSubmitButton: Button
+    private lateinit var orderInputStatus: TextView
     private lateinit var feedbackMessageInput: EditText
     private lateinit var includeLogsCheckbox: CheckBox
     private lateinit var feedbackWorkedButton: Button
@@ -64,9 +65,10 @@ class MainActivity : ComponentActivity() {
 
     // Declare the screenCaptureResult as a lateinit var
     private lateinit var screenCaptureResult: ActivityResultLauncher<Intent>
-    private lateinit var voiceInputResult: ActivityResultLauncher<Intent>
     private lateinit var microphonePermissionResult: ActivityResultLauncher<String>
-    private var textToSpeech: TextToSpeech? = null
+    private lateinit var locationPermissionResult: ActivityResultLauncher<Array<String>>
+    private lateinit var voiceInputController: OrderVoiceInputController
+    private lateinit var textToSpeech: IndianEnglishTextToSpeech
     private var isBindingProviderChoice = false
     private var swiggyConnectionState = SwiggyMcpClient.ConnectionState.DISCONNECTED
     private var swiggyMcpRequestGeneration = 0L
@@ -75,6 +77,8 @@ class MainActivity : ComponentActivity() {
     private var pendingSwiggyInstruction: String? = null
     private var swiggyConnectPromptShowing = false
     private var swiggyConnectPrompt: AlertDialog? = null
+    private var pendingLocationSwiggyInstruction: String? = null
+    private var swiggyLocationPrompt: AlertDialog? = null
     private var selectedSwiggyAddressLabel: String? = null
     private lateinit var swiggyOrderCoordinator: SwiggyVoiceOrderCoordinator
 
@@ -109,8 +113,10 @@ class MainActivity : ComponentActivity() {
         captureScreenButton = findViewById(R.id.captureScreenButton)
         agentStatusText = findViewById(R.id.text_agent_status)
         primaryNoteText = findViewById(R.id.mainPrimaryNote)
-        textRecognitionButton = findViewById(R.id.textRecognitionButton)
-        voiceOrderButton = findViewById(R.id.voiceOrderButton)
+        orderCommandInput = findViewById(R.id.orderCommandInput)
+        orderVoiceInputButton = findViewById(R.id.orderVoiceInputButton)
+        orderSubmitButton = findViewById(R.id.orderSubmitButton)
+        orderInputStatus = findViewById(R.id.orderInputStatus)
         feedbackMessageInput = findViewById(R.id.feedbackMessageInput)
         includeLogsCheckbox = findViewById(R.id.includeLogsCheckbox)
         feedbackWorkedButton = findViewById(R.id.feedbackWorkedButton)
@@ -136,11 +142,21 @@ class MainActivity : ComponentActivity() {
         mediaProjectionManager =
             getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
-        textToSpeech = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                textToSpeech?.language = Locale("en", "IN")
-            }
-        }
+        textToSpeech = IndianEnglishTextToSpeech(this)
+        voiceInputController = OrderVoiceInputController(
+            context = this,
+            onStateChanged = ::renderVoiceInputState,
+            onPartialResult = { partial ->
+                orderCommandInput.setText(partial)
+                orderCommandInput.setSelection(partial.length)
+            },
+            onFinalResult = { instruction ->
+                orderCommandInput.setText(instruction)
+                orderCommandInput.setSelection(instruction.length)
+                submitOrderInstruction(instruction, source = "voice")
+            },
+            onRecognitionError = ::handleVoiceInputError,
+        )
         swiggyOrderCoordinator = SwiggyVoiceOrderCoordinator(
             activity = this,
             announce = ::announceSwiggy,
@@ -229,18 +245,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        voiceInputResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK && result.data != null) {
-                val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS).orEmpty()
-                val instruction = matches.firstOrNull()?.trim().orEmpty()
-                if (instruction.isNotBlank()) {
-                    handleVoiceInstruction(instruction)
-                } else {
-                    Toast.makeText(this, R.string.voice_no_order_heard, Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
         microphonePermissionResult = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) {
                 startVoiceRecognition()
@@ -248,6 +252,15 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this, R.string.voice_microphone_required, Toast.LENGTH_LONG).show()
             }
             refreshSetupChecklist()
+        }
+
+        locationPermissionResult = registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { grants ->
+            val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+            Log.i("BetaAgent", "SWIGGY_ADDRESS_LOCATION_PERMISSION_RESULT granted=$granted")
+            continuePendingLocationAwareSwiggyOrder()
         }
 
         // Set click listener for the capture screen button
@@ -269,14 +282,19 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Set click listener for the text recognition button
-        textRecognitionButton.setOnClickListener {
-            val intent = Intent(this, TextRecognitionActivity::class.java)
-            startActivity(intent)
-        }
-
-        voiceOrderButton.setOnClickListener {
+        orderVoiceInputButton.setOnClickListener {
             checkMicrophoneAndStartVoice()
+        }
+        orderSubmitButton.setOnClickListener {
+            submitOrderInstruction(orderCommandInput.text?.toString().orEmpty(), source = "text")
+        }
+        orderCommandInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                submitOrderInstruction(orderCommandInput.text?.toString().orEmpty(), source = "text")
+                true
+            } else {
+                false
+            }
         }
 
         swiggyConnectionAction.setOnClickListener {
@@ -341,13 +359,13 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         cancelPendingSwiggyMcpWork("activity_destroyed")
         SwiggyCartMutationGuard.unregister(this)
-        textToSpeech?.shutdown()
-        textToSpeech = null
+        if (::voiceInputController.isInitialized) voiceInputController.destroy()
+        if (::textToSpeech.isInitialized) textToSpeech.shutdown()
         (application as MyApplication).unregisterActivity(this)
     }
 
     private fun speak(message: String) {
-        textToSpeech?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "beta_voice_prompt")
+        if (::textToSpeech.isInitialized) textToSpeech.speak(message)
     }
 
     private fun handleStartCaptureIntent(sourceIntent: Intent?) {
@@ -374,22 +392,64 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startVoiceRecognition() {
-        speak(getString(R.string.voice_listening))
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-IN")
-            putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.voice_listening))
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-        }
-        runCatching {
-            voiceInputResult.launch(intent)
-        }.onFailure {
-            Toast.makeText(this, "Voice recognition is not available on this device", Toast.LENGTH_LONG).show()
+        textToSpeech.stop()
+        voiceInputController.toggle()
+    }
+
+    private fun renderVoiceInputState(state: OrderVoiceInputController.State) {
+        when (state) {
+            OrderVoiceInputController.State.IDLE -> {
+                orderVoiceInputButton.contentDescription = getString(R.string.order_voice_start)
+                orderInputStatus.setText(R.string.order_input_help)
+            }
+            OrderVoiceInputController.State.LISTENING -> {
+                orderVoiceInputButton.contentDescription = getString(R.string.order_voice_stop)
+                orderInputStatus.setText(R.string.voice_listening)
+                orderInputStatus.announceForAccessibility(orderInputStatus.text)
+            }
+            OrderVoiceInputController.State.PROCESSING -> {
+                orderVoiceInputButton.contentDescription = getString(R.string.order_voice_stop)
+                orderInputStatus.setText(R.string.voice_processing)
+            }
         }
     }
 
-    private fun handleVoiceInstruction(instruction: String) {
+    private fun handleVoiceInputError(error: OrderVoiceInputController.Error) {
+        val messageRes = when (error) {
+            OrderVoiceInputController.Error.UNAVAILABLE -> R.string.voice_unavailable
+            OrderVoiceInputController.Error.NO_MATCH -> R.string.voice_no_order_heard
+            OrderVoiceInputController.Error.BUSY -> R.string.voice_busy
+            OrderVoiceInputController.Error.NETWORK -> R.string.voice_network_error
+            OrderVoiceInputController.Error.PERMISSION -> R.string.voice_microphone_required
+            OrderVoiceInputController.Error.OTHER -> R.string.voice_no_order_heard
+        }
+        orderInputStatus.setText(messageRes)
+        Toast.makeText(this, messageRes, Toast.LENGTH_LONG).show()
+    }
+
+    private fun submitOrderInstruction(rawInstruction: String, source: String) {
+        val instruction = rawInstruction.trim()
+        if (instruction.isBlank()) {
+            orderInputStatus.setText(R.string.order_input_required)
+            orderCommandInput.requestFocus()
+            orderCommandInput.announceForAccessibility(getString(R.string.order_input_required))
+            return
+        }
+        CommerceProviderRouter.unsupportedProviderName(instruction)?.let { providerName ->
+            val message = getString(R.string.provider_not_supported, providerName)
+            orderInputStatus.text = message
+            speak(message)
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            Log.i("BetaAgent", "ORDER_INSTRUCTION_REJECTED_UNSUPPORTED_PROVIDER provider=$providerName")
+            return
+        }
+        voiceInputController.cancel()
+        textToSpeech.stop()
+        orderCommandInput.setText(instruction)
+        orderCommandInput.setSelection(instruction.length)
+        orderInputStatus.setText(R.string.voice_processing)
+        Log.i("BetaAgent", "ORDER_INSTRUCTION_RECEIVED source=$source characters=${instruction.length}")
+
         CommerceProviderRouter.selectProviderFromInstruction(instruction)
         syncProviderChoiceFromSession()
 
@@ -422,7 +482,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, getString(R.string.voice_start_capture_first), Toast.LENGTH_LONG).show()
             return
         }
-        Log.i("BetaAgent", "VOICE_INSTRUCTION_RECOGNIZED: $instruction")
+        Log.i("BetaAgent", "SCREEN_ASSISTED_INSTRUCTION_READY source=$source characters=${instruction.length}")
         val launchResult = CommerceAppLauncher.launchPreferred(this, instruction)
         if (!launchResult.launched) {
             speak(launchResult.message)
@@ -448,7 +508,6 @@ class MainActivity : ComponentActivity() {
             val provider = when (checkedId) {
                 R.id.providerSwiggy -> CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
                 R.id.providerBlinkit -> CommerceProviderRouter.CommerceProvider.BLINKIT
-                R.id.providerZepto -> CommerceProviderRouter.CommerceProvider.ZEPTO
                 else -> return@setOnCheckedChangeListener
             }
             CommerceProviderRouter.selectProviderFromUi(provider)
@@ -477,7 +536,6 @@ class MainActivity : ComponentActivity() {
         val checkedId = when (provider) {
             CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART -> R.id.providerSwiggy
             CommerceProviderRouter.CommerceProvider.BLINKIT -> R.id.providerBlinkit
-            CommerceProviderRouter.CommerceProvider.ZEPTO -> R.id.providerZepto
         }
         isBindingProviderChoice = true
         providerChoiceGroup.check(checkedId)
@@ -508,6 +566,7 @@ class MainActivity : ComponentActivity() {
     private fun configurePrimaryExperience() {
         if (!::setupHeading.isInitialized) return
         val usesSwiggyMcp = isSwiggyMcpSelected()
+        captureScreenButton.visibility = if (usesSwiggyMcp) View.GONE else View.VISIBLE
         setupHeading.visibility = if (usesSwiggyMcp) View.GONE else View.VISIBLE
         setupPermissionsCard.visibility = if (usesSwiggyMcp) View.GONE else View.VISIBLE
         if (!usesSwiggyMcp) {
@@ -746,7 +805,7 @@ class MainActivity : ComponentActivity() {
                 handleSwiggyVoiceInstruction(instruction)
             } else {
                 Log.i("BetaAgent", "STALE_SWIGGY_MCP_INTENT_ROUTED_TO_SCREEN_ASSISTED")
-                handleVoiceInstruction(instruction)
+                submitOrderInstruction(instruction, source = "handoff")
             }
         }
     }
@@ -784,7 +843,61 @@ class MainActivity : ComponentActivity() {
         if (!isSwiggyMcpSelected()) return
         val instruction = pendingSwiggyInstruction?.takeIf { it.isNotBlank() } ?: return
         pendingSwiggyInstruction = null
-        swiggyOrderCoordinator.start(instruction)
+        startSwiggyOrderWithOptionalLocation(instruction)
+    }
+
+    private fun startSwiggyOrderWithOptionalLocation(instruction: String) {
+        val hasLocationPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        val preferences = getSharedPreferences(SWIGGY_LOCATION_PREFERENCES, MODE_PRIVATE)
+        if (hasLocationPermission || preferences.getBoolean(SWIGGY_LOCATION_PERMISSION_ASKED, false)) {
+            swiggyOrderCoordinator.start(instruction)
+            return
+        }
+        if (swiggyLocationPrompt?.isShowing == true) {
+            announceSwiggy("Please finish the address suggestion choice first.")
+            return
+        }
+        pendingLocationSwiggyInstruction = instruction
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.swiggy_location_prompt_title)
+            .setMessage(R.string.swiggy_location_prompt_message)
+            .setPositiveButton(R.string.swiggy_location_prompt_accept) { _, _ ->
+                preferences.edit().putBoolean(SWIGGY_LOCATION_PERMISSION_ASKED, true).apply()
+                locationPermissionResult.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    )
+                )
+            }
+            .setNegativeButton(R.string.swiggy_location_prompt_skip) { _, _ ->
+                preferences.edit().putBoolean(SWIGGY_LOCATION_PERMISSION_ASKED, true).apply()
+                continuePendingLocationAwareSwiggyOrder()
+            }
+            .setOnCancelListener {
+                preferences.edit().putBoolean(SWIGGY_LOCATION_PERMISSION_ASKED, true).apply()
+                continuePendingLocationAwareSwiggyOrder()
+            }
+            .create()
+        swiggyLocationPrompt = dialog
+        dialog.setOnDismissListener {
+            if (swiggyLocationPrompt === dialog) swiggyLocationPrompt = null
+        }
+        dialog.show()
+    }
+
+    private fun continuePendingLocationAwareSwiggyOrder() {
+        val instruction = pendingLocationSwiggyInstruction?.takeIf { it.isNotBlank() } ?: return
+        pendingLocationSwiggyInstruction = null
+        if (isSwiggyMcpSelected() && !isFinishing && !isDestroyed) {
+            swiggyOrderCoordinator.start(instruction)
+        }
     }
 
     private fun confirmSwiggyDisconnect() {
@@ -857,9 +970,12 @@ class MainActivity : ComponentActivity() {
         swiggyStatusRequestGeneration = null
         resumeSwiggyOrderAfterStatus = false
         pendingSwiggyInstruction = null
+        pendingLocationSwiggyInstruction = null
         swiggyConnectPromptShowing = false
         swiggyConnectPrompt?.dismiss()
         swiggyConnectPrompt = null
+        swiggyLocationPrompt?.dismiss()
+        swiggyLocationPrompt = null
         if (::swiggyOrderCoordinator.isInitialized) {
             swiggyOrderCoordinator.cancel()
             swiggyOrderCoordinator.clearRememberedAddress()
@@ -881,6 +997,9 @@ class MainActivity : ComponentActivity() {
         if (::swiggyChangeAddressAction.isInitialized) {
             swiggyChangeAddressAction.isEnabled = !inFlight
         }
+        if (::orderCommandInput.isInitialized) orderCommandInput.isEnabled = !inFlight
+        if (::orderVoiceInputButton.isInitialized) orderVoiceInputButton.isEnabled = !inFlight
+        if (::orderSubmitButton.isInitialized) orderSubmitButton.isEnabled = !inFlight
     }
 
     private fun isSwiggyMutationInFlight(): Boolean {
@@ -1206,5 +1325,7 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_START_CAPTURE_ON_OPEN = "com.example.beta.extra.START_CAPTURE_ON_OPEN"
         const val EXTRA_CAPTURE_RESTART_REASON = "com.example.beta.extra.CAPTURE_RESTART_REASON"
         private const val STORAGE_PERMISSION_CODE = 101
+        private const val SWIGGY_LOCATION_PREFERENCES = "swiggy_location_preferences"
+        private const val SWIGGY_LOCATION_PERMISSION_ASKED = "location_permission_asked"
     }
 }

@@ -24,7 +24,7 @@ class CommerceProviderRouterTest {
         SwiggyCartMutationGuard.begin()
 
         CommerceProviderRouter.selectProviderFromUi(CommerceProviderRouter.CommerceProvider.BLINKIT)
-        CommerceProviderRouter.selectProviderFromInstruction("add milk on zepto")
+        CommerceProviderRouter.selectProviderFromInstruction("add milk on blinkit")
         val launchDecision = CommerceProviderRouter.routeLaunch(
             "open blinkit",
             setOf(
@@ -84,12 +84,12 @@ class CommerceProviderRouterTest {
     @Test
     fun explicitInstructionOverridesDefaultForTheSession() {
         val decision = CommerceProviderRouter.routeLaunch(
-            instruction = "please open zepto from the app",
-            installedApps = setOf(installedApp(CommerceProviderRouter.CommerceProvider.ZEPTO, "com.zeptoconsumerapp"))
+            instruction = "please open blinkit from the app",
+            installedApps = setOf(installedApp(CommerceProviderRouter.CommerceProvider.BLINKIT, "com.grofers.customerapp"))
         )
 
-        assertEquals(CommerceProviderRouter.CommerceProvider.ZEPTO, decision.selectedProvider)
-        assertEquals(CommerceProviderRouter.CommerceProvider.ZEPTO, CommerceProviderRouter.currentSessionProvider())
+        assertEquals(CommerceProviderRouter.CommerceProvider.BLINKIT, decision.selectedProvider)
+        assertEquals(CommerceProviderRouter.CommerceProvider.BLINKIT, CommerceProviderRouter.currentSessionProvider())
         assertEquals(CommerceProviderRouter.PreferenceSource.VOICE_OR_TEXT, CommerceProviderRouter.currentSessionSelectionSource())
         assertTrue(decision.launchable)
     }
@@ -100,7 +100,7 @@ class CommerceProviderRouterTest {
 
         val decision = CommerceProviderRouter.routeLaunch(
             instruction = null,
-            installedApps = setOf(installedApp(CommerceProviderRouter.CommerceProvider.ZEPTO, "com.zeptoconsumerapp"))
+            installedApps = emptySet()
         )
 
         assertEquals(CommerceProviderRouter.CommerceProvider.BLINKIT, decision.selectedProvider)
@@ -110,13 +110,10 @@ class CommerceProviderRouterTest {
     }
 
     @Test
-    fun untouchedDefaultFallsBackBlinkitThenZepto() {
+    fun untouchedDefaultFallsBackBlinkit() {
         val blinkitDecision = CommerceProviderRouter.routeLaunch(
             instruction = null,
-            installedApps = setOf(
-                installedApp(CommerceProviderRouter.CommerceProvider.BLINKIT, "com.grofers.customerapp"),
-                installedApp(CommerceProviderRouter.CommerceProvider.ZEPTO, "com.zeptoconsumerapp"),
-            )
+            installedApps = setOf(installedApp(CommerceProviderRouter.CommerceProvider.BLINKIT, "com.grofers.customerapp"))
         )
 
         assertEquals(CommerceProviderRouter.CommerceProvider.BLINKIT, blinkitDecision.selectedProvider)
@@ -128,18 +125,6 @@ class CommerceProviderRouterTest {
 
         CommerceProviderRouter.resetSession()
 
-        val zeptoDecision = CommerceProviderRouter.routeLaunch(
-            instruction = null,
-            installedApps = setOf(installedApp(CommerceProviderRouter.CommerceProvider.ZEPTO, "com.zeptoconsumerapp"))
-        )
-
-        assertEquals(CommerceProviderRouter.CommerceProvider.ZEPTO, zeptoDecision.selectedProvider)
-        assertTrue(zeptoDecision.launchable)
-        assertTrue(zeptoDecision.fallbackUsed)
-        assertEquals("Swiggy Instamart was unavailable. Opening Zepto.", zeptoDecision.message)
-
-        CommerceProviderRouter.resetSession()
-
         val noInstalledDecision = CommerceProviderRouter.routeLaunch(
             instruction = null,
             installedApps = emptySet()
@@ -148,7 +133,7 @@ class CommerceProviderRouterTest {
         assertEquals(CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART, noInstalledDecision.selectedProvider)
         assertFalse(noInstalledDecision.launchable)
         assertEquals(
-            "Swiggy Instamart is unavailable. Install Swiggy Instamart, Blinkit, or Zepto to use Beta grocery automation.",
+            "Swiggy Instamart is unavailable. Install Swiggy Instamart or Blinkit to use Beta grocery automation.",
             noInstalledDecision.message
         )
     }
@@ -160,7 +145,7 @@ class CommerceProviderRouterTest {
         assertTrue(CommerceProviderRouter.isOpenCommerceAppInstruction("launch blinkit app"))
         assertFalse(CommerceProviderRouter.isOpenCommerceAppInstruction("from grofers"))
         assertTrue(CommerceProviderRouter.isOpenCommerceAppInstruction("open grocery app"))
-        assertTrue(CommerceProviderRouter.isOpenCommerceAppInstruction("switch to zepto"))
+        assertFalse(CommerceProviderRouter.isOpenCommerceAppInstruction("switch to bigbasket"))
         assertTrue(CommerceProviderRouter.isOpenCommerceAppInstruction("please open the swiggy app now"))
         assertFalse(CommerceProviderRouter.isOpenCommerceAppInstruction("order milk from swiggy"))
         assertFalse(CommerceProviderRouter.isOpenCommerceAppInstruction("use swiggy for milk"))
@@ -178,12 +163,25 @@ class CommerceProviderRouterTest {
     fun sanitizesTrailingProviderQualifiersFromOrderPhrases() {
         assertEquals("order milk", CommerceProviderRouter.sanitizeOrderInstruction("order milk from swiggy"))
         assertEquals("buy onions", CommerceProviderRouter.sanitizeOrderInstruction("buy onions on blinkit"))
-        assertEquals("need bread", CommerceProviderRouter.sanitizeOrderInstruction("need bread via zepto"))
+        assertEquals("need bread via bigbasket", CommerceProviderRouter.sanitizeOrderInstruction("need bread via bigbasket"))
         assertEquals("milk", CommerceProviderRouter.sanitizeOrderInstruction("use swiggy for milk"))
         assertEquals("milk", CommerceProviderRouter.sanitizeOrderInstruction("please use Swiggy for milk"))
         assertEquals("order milk", CommerceProviderRouter.sanitizeOrderInstruction("order milk from Swiggy please"))
         assertEquals("Order Amul A2 Milk", CommerceProviderRouter.sanitizeOrderInstruction("Order Amul A2 Milk from Swiggy"))
         assertEquals("open swiggy", CommerceProviderRouter.sanitizeOrderInstruction("open swiggy"))
+    }
+
+    @Test
+    fun removedProviderInstructionsAreDetectedAndCannotChangeTheSession() {
+        CommerceProviderRouter.selectProviderFromUi(CommerceProviderRouter.CommerceProvider.BLINKIT)
+
+        assertEquals("Zepto", CommerceProviderRouter.unsupportedProviderName("order milk from Zepto"))
+        assertEquals("Zepto", CommerceProviderRouter.unsupportedProviderName("use zepto for atta"))
+        assertEquals(null, CommerceProviderRouter.unsupportedProviderName("order milk from Swiggy"))
+        assertEquals(
+            CommerceProviderRouter.CommerceProvider.BLINKIT,
+            CommerceProviderRouter.currentSessionProvider(),
+        )
     }
 
     @Test
@@ -203,7 +201,7 @@ class CommerceProviderRouterTest {
 
     @Test
     fun resetReturnsSessionToDefaultSwiggy() {
-        CommerceProviderRouter.selectProviderFromUi(CommerceProviderRouter.CommerceProvider.ZEPTO)
+        CommerceProviderRouter.selectProviderFromUi(CommerceProviderRouter.CommerceProvider.BLINKIT)
         CommerceProviderRouter.resetSession()
 
         assertEquals(CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART, CommerceProviderRouter.currentSessionProvider())
