@@ -1,9 +1,9 @@
 # Swiggy MCP phone test
 
-This is a future MCP-only test plan. The current default is screen-assisted
-Swiggy automation; do not use this checklist for the July demo build. Flip
-`SwiggyExecutionMode` to `MCP` only after approved staging capabilities and
-credentials are available.
+This is the phone checklist for the current MCP-first Swiggy experience.
+Direct MCP is the default for Swiggy Instamart; the screen-assisted route is a
+temporary, explicit fallback. Blinkit remains screen-assisted and unchanged
+apart from its visible beta label.
 
 Use a debug build and an approved staging backend. Keep checkout and payment out of scope.
 
@@ -18,6 +18,9 @@ Use a debug build and an approved staging backend. Keep checkout and payment out
 9. Change the cart in Swiggy before confirming. Beta must reject the stale plan and ask for a new voice order.
 10. Reuse a confirmation token in a debug test. It must be rejected without another update.
 11. Disconnect Swiggy. Confirm status becomes disconnected and the encrypted server-side token record is removed.
-12. Select Blinkit or Zepto. Their existing screen-automation permissions and flow should reappear and continue to stop before checkout.
+12. Select Blinkit*. Its existing screen-automation permissions and flow should reappear and continue to stop before checkout. Confirm the note `(This is still in Beta)` is visible.
 
-Before production, repeat expiry/revocation, offline, malformed-response, out-of-stock, unknown-cart-schema, large-text, TalkBack, and font-scale checks. Swiggy staging uses seeded data and cannot prove real production cart behavior.
+Before widening the beta, repeat expiry/revocation, offline,
+malformed-response, out-of-stock, unknown-cart-schema, large-text, TalkBack,
+and font-scale checks. Keep every run cart-only and stop before checkout or
+payment.

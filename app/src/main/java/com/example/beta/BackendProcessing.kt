@@ -87,7 +87,6 @@ object BackendProcessing {
     private const val BLINKIT_PACKAGE = "com.grofers.customerapp"
     private const val SWIGGY_MAIN_PACKAGE = "in.swiggy.android"
     private const val SWIGGY_INSTAMART_PACKAGE = "in.swiggy.android.instamart"
-    private const val ZEPTO_PACKAGE = "com.zeptoconsumerapp"
     private val client = provideOkHttpClient()
     var currentBitmap: Bitmap? = null
     var currentFilename: String? = null
@@ -103,13 +102,12 @@ object BackendProcessing {
             "com.grofers.customerapp" -> "Blinkit"
             "in.swiggy.android" -> "Swiggy Instamart"
             "in.swiggy.android.instamart" -> "Swiggy Instamart"
-            "com.zeptoconsumerapp" -> "Zepto"
             else -> appName.trim()
         }
     }
 
     private fun isSupportedCommerceApp(appName: String?): Boolean {
-        return appName == "Blinkit" || appName == "Swiggy Instamart" || appName == "Zepto"
+        return appName == "Blinkit" || appName == "Swiggy Instamart"
     }
 
     private fun bitmapForBackendUpload(bitmap: Bitmap): Bitmap {
@@ -708,8 +706,8 @@ object BackendProcessing {
         lastCapturedPackage: String?,
         treeData: String?
     ): Boolean {
-        val packageName = activePackage?.takeIf { it == BLINKIT_PACKAGE || it == ZEPTO_PACKAGE }
-            ?: lastCapturedPackage?.takeIf { it == BLINKIT_PACKAGE || it == ZEPTO_PACKAGE }
+        val packageName = activePackage?.takeIf { it == BLINKIT_PACKAGE }
+            ?: lastCapturedPackage?.takeIf { it == BLINKIT_PACKAGE }
             ?: return false
         val normalizedTree = treeData.orEmpty().lowercase(Locale.US)
         if (normalizedTree.isBlank()) return false
@@ -732,13 +730,6 @@ object BackendProcessing {
                 "to pay",
                 "item total",
                 "cart total"
-            )
-            ZEPTO_PACKAGE -> listOf(
-                "your cart",
-                "cart total",
-                "item total",
-                "bill details",
-                "to pay"
             )
             else -> emptyList()
         }

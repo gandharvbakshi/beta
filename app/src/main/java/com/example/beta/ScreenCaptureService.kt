@@ -761,12 +761,12 @@ class ScreenCaptureService : Service() {
             return
         }
 
-        Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED: $instruction")
+        Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED source=$source characters=${instruction.length}")
         if (intent.getBooleanExtra(CommerceAppLauncher.EXTRA_LAUNCH_PREFERRED_COMMERCE_APP, false)) {
             val launchResult = CommerceAppLauncher.launchPreferred(this, instruction)
             if (!launchResult.launched) {
                 Toast.makeText(this, launchResult.message, Toast.LENGTH_LONG).show()
-                Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_COMMERCE_APP: $instruction")
+                Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_COMMERCE_APP characters=${instruction.length}")
                 return
             }
 
@@ -2306,9 +2306,10 @@ class ScreenCaptureService : Service() {
     }
     
     fun submitAutomationInstruction(inputText: String) {
+        if (rejectUnsupportedProvider(inputText)) return
         if (routeToSwiggyMcp(inputText)) return
         val instruction = CommerceProviderRouter.sanitizeOrderInstruction(inputText)
-        Log.i("BetaAgent", "SUBMIT_AUTOMATION_INSTRUCTION_CALLED: $instruction")
+        Log.i("BetaAgent", "SUBMIT_AUTOMATION_INSTRUCTION_CALLED characters=${instruction.length}")
         submitInstruction(instruction)
     }
 
@@ -2319,7 +2320,7 @@ class ScreenCaptureService : Service() {
             return
         }
 
-        Log.i("BetaAgent", "USER_INSTRUCTION_RECEIVED: $instruction")
+        Log.i("BetaAgent", "USER_INSTRUCTION_RECEIVED characters=${instruction.length}")
         if (routeToSwiggyMcp(instruction)) {
             hideInputOverlay()
             return
@@ -2335,7 +2336,7 @@ class ScreenCaptureService : Service() {
         val launchResult = CommerceAppLauncher.launchPreferred(this, instruction)
         if (!launchResult.launched) {
             Toast.makeText(this, launchResult.message, Toast.LENGTH_LONG).show()
-            Log.w("BetaAgent", "USER_INSTRUCTION_NO_COMMERCE_APP: $instruction")
+            Log.w("BetaAgent", "USER_INSTRUCTION_NO_COMMERCE_APP characters=${instruction.length}")
             return
         }
 
@@ -2349,7 +2350,7 @@ class ScreenCaptureService : Service() {
                 if (!ensureCaptureReadyForAutomation("user instruction after commerce launch")) {
                     return@postDelayed
                 }
-                Log.i("BetaAgent", "USER_INSTRUCTION_SUBMIT_AFTER_LAUNCH: $instruction")
+                Log.i("BetaAgent", "USER_INSTRUCTION_SUBMIT_AFTER_LAUNCH characters=${instruction.length}")
                 submitAutomationInstruction(instruction)
             } catch (e: Exception) {
                 Log.e("BetaAgent", "USER_INSTRUCTION_SUBMIT_AFTER_LAUNCH_FAILED: ${e.message}", e)
@@ -2360,6 +2361,7 @@ class ScreenCaptureService : Service() {
 
     private fun routeToSwiggyMcp(inputText: String): Boolean {
         val instruction = inputText.trim()
+        if (rejectUnsupportedProvider(instruction)) return true
         if (instruction.isBlank() || CommerceProviderRouter.isOpenCommerceAppInstruction(instruction)) {
             return false
         }
@@ -2400,6 +2402,14 @@ class ScreenCaptureService : Service() {
             Toast.makeText(this, "Beta could not open the Swiggy assistant. Please try again.", Toast.LENGTH_LONG).show()
             true
         }
+    }
+
+    private fun rejectUnsupportedProvider(instruction: String): Boolean {
+        val providerName = CommerceProviderRouter.unsupportedProviderName(instruction) ?: return false
+        val message = getString(R.string.provider_not_supported, providerName)
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        Log.i("BetaAgent", "ORDER_INSTRUCTION_REJECTED_UNSUPPORTED_PROVIDER provider=$providerName")
+        return true
     }
 
     private fun submitInstruction(inputText: String) {

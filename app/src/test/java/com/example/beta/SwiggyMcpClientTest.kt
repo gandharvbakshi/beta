@@ -83,6 +83,8 @@ class SwiggyMcpClientTest {
         assertEquals("home-1", parsed[0].id)
         assertEquals("12, Main Street, Apt 4B, Bengaluru, 560001", parsed[0].normalizedLabel)
         assertEquals("Saved address 1 — Bengaluru", parsed[0].shortLabel)
+        assertEquals("Saved address 1", parsed[0].categoryLabel)
+        assertEquals("12 in Main Street", parsed[0].confirmationDetail)
         assertTrue(
             SwiggyMcpClient.describeAddressSchema(
                 """{"success":true,"data":{"addresses":[{"addressId":"home-1","line1":"Test"}]}}"""
@@ -112,6 +114,26 @@ class SwiggyMcpClientTest {
         assertEquals("saved-1", parsed.single().id)
         assertEquals("10 Test Road, Bengaluru", parsed.single().normalizedLabel)
         assertEquals("Home — Bengaluru", parsed.single().shortLabel)
+        assertEquals("Home", parsed.single().categoryLabel)
+        assertEquals("10 Test Road in Bengaluru", parsed.single().confirmationDetail)
+    }
+
+    @Test
+    fun shortAddressConfirmationKeepsOnlyUsefulLeadingParts() {
+        assertEquals(
+            "8/18 in Lynwood Avenue",
+            SwiggyMcpClient.conciseAddressConfirmationDetail(
+                "8/18, Lynwood Avenue, Bengaluru, Karnataka, 560047, India",
+                "Home",
+            ),
+        )
+        assertEquals(
+            "602, 4th block in Jains prakrithi apartments",
+            SwiggyMcpClient.conciseAddressConfirmationDetail(
+                "602, 4th block, Jains prakrithi apartments, Bengaluru, Karnataka, 560076",
+                "Home",
+            ),
+        )
     }
 
     @Test
@@ -247,5 +269,22 @@ class SwiggyMcpClientTest {
         )
 
         assertEquals(listOf("status", "addresses"), parsed.supported)
+    }
+
+    @Test
+    fun recentAddressIdsFollowSwiggyOrderRecencyWithoutReadingAddressText() {
+        val parsed = SwiggyMcpClient.parseRecentAddressIds(
+            """
+            {
+              "orders": [
+                {"orderId":"one", "deliveryAddress":{"id":"recent-home", "addressLine":"Private"}},
+                {"orderId":"two", "deliveryAddress":{"id":"older-work"}},
+                {"orderId":"three", "deliveryAddress":{"id":"recent-home"}}
+              ]
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(listOf("recent-home", "older-work"), parsed)
     }
 }

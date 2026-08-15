@@ -1,6 +1,6 @@
 # Beta: a voice-first personal commerce assistant
 
-Beta is an early Android prototype exploring what a voice-first assistant for personal commerce could feel like. The current cart-only grocery flow supports Blinkit, Swiggy Instamart, and Zepto, with the app stopping before checkout and payment so the user can review the cart.
+Beta is an early Android prototype exploring what a voice-first assistant for personal commerce could feel like. The current cart-only grocery flow supports Swiggy Instamart and Blinkit, with the app stopping before checkout and payment so the user can review the cart.
 
 ## Status
 
@@ -17,11 +17,11 @@ This project is an early prototype. It is not production-ready and parts of the 
 - OCR for extracting visible text from the UI
 - Accessibility tree inspection for structured UI context
 - Assisted ordering flows that guide the user step by step
-- Cart-building support for Blinkit, Swiggy Instamart, and Zepto
+- Cart-building support for Swiggy Instamart and Blinkit
 
 ## Swiggy MCP Integration (Staged)
 
-The Android and backend support for Swiggy MCP is implemented but has not yet completed live verification. When Swiggy Instamart is selected, the app now uses the direct MCP experience by default and offers the existing screen-assisted path as an explicit, temporary session fallback. Blinkit and Zepto keep their existing screen-assisted behavior.
+The Android and backend support for Swiggy MCP is implemented but has not yet completed live verification. When Swiggy Instamart is selected, the app now uses the direct MCP experience by default and offers the existing screen-assisted path as an explicit, temporary session fallback. Blinkit keeps its existing screen-assisted behavior and is explicitly labelled as beta in the app.
 
 Where a supported provider connection is available, MCP or provider APIs may be used for:
 

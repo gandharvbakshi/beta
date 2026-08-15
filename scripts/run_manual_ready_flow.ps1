@@ -67,7 +67,7 @@ function ConvertTo-AdbShellArg([string]$Value) {
 }
 
 function Get-FilteredLogText([string]$SourcePath) {
-    $pattern = "AUTOMATION_INSTRUCTION_RECEIVED|AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE|INSTRUCTION_RECEIVED|MULTI_ORDER_STARTED|BLINKIT_SEARCH_STARTED|PARSED:|ITEM_RESULT|ORDER_RESULT|FLOW_FAILED|STATE: FAILED|checkout_boundary|store_unavailable|Stopped - backend error|Unexpected response|CAPTURE_LOST|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|SecurityException creating VirtualDisplay|MediaProjection stopped externally|ANR in live\.betaapp\.android|ANR in com\.grofers\.customerapp|ANR in in\.swiggy\.android(?:\.instamart)?|ANR in com\.zeptoconsumerapp|Application Not Responding: in\.swiggy\.android(?:\.instamart)?|Application Not Responding: com\.zeptoconsumerapp|in\.swiggy\.android(?:\.instamart)? isn't responding|com\.zeptoconsumerapp isn't responding|DeadSystemException"
+    $pattern = "AUTOMATION_INSTRUCTION_RECEIVED|AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE|INSTRUCTION_RECEIVED|MULTI_ORDER_STARTED|BLINKIT_SEARCH_STARTED|PARSED:|ITEM_RESULT|ORDER_RESULT|FLOW_FAILED|STATE: FAILED|checkout_boundary|store_unavailable|Stopped - backend error|Unexpected response|CAPTURE_LOST|MediaProjection state: null|Cannot trigger screenshot: Service not capturing|SecurityException creating VirtualDisplay|MediaProjection stopped externally|ANR in live\.betaapp\.android|ANR in com\.grofers\.customerapp|ANR in in\.swiggy\.android(?:\.instamart)?|Application Not Responding: in\.swiggy\.android(?:\.instamart)?|in\.swiggy\.android(?:\.instamart)? isn't responding|DeadSystemException"
     $sourceLines = @()
     if ($SourcePath -and (Test-Path $SourcePath)) {
         $sourceLines = Get-Content -Path $SourcePath -ErrorAction SilentlyContinue
@@ -150,7 +150,7 @@ function Resolve-ManualReadyOutcome([string]$LogText, [bool]$InstructionReceived
     if ($LogText -match "Stopped - backend error|Unexpected response: Response\{[^}]*code=\d+") {
         return "backend_error"
     }
-    if ($LogText -match "ANR in in\.swiggy\.android(?:\.instamart)?|Application Not Responding: in\.swiggy\.android(?:\.instamart)?|in\.swiggy\.android(?:\.instamart)? isn't responding|ANR in com\.zeptoconsumerapp|Application Not Responding: com\.zeptoconsumerapp|com\.zeptoconsumerapp isn't responding") {
+    if ($LogText -match "ANR in in\.swiggy\.android(?:\.instamart)?|Application Not Responding: in\.swiggy\.android(?:\.instamart)?|in\.swiggy\.android(?:\.instamart)? isn't responding") {
         if ($AllowExternalAppUnresponsive) {
             return "external_app_unresponsive"
         }
