@@ -1,36 +1,21 @@
 <resources>
     <string name="app_name">Beta</string>
-    <string name="accessibility_service_name">Beta ordering assistant</string>
-    <string name="accessibility_service_description">For Blinkit and the optional Swiggy screen-assisted fallback, Beta uses AccessibilityService only with your permission after you start a cart-building flow. Direct Swiggy MCP use does not require AccessibilityService. During a screen-assisted flow, Beta may read visible grocery app data, including product details, cart contents, buttons, prices, and delivery details such as name, precise delivery location, and address if shown, so it can build the cart you requested and stop before payment.</string>
     <string name="main_title">Hi. Let\'s make grocery ordering easier.</string>
-    <string name="main_subtitle">Tell Beta what you need. It can help you build the cart, and you decide when to pay.</string>
-    <string name="main_primary_action">Get started</string>
-    <string name="main_primary_action_ready">Beta is ready</string>
-    <string name="main_primary_action_description">Set up Beta so it can help you order</string>
-    <string name="main_primary_note">Takes about two minutes. We\'ll walk you through it.</string>
-    <string name="main_primary_note_capture_prompt">On the Android screen, choose Entire screen, then tap Next.</string>
-    <string name="main_primary_note_ready">Beta is ready. Speak or type your grocery list below.</string>
-    <string name="main_status_ready">Ready to start</string>
-    <string name="main_status_starting">Starting setup</string>
-    <string name="main_status_capture_prompt">Choose Entire screen</string>
-    <string name="main_status_active">Beta is ready</string>
-    <string name="main_status_permission_needed">Permission needed</string>
-    <string name="setup_heading">A few quick permissions</string>
-    <string name="setup_accessibility">Let Beta read the grocery app\'s screen.</string>
-    <string name="setup_overlay">Let Beta show its helper on top.</string>
-    <string name="setup_screen_capture">Let Beta see the page you\'re on.</string>
-    <string name="setup_microphone">Allow microphone - only for voice orders.</string>
+    <string name="main_subtitle">Beta builds your Swiggy cart. You always review and pay yourself.</string>
     <string name="reassurance_heading">You stay in control</string>
-    <string name="reassurance_body">Beta builds your cart, then stops. It never pays or places the order. You always review and finish in the grocery app.</string>
-    <string name="voice_order">Speak your order</string>
-    <string name="voice_listening">Listening for your order</string>
+    <string name="reassurance_body">Beta builds your cart, then stops. It never pays or places the order. You always review and finish in Swiggy.</string>
+
+    <string name="voice_listening">Listening for your grocery list</string>
     <string name="voice_processing">I heard you. Getting that ready…</string>
     <string name="voice_unavailable">Voice recognition is not available on this phone. You can type your list instead.</string>
     <string name="voice_busy">The microphone is busy. Please wait a moment and try again.</string>
     <string name="voice_network_error">Voice recognition needs a connection. You can type your list instead.</string>
-    <string name="voice_start_capture_first">Start Beta first, then use voice order</string>
-    <string name="voice_no_order_heard">No voice order heard</string>
-    <string name="voice_microphone_required">Microphone permission is required for voice orders</string>
+    <string name="voice_no_order_heard">I did not hear a grocery list. Please try again or type it.</string>
+    <string name="voice_microphone_required">Allow the microphone so you can speak your grocery list. It is used only while you speak.</string>
+    <string name="microphone_prompt_title">Speak your grocery list?</string>
+    <string name="microphone_prompt_message">Allow the microphone so you can speak your grocery list instead of typing. It is used only while you speak.</string>
+    <string name="microphone_prompt_allow">Allow microphone</string>
+
     <string name="order_input_label">Your grocery list</string>
     <string name="order_input_hint">For example: atta, milk and two bananas</string>
     <string name="order_input_help">Speak or type. You can switch between them anytime.</string>
@@ -38,31 +23,15 @@
     <string name="order_submit">Continue</string>
     <string name="order_voice_start">Speak your grocery list</string>
     <string name="order_voice_stop">Stop listening</string>
-    <string name="feedback_label">Tell us how it went</string>
-    <string name="feedback_hint">What worked? What got stuck?</string>
-    <string name="feedback_include_logs">Include diagnostic logs</string>
-    <string name="feedback_worked">It worked</string>
-    <string name="feedback_issue">Something went wrong</string>
-    <string name="works_with_label">Works with</string>
-    <string name="works_with_blinkit">Blinkit*</string>
-    <string name="works_with_instamart">Swiggy Instamart</string>
-    <string name="blinkit_beta_note">(This is still in Beta)</string>
-    <string name="provider_choice_label">Grocery app for this session</string>
-    <string name="provider_choice_note">Swiggy Instamart is selected first and uses a direct, secure connection. Change the grocery app anytime during this session.</string>
-    <string name="provider_choice_swiggy_mcp">Swiggy Instamart is selected. Beta will connect directly for a faster, more reliable cart experience.</string>
-    <string name="provider_choice_swiggy_screen_assisted">Swiggy Instamart is selected. For now, Beta will use the screen you see to help build your cart.</string>
-    <string name="provider_selected_for_session">%1$s selected for this session</string>
-    <string name="provider_choice_current">%1$s is selected for this session. You can change it anytime.</string>
-    <string name="provider_not_supported">%1$s is not available in Beta. Please choose Swiggy Instamart or Blinkit.</string>
-    <string name="status_ready_pill">Ready</string>
-    <string name="swiggy_connection_heading">Swiggy connection</string>
+
+    <string name="swiggy_connection_heading">Secure Swiggy connection</string>
     <string name="swiggy_connection_status">Swiggy is not connected</string>
-    <string name="swiggy_connection_detail">Swiggy opens a secure browser for your phone number and OTP. Beta never sees your OTP and always stops before checkout and payment.</string>
+    <string name="swiggy_connection_detail">Swiggy opens in a secure browser for your phone number and OTP. Beta never sees your OTP and always stops before payment.</string>
     <string name="swiggy_connection_action">Connect Swiggy</string>
     <string name="swiggy_connection_checking">Checking Swiggy…</string>
     <string name="swiggy_connection_connecting">Connecting to Swiggy…</string>
     <string name="swiggy_connection_ready">Swiggy is ready</string>
-    <string name="swiggy_connection_ready_detail">You can speak a grocery list. Beta will use your saved address, recent Swiggy choices, and learned shorthand preferences, show the exact cart changes, and ask before adding anything.</string>
+    <string name="swiggy_connection_ready_detail">Speak or type your grocery list. Beta shows the exact cart changes and asks before adding anything.</string>
     <string name="swiggy_connection_reconnect">Reconnect Swiggy</string>
     <string name="swiggy_connection_reconnect_detail">Your secure Swiggy connection has expired. Reconnect to continue.</string>
     <string name="swiggy_connection_reconnect_action">Reconnect Swiggy</string>
@@ -72,67 +41,63 @@
     <string name="swiggy_change_address">Change delivery address</string>
     <string name="swiggy_address_change_next_order">Address cleared. Beta will ask you to choose an address for your next Swiggy cart.</string>
     <string name="swiggy_location_prompt_title">Suggest a nearby saved address?</string>
-    <string name="swiggy_location_prompt_message">Beta can use your current location on this phone to move a nearby saved Swiggy address to the top. Your GPS coordinates are not sent to Beta’s cloud or used to change an address. You will still choose and confirm the address.</string>
+    <string name="swiggy_location_prompt_message">Use this phone\'s location to move a nearby saved Swiggy address to the top. Your location stays on the phone and is never sent to Beta. You still choose and confirm the address.</string>
     <string name="swiggy_location_prompt_accept">Use current location</string>
     <string name="swiggy_location_prompt_skip">Not now</string>
     <string name="swiggy_connection_browser_detail">Swiggy will open in your browser. Enter your phone number and OTP there.</string>
     <string name="swiggy_connection_invalid_link">Beta received an invalid Swiggy sign-in link. Please try again later.</string>
     <string name="swiggy_connection_finishing">Finishing your secure Swiggy connection…</string>
     <string name="swiggy_connection_failed">Swiggy could not be connected. Please try again.</string>
-    <string name="swiggy_use_screen_assisted">Use screen-assisted instead</string>
-    <string name="swiggy_use_mcp">Use direct Swiggy connection</string>
-    <string name="swiggy_screen_assisted_status">Screen-assisted fallback</string>
-    <string name="swiggy_screen_assisted_detail">Beta will use accessibility and screen capture for Swiggy in this session. You can return to the direct connection anytime.</string>
-    <string name="swiggy_mode_mcp_selected">Direct Swiggy connection selected.</string>
-    <string name="swiggy_mode_screen_assisted_selected">Screen-assisted Swiggy selected for this session.</string>
-    <string name="swiggy_cart_update_in_progress">Swiggy is finishing the confirmed cart update. Wait for the cart check before changing apps or modes.</string>
-    <string name="swiggy_step_stop">Stop Beta</string>
+    <string name="swiggy_cart_update_in_progress">Swiggy is finishing the confirmed cart update. Wait for the cart check before changing apps.</string>
+    <string name="swiggy_primary_note_disconnected">Connect securely in your browser. No screen access is needed.</string>
+    <string name="swiggy_primary_note_ready">Swiggy is connected. Speak or type your grocery list below.</string>
+    <string name="swiggy_connect_dialog_title">Connect Swiggy first</string>
+    <string name="swiggy_connect_dialog_message">This opens Swiggy\'s secure sign-in page. After you enter your phone number and OTP, Beta can use your saved addresses and recent Instamart choices.</string>
+    <string name="swiggy_disconnect_dialog_title">Disconnect Swiggy?</string>
+    <string name="swiggy_disconnect_dialog_message">Beta will remove its secure Swiggy connection. You can reconnect anytime.</string>
+
     <string name="swiggy_step_cancel_list">Cancel this list</string>
+    <string name="swiggy_step_stop">Stop Beta</string>
     <string name="swiggy_step_address_reassure_title">Still delivering to your %1$s address?</string>
     <string name="swiggy_step_address_reassure_detail">You confirmed this address earlier in this session. Beta shows only the saved address name and asks again after 15 minutes.</string>
     <string name="swiggy_step_progress_title">Finding %1$d items</string>
     <string name="swiggy_step_progress_detail">Beta searches a few products at a time. Results stay in the order you said them.</string>
-    <string name="swiggy_step_question_counter">Question %1$d of %2$d</string>
+    <string name="swiggy_step_question_counter">Question %1$d of %2$d.</string>
     <string name="swiggy_step_review_empty">Your Swiggy cart starts empty. Review every requested line before Beta updates it once.</string>
     <string name="swiggy_step_review_existing">Your existing cart stays. Review only the requested quantity changes before Beta updates it once.</string>
     <string name="swiggy_step_provider_added_note">Added by Swiggy, not by Beta</string>
     <string name="swiggy_step_readback_verified">Beta read the cart back and verified every requested line.</string>
     <string name="swiggy_step_no_checkout">Beta stops before checkout and payment. It never places the order.</string>
-    <string name="swiggy_primary_note_disconnected">No screen access is needed for Swiggy. Connect securely in your browser, then speak your grocery list.</string>
-    <string name="swiggy_primary_note_ready">Swiggy is connected. Tap below and speak your grocery list.</string>
-    <string name="swiggy_primary_action_ready">Speak your Swiggy order</string>
-    <string name="swiggy_connect_dialog_title">Connect Swiggy first</string>
-    <string name="swiggy_connect_dialog_message">This opens Swiggy’s secure sign-in page. After you enter your phone number and OTP, Beta can use your saved addresses and recent Instamart choices.</string>
-    <string name="swiggy_disconnect_dialog_title">Disconnect Swiggy?</string>
-    <string name="swiggy_disconnect_dialog_message">Beta will remove its secure Swiggy connection. You can reconnect anytime.</string>
-    <string name="setup_accessibility_body">So Beta can see your grocery app.</string>
-    <string name="setup_overlay_body">So Beta can show its helper on top.</string>
-    <string name="setup_screen_capture_body">Beta only looks when you ask it to.</string>
-    <string name="setup_microphone_body">Optional — needed only for voice orders.</string>
-    <string name="automation_disclosure_title">Before Beta helps in another app</string>
-    <string name="automation_disclosure_message">After you choose to start, Beta uses screen capture and AccessibilityService to read visible grocery app screens, including text, buttons, product names, prices, cart contents, and delivery details such as your name, precise delivery location, delivery address, and locality if shown. Beta sends this screen context to its backend only to build the cart you request. Beta always stops before checkout and payment. It does not place orders or pay. You can stop whenever you want. Diagnostic feedback is optional.</string>
-    <string name="automation_disclosure_accept">Continue</string>
-    <string name="automation_disclosure_cancel">Not now</string>
-    <string name="accessibility_setup_title">Turn on Beta in Accessibility</string>
-    <string name="accessibility_setup_message">Beta needs Accessibility permission for Blinkit and the optional screen-assisted Swiggy fallback. Direct Swiggy connection does not need it. On the next screen, tap Beta ordering assistant and turn it on. Then come back to Beta.</string>
-    <string name="accessibility_setup_open_settings">Open Settings</string>
-    <string name="overlay_status_ready">Tap to tell Beta</string>
-    <string name="overlay_status_listening">Beta is listening…</string>
-    <string name="overlay_status_working">Beta is working…</string>
-    <string name="overlay_status_capturing">Reading your screen…</string>
-    <string name="overlay_helper_content_description">Tap to tell Beta. Long press to stop Beta.</string>
-    <string name="overlay_stopped_toast">Beta stopped. Open Beta to start again.</string>
-    <string name="input_title">What can I help with?</string>
-    <string name="input_subtitle">I\'ll build the cart. You finish the order.</string>
-    <string name="input_hint">For example, &quot;2 kg atta and a packet of milk&quot;</string>
-    <string name="input_example_refill">Refill last week\'s order</string>
-    <string name="input_example_basics">Bread, eggs and milk</string>
-    <string name="input_example_cleaning">Cleaning supplies</string>
-    <string name="input_close">Close</string>
-    <string name="input_stop_beta">Stop Beta</string>
-    <string name="input_send">Send to Beta</string>
-    <string name="input_or_speak">Or hold the mic to speak instead</string>
-    <string name="commerce_app_opening">Opening %1$s</string>
+
+    <string name="analytics_settings">Usage analytics settings</string>
+    <string name="analytics_consent_title">Help improve Beta?</string>
+    <string name="analytics_consent_message">Beta can share anonymous usage and crash counts, such as how often carts are built, to improve the app. No grocery items, addresses, names, GPS coordinates, OTPs, or Swiggy details are ever included. You can change this anytime in Settings.</string>
+    <string name="analytics_consent_allow">Allow</string>
+    <string name="analytics_consent_not_now">Not now</string>
+    <string name="analytics_consent_turn_off">Turn off</string>
+
+    <string name="feedback_prompt_title">Did Beta get this right?</string>
+    <string name="feedback_prompt_message">Your answer helps us make grocery lists more reliable.</string>
+    <string name="feedback_worked">It worked</string>
+    <string name="feedback_issue">Something went wrong</string>
+    <string name="feedback_issue_title">What went wrong?</string>
+    <string name="feedback_sent">Feedback sent. Thank you.</string>
+    <string name="feedback_failed">Feedback could not be sent: %1$s</string>
+    <string-array name="feedback_issue_labels">
+        <item>Wrong product or pack</item>
+        <item>Missing item</item>
+        <item>Wrong address</item>
+        <item>Cart did not update</item>
+        <item>Other problem</item>
+    </string-array>
+    <string-array name="feedback_issue_codes">
+        <item>wrong_product_pack</item>
+        <item>missing_item</item>
+        <item>wrong_address</item>
+        <item>cart_not_updated</item>
+        <item>other</item>
+    </string-array>
+
     <string name="commerce_app_launch_failed">Could not open %1$s. Please open it manually and try again.</string>
-    <string name="commerce_app_not_installed">Install Swiggy Instamart or Blinkit to use Beta grocery automation.</string>
+    <string name="common_not_now">Not now</string>
 </resources>

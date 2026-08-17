@@ -1,6 +1,8 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 android {
@@ -48,8 +50,8 @@ android {
         applicationId = "live.betaapp.android"
         minSdk = 33
         targetSdk = 36
-        versionCode = configIntValue("BETA_VERSION_CODE", 16)
-        versionName = configValue("BETA_VERSION_NAME", "0.2.14")
+        versionCode = configIntValue("BETA_VERSION_CODE", 17)
+        versionName = configValue("BETA_VERSION_NAME", "0.3.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -81,7 +83,6 @@ android {
             )
             buildConfigField("String", "BETA_FEEDBACK_API_KEY", buildConfigString(feedbackApiKey))
             buildConfigField("String", "BETA_BACKEND_API_KEY", buildConfigString(backendApiKey))
-            buildConfigField("boolean", "REQUIRE_AUTOMATION_DISCLOSURE", "false")
         }
         release {
             isMinifyEnabled = false
@@ -92,7 +93,6 @@ android {
             )
             buildConfigField("String", "BETA_FEEDBACK_API_KEY", buildConfigString(feedbackApiKey))
             buildConfigField("String", "BETA_BACKEND_API_KEY", buildConfigString(backendApiKey))
-            buildConfigField("boolean", "REQUIRE_AUTOMATION_DISCLOSURE", "true")
             signingConfigs.findByName("release")?.let {
                 signingConfig = it
             }
@@ -157,6 +157,41 @@ tasks.named("preBuild") {
     }
 }
 
+val verifyReleaseManifestPolicy by tasks.registering {
+    group = "verification"
+    description = "Fails release packaging if legacy screen-access/provider or advertising-ID declarations return."
+    dependsOn("processApplicationManifestReleaseForBundle")
+
+    val manifestFile = layout.buildDirectory.file(
+        "intermediates/bundle_manifest/release/processApplicationManifestReleaseForBundle/AndroidManifest.xml"
+    )
+    inputs.file(manifestFile)
+
+    doLast {
+        val manifest = manifestFile.get().asFile.readText()
+        val forbidden = listOf(
+            "android.permission.SYSTEM_ALERT_WINDOW",
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
+            "android.permission.BIND_ACCESSIBILITY_SERVICE",
+            "com.google.android.gms.permission.AD_ID",
+            "android.permission.ACCESS_ADSERVICES_AD_ID",
+            "MyAccessibilityService",
+            "ScreenCaptureService",
+            "com.grofers.customerapp",
+            "com.zeptoconsumerapp",
+            "com.zepto.customer",
+        ).filter(manifest::contains)
+        check(forbidden.isEmpty()) {
+            "Release manifest contains forbidden legacy or advertising declarations: ${forbidden.joinToString()}"
+        }
+    }
+}
+
+tasks.matching { it.name == "bundleRelease" }.configureEach {
+    dependsOn(verifyReleaseManifestPolicy)
+}
+
 dependencies {
 
     implementation(libs.androidx.core.ktx)
@@ -169,9 +204,11 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.appcompat)
     implementation(libs.material) // Add this line
-    implementation(libs.mlkit.text.recognition)
     implementation(libs.okhttp3)
     implementation(libs.logging.interceptor)
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-analytics-ktx")
+    implementation("com.google.firebase:firebase-crashlytics-ktx")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

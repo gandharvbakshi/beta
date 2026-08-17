@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/beta_background"
@@ -16,9 +17,9 @@
         android:paddingBottom="40dp">
 
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="26dp"
+            android:layout_marginBottom="24dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -26,20 +27,31 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:background="@drawable/beta_btn_primary"
+                android:fontFamily="serif"
                 android:gravity="center"
                 android:text="β"
                 android:textColor="@color/white"
-                android:textSize="26sp"
-                android:fontFamily="serif" />
+                android:textSize="26sp" />
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:fontFamily="serif"
                 android:text="@string/app_name"
                 android:textColor="@color/beta_text_primary"
-                android:textSize="22sp"
-                android:fontFamily="serif" />
+                android:textSize="22sp" />
+
+            <ImageButton
+                android:id="@+id/analyticsSettingsButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/analytics_settings"
+                android:padding="12dp"
+                android:src="@android:drawable/ic_menu_preferences"
+                app:tint="@color/beta_text_primary" />
         </LinearLayout>
 
         <TextView
@@ -47,6 +59,7 @@
             style="@style/Beta.Display"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:accessibilityHeading="true"
             android:text="@string/main_title" />
 
         <TextView
@@ -54,57 +67,45 @@
             style="@style/Beta.BodySoft"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
+            android:layout_marginTop="12dp"
             android:text="@string/main_subtitle"
             android:textSize="18sp" />
-
-        <Button
-            android:id="@+id/captureScreenButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:background="@drawable/beta_btn_primary"
-            android:contentDescription="@string/main_primary_action_description"
-            android:minHeight="72dp"
-            android:stateListAnimator="@null"
-            android:text="@string/main_primary_action"
-            android:textAllCaps="false"
-            android:textColor="@color/white"
-            android:textSize="20sp"
-            android:fontFamily="sans-serif-medium" />
 
         <TextView
             android:id="@+id/text_agent_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
+            android:layout_marginTop="18dp"
+            android:accessibilityLiveRegion="polite"
             android:background="@drawable/beta_pill_sage"
-            android:contentDescription="@string/main_status_ready"
+            android:contentDescription="@string/swiggy_connection_status"
+            android:fontFamily="sans-serif-medium"
             android:paddingStart="16dp"
             android:paddingTop="10dp"
             android:paddingEnd="16dp"
             android:paddingBottom="10dp"
-            android:text="@string/main_status_ready"
+            android:text="@string/swiggy_connection_status"
             android:textColor="@color/beta_success"
-            android:textSize="15sp"
-            android:fontFamily="sans-serif-medium" />
+            android:textSize="15sp" />
 
         <TextView
             android:id="@+id/mainPrimaryNote"
             style="@style/Beta.BodySoft"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/main_primary_note"
+            android:layout_marginTop="10dp"
+            android:text="@string/swiggy_primary_note_disconnected"
             android:textSize="16sp" />
 
         <LinearLayout
+            android:id="@+id/orderComposerCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
+            android:layout_marginTop="20dp"
             android:background="@drawable/beta_card"
             android:orientation="vertical"
-            android:padding="18dp">
+            android:padding="18dp"
+            android:visibility="gone">
 
             <TextView
                 style="@style/Beta.Eyebrow"
@@ -156,13 +157,13 @@
                     android:layout_marginStart="12dp"
                     android:layout_weight="1"
                     android:background="@drawable/beta_btn_primary"
+                    android:fontFamily="sans-serif-medium"
                     android:minHeight="64dp"
                     android:stateListAnimator="@null"
                     android:text="@string/order_submit"
                     android:textAllCaps="false"
                     android:textColor="@color/white"
-                    android:textSize="19sp"
-                    android:fontFamily="sans-serif-medium" />
+                    android:textSize="19sp" />
             </LinearLayout>
 
             <TextView
@@ -177,10 +178,11 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/swiggyConnectionPanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
-            android:background="@drawable/beta_card"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/beta_card_soft"
             android:orientation="vertical"
             android:padding="18dp">
 
@@ -189,372 +191,73 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:accessibilityHeading="true"
-                android:labelFor="@id/providerChoiceGroup"
-                android:text="@string/provider_choice_label" />
-
-                <RadioGroup
-                    android:id="@+id/providerChoiceGroup"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:checkedButton="@id/providerSwiggy"
-                    android:orientation="vertical">
-
-                <RadioButton
-                    android:id="@+id/providerSwiggy"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/beta_provider_choice"
-                    android:buttonTint="@color/beta_primary"
-                    android:gravity="center_vertical"
-                    android:minHeight="56dp"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="14dp"
-                    android:text="@string/works_with_instamart"
-                    android:textColor="@color/beta_text_primary"
-                    android:textSize="18sp"
-                    android:fontFamily="sans-serif-medium" />
-
-                <RadioButton
-                    android:id="@+id/providerBlinkit"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:background="@drawable/beta_provider_choice"
-                    android:buttonTint="@color/beta_primary"
-                    android:gravity="center_vertical"
-                    android:minHeight="56dp"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="14dp"
-                    android:text="@string/works_with_blinkit"
-                    android:textColor="@color/beta_text_primary"
-                    android:textSize="18sp"
-                    android:fontFamily="sans-serif-medium" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="48dp"
-                    android:paddingTop="4dp"
-                    android:paddingEnd="12dp"
-                    android:text="@string/blinkit_beta_note"
-                    android:textColor="@color/beta_text_secondary"
-                    android:textSize="15sp" />
-            </RadioGroup>
+                android:text="@string/swiggy_connection_heading" />
 
             <TextView
-                android:id="@+id/providerChoiceNote"
+                android:id="@+id/swiggyConnectionStatus"
+                style="@style/Beta.Title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/swiggy_connection_status"
+                android:textSize="24sp" />
+
+            <TextView
+                android:id="@+id/swiggyConnectionDetail"
                 style="@style/Beta.BodySoft"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/provider_choice_note"
+                android:layout_marginTop="8dp"
+                android:text="@string/swiggy_connection_detail"
                 android:textSize="16sp" />
 
-            <LinearLayout
-                android:id="@+id/swiggyConnectionPanel"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:background="@drawable/beta_card_soft"
-                android:orientation="vertical"
-                android:padding="18dp">
-
-                <TextView
-                    style="@style/Beta.Eyebrow"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:accessibilityHeading="true"
-                    android:text="@string/swiggy_connection_heading" />
-
-                <TextView
-                    android:id="@+id/swiggyConnectionStatus"
-                    style="@style/Beta.Title"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/swiggy_connection_status"
-                    android:textSize="24sp" />
-
-                <TextView
-                    android:id="@+id/swiggyConnectionDetail"
-                    style="@style/Beta.BodySoft"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/swiggy_connection_detail"
-                    android:textSize="16sp" />
-
-                <TextView
-                    android:id="@+id/swiggySelectedAddress"
-                    style="@style/Beta.BodySoft"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:accessibilityHeading="true"
-                    android:text="@string/swiggy_selected_address_placeholder"
-                    android:textSize="17sp"
-                    android:visibility="gone" />
-
-                <Button
-                    android:id="@+id/swiggyChangeAddressAction"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/beta_btn_secondary"
-                    android:contentDescription="@string/swiggy_change_address"
-                    android:fontFamily="sans-serif-medium"
-                    android:minHeight="56dp"
-                    android:stateListAnimator="@null"
-                    android:text="@string/swiggy_change_address"
-                    android:textAllCaps="false"
-                    android:textColor="@color/beta_text_primary"
-                    android:textSize="18sp"
-                    android:visibility="gone" />
-
-                <Button
-                    android:id="@+id/swiggyConnectionAction"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:background="@drawable/beta_btn_primary"
-                    android:contentDescription="@string/swiggy_connection_action"
-                    android:minHeight="56dp"
-                    android:stateListAnimator="@null"
-                    android:text="@string/swiggy_connection_action"
-                    android:textAllCaps="false"
-                    android:textColor="@color/white"
-                    android:textSize="18sp"
-                    android:fontFamily="sans-serif-medium" />
-
-                <Button
-                    android:id="@+id/swiggyExecutionModeAction"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:background="@drawable/beta_btn_secondary"
-                    android:contentDescription="@string/swiggy_use_screen_assisted"
-                    android:minHeight="56dp"
-                    android:stateListAnimator="@null"
-                    android:text="@string/swiggy_use_screen_assisted"
-                    android:textAllCaps="false"
-                    android:textColor="@color/beta_text_primary"
-                    android:textSize="18sp"
-                    android:fontFamily="sans-serif-medium" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/setupHeading"
-            style="@style/Beta.Title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="30dp"
-            android:text="@string/setup_heading" />
-
-        <LinearLayout
-            android:id="@+id/setupPermissionsCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:background="@drawable/beta_card"
-            android:orientation="vertical"
-            android:padding="18dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingBottom="14dp">
-
-                <TextView
-                    android:id="@+id/setupAccessibilityStep"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/beta_step_current"
-                    android:gravity="center"
-                    android:text="1"
-                    android:textColor="@color/white"
-                    android:textSize="17sp"
-                    android:fontFamily="sans-serif-medium" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/setup_accessibility"
-                        android:textColor="@color/beta_text_primary"
-                        android:textSize="17sp"
-                        android:fontFamily="sans-serif-medium" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:text="@string/setup_accessibility_body"
-                        android:textColor="@color/beta_text_secondary"
-                        android:textSize="15sp"
-                        android:fontFamily="sans-serif" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/beta_line" />
-
-            <LinearLayout
+            <TextView
+                android:id="@+id/swiggySelectedAddress"
+                style="@style/Beta.Body"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:orientation="horizontal"
-                android:paddingBottom="14dp">
+                android:accessibilityHeading="true"
+                android:text="@string/swiggy_selected_address_placeholder"
+                android:textSize="17sp"
+                android:visibility="gone" />
 
-                <TextView
-                    android:id="@+id/setupOverlayStep"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/beta_step_pending"
-                    android:gravity="center"
-                    android:text="2"
-                    android:textColor="@color/beta_text_secondary"
-                    android:textSize="17sp"
-                    android:fontFamily="sans-serif-medium" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/setup_overlay"
-                        android:textColor="@color/beta_text_primary"
-                        android:textSize="17sp"
-                        android:fontFamily="sans-serif-medium" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:text="@string/setup_overlay_body"
-                        android:textColor="@color/beta_text_secondary"
-                        android:textSize="15sp"
-                        android:fontFamily="sans-serif" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <View
+            <Button
+                android:id="@+id/swiggyChangeAddressAction"
                 android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/beta_line" />
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/beta_btn_secondary"
+                android:contentDescription="@string/swiggy_change_address"
+                android:fontFamily="sans-serif-medium"
+                android:minHeight="56dp"
+                android:stateListAnimator="@null"
+                android:text="@string/swiggy_change_address"
+                android:textAllCaps="false"
+                android:textColor="@color/beta_text_primary"
+                android:textSize="18sp"
+                android:visibility="gone" />
 
-            <LinearLayout
+            <Button
+                android:id="@+id/swiggyConnectionAction"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:orientation="horizontal"
-                android:paddingBottom="14dp">
-
-                <TextView
-                    android:id="@+id/setupScreenCaptureStep"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/beta_step_pending"
-                    android:gravity="center"
-                    android:text="3"
-                    android:textColor="@color/beta_text_secondary"
-                    android:textSize="17sp"
-                    android:fontFamily="sans-serif-medium" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/setup_screen_capture"
-                        android:textColor="@color/beta_text_primary"
-                        android:textSize="17sp"
-                        android:fontFamily="sans-serif-medium" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:text="@string/setup_screen_capture_body"
-                        android:textColor="@color/beta_text_secondary"
-                        android:textSize="15sp"
-                        android:fontFamily="sans-serif" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/beta_line" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/setupMicrophoneStep"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/beta_step_pending"
-                    android:gravity="center"
-                    android:text="4"
-                    android:textColor="@color/beta_text_secondary"
-                    android:textSize="17sp"
-                    android:fontFamily="sans-serif-medium" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/setup_microphone"
-                        android:textColor="@color/beta_text_primary"
-                        android:textSize="17sp"
-                        android:fontFamily="sans-serif-medium" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:text="@string/setup_microphone_body"
-                        android:textColor="@color/beta_text_secondary"
-                        android:textSize="15sp"
-                        android:fontFamily="sans-serif" />
-                </LinearLayout>
-            </LinearLayout>
+                android:background="@drawable/beta_btn_primary"
+                android:contentDescription="@string/swiggy_connection_action"
+                android:fontFamily="sans-serif-medium"
+                android:minHeight="56dp"
+                android:stateListAnimator="@null"
+                android:text="@string/swiggy_connection_action"
+                android:textAllCaps="false"
+                android:textColor="@color/white"
+                android:textSize="18sp" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
+            android:layout_marginTop="20dp"
             android:background="@drawable/beta_card_soft"
             android:orientation="horizontal"
             android:padding="20dp">
@@ -563,11 +266,11 @@
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:background="@drawable/beta_step_done"
+                android:fontFamily="sans-serif-medium"
                 android:gravity="center"
                 android:text="✓"
                 android:textColor="@color/white"
-                android:textSize="17sp"
-                android:fontFamily="sans-serif-medium" />
+                android:textSize="17sp" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -594,78 +297,5 @@
                     android:textSize="15sp" />
             </LinearLayout>
         </LinearLayout>
-
-        <Button
-            android:id="@+id/testAutomatedActionButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:minHeight="56dp"
-            android:visibility="gone"
-            android:text="Test Automated Actions"
-            android:contentDescription="button_test_automated_actions" />
-
-        <TextView
-            android:id="@+id/feedbackLabel"
-            style="@style/Beta.Title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="30dp"
-            android:text="@string/feedback_label" />
-
-        <EditText
-            android:id="@+id/feedbackMessageInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:background="@drawable/beta_btn_secondary"
-            android:contentDescription="feedback_message_input"
-            android:gravity="top"
-            android:hint="@string/feedback_hint"
-            android:inputType="textMultiLine"
-            android:minLines="3"
-            android:padding="16dp"
-            android:textColor="@color/beta_text_primary"
-            android:textColorHint="@color/beta_text_secondary"
-            android:textSize="16sp"
-            android:fontFamily="sans-serif" />
-
-        <CheckBox
-            android:id="@+id/includeLogsCheckbox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:text="@string/feedback_include_logs"
-            android:textColor="@color/beta_text_primary"
-            android:textSize="15sp"
-            android:fontFamily="sans-serif" />
-
-        <Button
-            android:id="@+id/feedbackWorkedButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:background="@drawable/beta_btn_secondary"
-            android:minHeight="56dp"
-            android:stateListAnimator="@null"
-            android:text="@string/feedback_worked"
-            android:textAllCaps="false"
-            android:textColor="@color/beta_text_primary"
-            android:textSize="16sp"
-            android:fontFamily="sans-serif-medium" />
-
-        <Button
-            android:id="@+id/feedbackIssueButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:background="@drawable/beta_btn_secondary"
-            android:minHeight="56dp"
-            android:stateListAnimator="@null"
-            android:text="@string/feedback_issue"
-            android:textAllCaps="false"
-            android:textColor="@color/beta_text_primary"
-            android:textSize="16sp"
-            android:fontFamily="sans-serif-medium" />
     </LinearLayout>
 </ScrollView>

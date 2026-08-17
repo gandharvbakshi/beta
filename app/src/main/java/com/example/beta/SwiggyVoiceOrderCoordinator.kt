@@ -137,16 +137,51 @@ internal fun swiggyAddressChoiceLabels(addresses: List<SwiggyAddress>): List<Str
 
 internal fun swiggySpokenAddressConfirmation(address: SwiggyAddress): String {
     val category = address.categoryLabel.trim().ifBlank { "saved address" }
-    val prefix = if (category.startsWith("Saved address", ignoreCase = true)) {
-        "You have selected your $category"
-    } else {
-        "You have selected your address marked $category"
-    }
-    return address.confirmationDetail
+    val detail = address.confirmationDetail
         ?.trim()
         ?.takeIf(String::isNotBlank)
-        ?.let { "$prefix, which is $it." }
-        ?: "$prefix."
+        ?.replace(Regex("\\b\\d{6}\\b"), "")
+        ?.replace(Regex("\\s+"), " ")
+        ?.trim(' ', ',')
+        ?.split(' ')
+        ?.take(16)
+        ?.joinToString(" ")
+        ?.takeIf(String::isNotBlank)
+    return if (detail == null) "You selected $category." else "You selected $category, $detail."
+}
+
+internal fun swiggyAddressSuggestionDetail(
+    address: SwiggyAddress,
+    index: Int,
+    suggestionReasons: Map<String, String>,
+): String {
+    val reason = suggestionReasons[address.id] ?: return "Saved in Swiggy"
+    return if (index == 0) "Suggested · $reason" else reason
+}
+
+internal fun swiggyMatchedWithoutQuestionMessage(matchedCount: Int): String? = when (matchedCount) {
+    0 -> null
+    1 -> "1 other item matched without a question. Choose one exact pack for this item."
+    else -> "$matchedCount other items matched without a question. Choose one exact pack for this item."
+}
+
+internal fun swiggyCandidateDetail(candidate: RecommendationCandidate): String? {
+    val label = candidate.label.trim()
+    return listOfNotNull(candidate.variant, candidate.subtitle)
+        .map(String::trim)
+        .filter { it.isNotBlank() && !label.contains(it, ignoreCase = true) }
+        .distinctBy(String::lowercase)
+        .joinToString(" · ")
+        .ifBlank { null }
+}
+
+internal fun swiggyCandidateLabel(candidate: RecommendationCandidate): String {
+    val label = candidate.label.trim()
+    val extras = listOfNotNull(candidate.variant, candidate.subtitle)
+        .map(String::trim)
+        .filter { it.isNotBlank() && !label.contains(it, ignoreCase = true) }
+        .distinctBy(String::lowercase)
+    return (listOf(label) + extras).filter(String::isNotBlank).joinToString(" — ")
 }
 
 internal fun swiggyRecommendationQuery(item: ParsedItem): String {
@@ -218,6 +253,7 @@ class SwiggyVoiceOrderCoordinator(
     private val onReconnectRequired: () -> Unit,
     private val onAddressChanged: (String?) -> Unit = {},
     private val onTerminal: () -> Unit = {},
+    private val onVerified: (Int) -> Unit = {},
 ) {
     private var running = false
     private var operationGeneration = 0L
@@ -404,9 +440,7 @@ class SwiggyVoiceOrderCoordinator(
                 choices = (pageStart until pageEnd).map { index ->
                     SwiggyStepChoice(
                         title = labels[index],
-                        detail = addressSuggestionReasons[usable[index].id]
-                            ?.let { reason -> "Suggested · $reason" }
-                            ?: "Saved in Swiggy",
+                        detail = swiggyAddressSuggestionDetail(usable[index], index, addressSuggestionReasons),
                         onClick = {
                             if (isCurrent(operationId)) {
                                 rememberAddress(usable[index])
@@ -616,26 +650,25 @@ class SwiggyVoiceOrderCoordinator(
             compatible.isNotEmpty() && (candidateSet.requiresConfirmation || candidatePreferred == null)
         }
         val (questionNumber, questionTotal) = swiggyQuestionPosition(needsQuestion, index) ?: (1 to 1)
+        val matchedWithoutQuestion = items.size - questionTotal
         val caption = "Which ${item.query} do you want?"
         stepDialog.show(
             SwiggyStepScreen(
-                eyebrow = "Step 3 of 4 · " + activity.getString(
-                    R.string.swiggy_step_question_counter,
-                    questionNumber,
-                    questionTotal,
-                ),
+                eyebrow = "Step 3 of 4 · Your choices",
                 title = caption,
-                message = "${items.size - questionTotal} other items matched without a question. Choose one exact pack for this item.",
+                message = listOfNotNull(
+                    if (questionTotal > 1) activity.getString(
+                        R.string.swiggy_step_question_counter,
+                        questionNumber,
+                        questionTotal,
+                    ) else null,
+                    swiggyMatchedWithoutQuestionMessage(matchedWithoutQuestion),
+                ).joinToString(" ").ifBlank { "Choose one exact pack for this item." },
                 caption = caption,
                 choices = usable.map { candidate ->
-                    val details = listOfNotNull(candidate.variant, candidate.subtitle)
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() && !it.equals(candidate.label, ignoreCase = true) }
-                        .distinct()
-                        .joinToString(" · ")
                     SwiggyStepChoice(
                         title = candidate.label,
-                        detail = details.ifBlank { null },
+                        detail = swiggyCandidateDetail(candidate),
                         badge = if (candidate.spinId == preferred?.spinId) "Suggested" else null,
                         onClick = {
                             if (isCurrent(operationId)) {
@@ -663,6 +696,10 @@ class SwiggyVoiceOrderCoordinator(
         items: List<ParsedItem>,
         selected: List<RequestedItem>,
     ) {
+        BetaTelemetry.instance?.logEvent(
+            "product_discovery_completed",
+            mapOf("item_count" to selected.size),
+        )
         announce("Reading your current Swiggy cart and preparing the exact changes.")
         SwiggyMcpClient.planCart(activity, address.id, selected) { result ->
             onUi(operationId) {
@@ -697,6 +734,13 @@ class SwiggyVoiceOrderCoordinator(
             return
         }
         val cartStartsEmpty = swiggyCartStartsEmpty(plan)
+        BetaTelemetry.instance?.logEvent(
+            "cart_review_viewed",
+            mapOf(
+                "change_count" to plan.changes.size,
+                "starts_empty" to cartStartsEmpty,
+            ),
+        )
         val rows = plan.changes.map { change ->
             val from = change.fromQuantity ?: 0
             val to = change.toQuantity ?: from
@@ -780,6 +824,10 @@ class SwiggyVoiceOrderCoordinator(
         selectedAddressAtElapsedRealtime = SystemClock.elapsedRealtime()
         addressIntelligence.recordSelection(address.id)
         onAddressChanged(address.shortLabel)
+        BetaTelemetry.instance?.logEvent(
+            "address_selected",
+            mapOf("selection_reason" to (addressSuggestionReasons[address.id] ?: "saved_address")),
+        )
     }
 
     private fun applyPlan(
@@ -790,6 +838,7 @@ class SwiggyVoiceOrderCoordinator(
         selected: List<RequestedItem>,
     ) {
         if (!isCurrent(operationId) || mutationInFlight) return
+        BetaTelemetry.instance?.logEvent("cart_apply_started", mapOf("item_count" to selected.size))
         setMutationInFlight(true)
         val caption = "Updating your Swiggy cart once, then checking it."
         stepDialog.show(
@@ -818,6 +867,10 @@ class SwiggyVoiceOrderCoordinator(
                         if (result.value.verified) {
                             showVerifiedResult(operationId, address, selected, result.value.message)
                         } else {
+                            BetaTelemetry.instance?.logEvent(
+                                "cart_update_failed",
+                                mapOf("reason" to "provider_unverified"),
+                            )
                             finish(operationId, "Swiggy did not confirm the cart change. Please review your cart before continuing.")
                         }
                     }
@@ -826,6 +879,10 @@ class SwiggyVoiceOrderCoordinator(
                             setMutationInFlight(false)
                             showAddressMismatch(operationId, address, items, result.userMessage)
                         } else {
+                            BetaTelemetry.instance?.logEvent(
+                                "cart_update_failed",
+                                mapOf("reason" to if (result.reconnectRequired) "reconnect_required" else "backend_failure"),
+                            )
                             fail(operationId, result)
                         }
                     }
@@ -986,6 +1043,7 @@ class SwiggyVoiceOrderCoordinator(
         val completedMutation = mutationInFlight
         running = false
         if (completedMutation) setMutationInFlight(false)
+        onVerified(selected.size)
         stepDialog.show(
             SwiggyStepScreen(
                 eyebrow = "Verified · ${selected.size} of ${selected.size} lines match",
@@ -1110,11 +1168,7 @@ class SwiggyVoiceOrderCoordinator(
     }
 
     private fun candidateLabel(candidate: RecommendationCandidate): String {
-        return listOfNotNull(candidate.label, candidate.variant, candidate.subtitle)
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .joinToString(" — ")
+        return swiggyCandidateLabel(candidate)
     }
 
     private companion object {

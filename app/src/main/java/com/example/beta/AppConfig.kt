@@ -6,9 +6,6 @@ object AppConfig {
 
     private fun backendPath(path: String): String = "$backendBaseUrl/${path.trimStart('/')}"
 
-    val analyzeScreenshotUrl: String
-        get() = backendPath("analyze-screenshot")
-
     val feedbackUrl: String
         get() = backendPath("feedback")
 

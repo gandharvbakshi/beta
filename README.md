@@ -1,88 +1,81 @@
-# Beta: a voice-first personal commerce assistant
+# Beta: Swiggy Instamart cart assistant
 
-Beta is an early Android prototype exploring what a voice-first assistant for personal commerce could feel like. The current cart-only grocery flow supports Swiggy Instamart and Blinkit, with the app stopping before checkout and payment so the user can review the cart.
+Beta is an Android app that helps a user build a Swiggy Instamart cart by
+voice or text. The app uses Swiggy's authorised MCP connection, shows saved
+addresses and live products, asks for confirmation before changing the cart,
+verifies the result and stops before checkout and payment.
 
-## Status
+## Current product
 
-This project is an early prototype. It is not production-ready and parts of the experience rely on experimentation and iteration.
+- Swiggy Instamart only; Blinkit, Zepto and screen-assisted automation are not
+  part of the active app.
+- Voice and text are interchangeable within the same flow.
+- Android speech recognition is requested only when the microphone is tapped.
+- Text-to-speech prefers an Indian English male voice when the installed Google
+  TTS engine provides one.
+- Location is optional and requested only for nearby-address ranking. Raw GPS
+  remains on the phone; the user still chooses and confirms the address.
+- Recent Swiggy addresses and product choices improve ranking.
+- Every cart plan has a final confirmation and cart-only safety boundary.
+- Google Analytics for Firebase and Crashlytics are off by default and enabled
+  only after explicit consent.
 
-## Website
-
-`betaapp.live` is reserved for this project, but it is not live yet.
-
-## What the current prototype explores
-
-- Voice and text input for intent capture
-- Screen understanding to interpret what is currently on the device
-- OCR for extracting visible text from the UI
-- Accessibility tree inspection for structured UI context
-- Assisted ordering flows that guide the user step by step
-- Cart-building support for Swiggy Instamart and Blinkit
-
-## Swiggy MCP Integration (Staged)
-
-The Android and backend support for Swiggy MCP is implemented but has not yet completed live verification. When Swiggy Instamart is selected, the app now uses the direct MCP experience by default and offers the existing screen-assisted path as an explicit, temporary session fallback. Blinkit keeps its existing screen-assisted behavior and is explicitly labelled as beta in the app.
-
-Where a supported provider connection is available, MCP or provider APIs may be used for:
-
-- Search and discovery
-- Product recommendations
-- Cart planning and confirmed updates
-- Cart readback so the user can review the result
-
-The app does not automate checkout, payment, or order placement. Live Swiggy MCP activation and store testing remain separate approval-gated steps.
+The retired Blinkit/accessibility/screen-capture implementation is preserved in
+private, buildable archive repositories with restoration instructions. It is
+not compiled into this app.
 
 ## Architecture
 
-### 1) Current prototype architecture
+1. `MainActivity` owns the lightweight connection, consent and voice/text UI.
+2. `SwiggyVoiceOrderCoordinator` manages address selection, discovery, review,
+   confirmed cart mutation and spoken readback.
+3. The Android client calls the hosted Beta backend on Google Cloud Run.
+4. The backend maintains the encrypted Swiggy MCP session, performs read-only
+   discovery and recent-order ranking, and applies only a user-confirmed cart
+   plan.
+5. The flow ends after cart verification. Checkout, payment and order placement
+   are deliberately outside the product.
 
-- **Android app UI**: captures voice/text input and presents guided steps
-- **Perception layer**: combines screenshot-based OCR and accessibility tree inspection
-- **Intent and flow logic**: maps user intent to a sequence of assisted steps
-- **Action layer (prototype)**: interacts with on-screen UI elements when needed, with fallbacks and human-in-the-loop prompts
+## Privacy boundaries
 
-### 2) Target MCP architecture
+- Beta never receives the Swiggy OTP or payment credentials.
+- Raw voice audio is not stored by Beta.
+- Raw GPS coordinates are not sent to the backend or analytics.
+- Grocery requests, products, addresses and cart contents are not logged to
+  Firebase Analytics or Google Ads.
+- Screen capture, overlay and Android AccessibilityService are absent from the
+  active manifest.
 
-- **Android app UI**: voice-first experience, confirmations, and review screens
-- **Intent and flow logic**: determines the next best action and required confirmations
-- **MCP/API client**: performs commerce actions through supported grocery-provider tools
-- **Validation and guardrails**: checks the proposed cart and constraints before making cart changes
-- **Review boundary**: stops after cart readback so the user remains in control of checkout and payment
+See `PRIVACY_POLICY_DRAFT.md` for the complete disclosure.
 
-### 3) User flow
+## Development
 
-1. User speaks or types an intent, for example "Order a spicy paneer bowl under 250".
-2. The assistant clarifies constraints if needed, for example location, budget, dietary preferences.
-3. The assistant gathers context from the current screen or, for Swiggy, via MCP.
-4. The assistant proposes a short list or a recommended choice.
-5. The assistant proposes cart changes for confirmation.
-6. After confirmation, the assistant updates the cart and presents a readback.
-7. The automated flow stops before checkout and payment.
+The package published on Google Play is `live.betaapp.android`; the Android
+namespace remains `com.example.beta`.
 
-### 4) Privacy and consent principles
+Hosted test backend:
 
-- **User control first**: no order is placed without explicit confirmation.
-- **Data minimization**: collect only what is needed to complete the task.
-- **Transparency**: clearly indicate when screen data (OCR or accessibility tree) is being used.
-- **Local-first where possible**: prefer on-device processing when feasible.
-- **Sensitive data handling**: avoid storing screenshots, extracted text, or identifiers unless required for debugging, and make retention short and opt-in.
+```text
+https://beta-backend-staging-kvuem5t7mq-el.a.run.app
+```
 
-### 5) Setup instructions
+Minimum verification:
 
-This repository contains an early Android prototype.
+```powershell
+.\gradlew testDebugUnitTest
+.\gradlew assembleDebug
+.\gradlew assembleDebugAndroidTest
+.\gradlew lintRelease
+.\gradlew bundleRelease
+```
 
-- Install Android Studio (latest stable recommended).
-- Open the project in Android Studio.
-- Sync Gradle.
-- Run the app on an emulator or a connected Android device.
+Release builds require the backend keys and signing properties described in
+`PLAY_STORE_TESTING_PREP.md`. Never commit keys, OAuth tokens, recent-order
+payloads, addresses, screenshots containing personal information or cart data.
 
-If the project uses local keys or environment configuration, keep them out of git and follow any existing sample configuration files in the repo.
+## Testing safety
 
-### 6) Roadmap
-
-- Stabilize the voice and text input experience
-- Improve screen understanding quality (OCR and accessibility parsing)
-- Add robust guided flows with better error handling
-- Introduce a review-and-confirmation summary screen for all ordering actions
-- Complete approval-gated live verification of Swiggy MCP search and cart updates
-- Add privacy controls and clear consent UX for any captured screen context
+Live tests may search, discover, propose, add to cart and verify the cart.
+They must never proceed to checkout, place an order or make a payment. Use one
+controlled cart mutation at a time and clean up only the items added by the
+test.

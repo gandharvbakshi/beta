@@ -23,12 +23,6 @@ object CommerceAppLauncher {
     @JvmStatic
     @JvmOverloads
     fun launchPreferred(context: Context, instruction: String? = null): LaunchResult {
-        CommerceProviderRouter.unsupportedProviderName(instruction)?.let { providerName ->
-            return LaunchResult(
-                launched = false,
-                message = context.getString(R.string.provider_not_supported, providerName),
-            )
-        }
         val installedApps = discoverInstalledApps(context)
         val decision = CommerceProviderRouter.routeLaunch(instruction, installedApps)
         val launchIntent = context.packageManager.getLaunchIntentForPackage(decision.packageName)

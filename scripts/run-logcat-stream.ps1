@@ -35,10 +35,9 @@ if ($Mode -eq "full") {
     $logcatArgs = @(
         "logcat",
         "-v", "threadtime",
-        "MyAccessibilityService:D",
-        "ScreenCaptureService:D",
-        "BackendProcessing:D",
-        "ActionExecutor:D",
+        "BetaAgent:D",
+        "BetaFeedback:D",
+        "DebugLogger:W",
         "AndroidRuntime:E",
         "System.err:W",
         "*:S"

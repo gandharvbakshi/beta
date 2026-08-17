@@ -1,254 +1,145 @@
-# Beta Play Store Go-Live Tasks
+# Beta Play Console Submission Guide
 
-Last updated: 2026-08-15
+Target release: `0.3.0` / version code `17`, package
+`live.betaapp.android`, open-testing track `beta`.
 
-This is the current owner-only checklist for getting `Beta` live on Google Play after the AccessibilityService rejection. API-doable build/listing/release tasks are separated from actions that require Play Console owner review or policy attestation.
+## 1. Release proof before upload
 
-## Future Codex Start Here
+Do not upload until all of these pass against the final commit:
 
-- Before any future Beta Play upload, search Codex memory for `beta-play-upload-smooth-runbook` and `beta-play-026-upload-result`.
-- The detailed local memory notes are `C:\Users\gandh\.codex\memories\extensions\ad_hoc\notes\2026-06-06-beta-play-upload-smooth-runbook.md` and `C:\Users\gandh\.codex\memories\extensions\ad_hoc\notes\2026-06-06-beta-play-026-upload-result.md`.
-- Do not rediscover package name, Play track, signing, Secret Manager key source, `gcloud auth login --no-launch-browser`, or the `changesNotSentForReview` rejection from scratch.
+- Backend full test suite and hosted `/health` check.
+- Android `testDebugUnitTest`, `assembleDebug`,
+  `assembleDebugAndroidTest`, `lintRelease` and signed `bundleRelease`.
+- Physical-phone Swiggy connection, voice/text, saved-address, recent-order,
+  long-list, review/cancel and one controlled verified-cart test.
+- Release merged-manifest/AAB inspection proving the absence of overlay,
+  media-projection, AccessibilityService, Blinkit and Zepto declarations.
+- Firebase consent-off and consent-on event checks with no grocery, product,
+  cart, address, GPS or free-text values in analytics.
+- Final Claude Opus adversarial review and resolution of release blockers.
 
-## Current State
+The app must never enter checkout, place an order or make a payment during
+testing or review.
 
-- App name: `Beta`
-- Package / application ID: `live.betaapp.android`
-- Android namespace: `com.example.beta`
-- Current release config: `versionCode 16`, `versionName 0.2.14`
-- Release backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
-- Local Play Publisher credentials and Beta upload signing files exist in ignored local files.
-- Fresh Play API readback confirmed that the live-edit `en-US` and
-  default-locale `en-GB` listings disclose the Swiggy MCP-first flow, smart
-  saved-address ranking, voice/text input, the reversible screen-assisted
-  fallback, and the no-checkout boundary. Each locale has four phone, four
-  7-inch tablet, and four 10-inch tablet screenshots.
-- The in-app prominent disclosure was updated.
-- The public privacy policy asset was updated.
-- The existing AccessibilityService review video predates the current Swiggy
-  MCP-first flow. Replace it if Play requests a new declaration review; direct
-  Swiggy MCP use itself does not invoke AccessibilityService.
-- The signed `0.2.14` release AAB was built at
-  `app/build/outputs/bundle/release/app-release.aab`, passed release lint, and
-  its signature, package, version, hosted backend, and non-empty release keys
-  were verified without exposing secrets.
-- Fresh Play API readback confirmed open-testing track `beta` at version code
-  `16`, status `completed`, release name `0.2.14 - Voice and smart Swiggy
-  addresses`.
-- The 2026-08-12 release was uploaded only after a real eight-item Instamart MCP cart mutation was verified on the physical phone and the cart was restored to empty without entering checkout or payment.
-- The raw GitHub privacy-policy and review-video URLs were verified as publicly reachable.
-- Data Safety was not updated by API because there is no current Play Console CSV export/template in the repo.
-- The Data Safety form, AccessibilityService declaration, and foreground
-  service / media projection declaration remain owner-attested Play Console
-  surfaces and cannot be read back through the Android Publisher API.
+## 2. Store listing and assets
 
-## Owner-Attested Play Console Follow-Up
+Use the checked-in `en-US` and `en-GB` listings under
+`play_store_assets/listing/`. Both describe Swiggy-only voice/text cart building,
+optional on-device address ranking, explicit cart confirmation, the checkout
+boundary and default-off analytics.
 
-Keep these declarations aligned in Play Console with the shipped behavior:
+- Keep `app_icon_512.png`.
+- Upload `feature_graphic_1024x500.png` only after confirming it contains no
+  Blinkit or legacy-permission UI.
+- Capture every phone and tablet screenshot from the final verified build.
+- Delete the old image set for each locale through the Publisher API before
+  uploading replacements.
+- Do not upload retired AccessibilityService or media-projection review assets.
 
-1. Confirm the privacy-policy URL and deletion instructions remain current.
-2. Confirm the Data Safety form includes the data categories below.
-3. Confirm the AccessibilityService declaration covers Blinkit and the optional Swiggy screen-assisted fallback, but not direct Swiggy MCP use.
-4. Confirm the foreground service / media projection declaration remains current.
-5. If Play surfaces a pending policy declaration or review action, complete it before expanding beyond Open Testing.
-
-For the current Swiggy MCP release, check Publishing overview for any Google-generated policy or review action before widening tester access.
-
-## URLs To Use
-
-Privacy policy:
+Recommended release notes:
 
 ```text
-https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/privacy-policy.html
+Swiggy Instamart is now Beta's single, direct cart-building experience. This
+release simplifies setup, supports seamless voice and text, improves recent
+address and product ranking, adds clear spoken confirmations, and removes the
+old screen-access permissions. Beta still stops before checkout and payment.
 ```
 
-AccessibilityService review video:
+## 3. Privacy policy and app access
 
-```text
-https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/accessibility_review/beta_accessibility_prominent_disclosure_review.mp4
-```
+Publish and verify the public URL that serves
+`play_store_assets/privacy-policy.html` before committing the Play edit.
 
-Foreground service / media projection review video:
+App access instructions should tell the reviewer:
 
-```text
-https://raw.githubusercontent.com/gandharvbakshi/beta/master/play_store_assets/foreground_service_media_projection/beta_foreground_service_media_projection_review.mp4
-```
+1. Open Beta and tap **Connect Swiggy**.
+2. Complete Swiggy authentication on Swiggy's page. Beta does not see the OTP.
+3. Return to Beta, enter a grocery list, choose and confirm a saved address.
+4. Review the proposed cart and stop before checkout/payment.
 
-Do not use the old SMS Classifier URLs for Beta. Do not use the Beta GitHub Pages URL unless GitHub Pages is enabled and the URL is verified.
+If Swiggy requires a whitelisted reviewer identity, provide a working reviewer
+path in Play Console. Do not put credentials in the public listing or repo.
 
-## What Codex Can Still Do
+Set **Contains ads** to `No`. Advertising the app through Google Ads does not
+mean the app displays ads.
 
-- Build a future signed release AAB if the version changes.
-- Upload a future signed AAB to the open testing track through the Play Developer API if the service-account permissions still work.
-- Update localized store listing text through the Play Developer API if owner review timing is acceptable.
-- Write Data Safety through the Play Developer API only after you export/download a current Data Safety CSV/template from Play Console or Google and provide it in the repo.
-- Verify raw GitHub asset URLs.
+## 4. Data Safety during the v16 to v17 transition
 
-## API Upload Notes
+Google's Data Safety form covers every app version currently distributed. While
+version 16 remains active on any internal, closed, open or production track,
+the form must cover the union of legacy v16 and Swiggy-only v17 behavior.
 
-- Current Play package: `live.betaapp.android`.
-- Current open-testing track name in the Android Publisher API: `beta`.
-- Query current Play versions by creating a temporary edit, reading `edits.tracks.list`, and deleting the edit without committing it.
-- Upload AABs through `edits.bundles.upload`, then update `edits.tracks.update` for `beta`, then commit the edit.
-- The 2026-06-04 `0.2.4` upload returned `uploaded_bundle_version_code=6` and committed edit `15314746252293635489`.
-- The 2026-06-04 `0.2.5` upload returned `uploaded_bundle_version_code=7` and committed edit `07289748393267164803`.
-- The 2026-06-06 `0.2.6` upload returned `uploaded_bundle_version_code=8` and committed edit `02021199645127430828`.
-- The 2026-08-15 release commit used edit `13165206850685336359`. Fresh
-  readback confirmed version code `16` / version name `0.2.14`, both localized
-  descriptions, and all 24 localized screenshot uploads. Always re-read the
-  track immediately before a later upload.
-- Do not upload a release AAB unless `BETA_BACKEND_API_KEY` and `BETA_FEEDBACK_API_KEY` are set for `:app:bundleRelease`; a release built without them may install but fail backend calls.
-- On 2026-06-06, `D:\Projects\beta\beta-496723-040570e7b0fa.json` could query Android Publisher, but could not read Secret Manager (`403`). The active `gcloud` user account needed normal PowerShell `gcloud auth login --no-launch-browser --account gandharv@musicaigeneration.com` before it could fetch `BETA_BACKEND_API_KEY` / `BETA_FEEDBACK_API_KEY`.
-- Play rejected `changesNotSentForReview=true` for the 2026-06-06 upload because changes are sent for review automatically; commit future release edits without that query parameter unless Play behavior changes.
-- Normal Gradle builds no longer start logcat capture by default. Set `BETA_AUTO_LOGCAT=true` only when a build should launch `scripts/start-logcat-capture.ps1`.
-- For signed release builds, pass `BETA_RELEASE_STORE_FILE` as an absolute path or a path relative to `app/`; Gradle resolves the signing file from the app module.
+Conservative transition answers:
 
-## Play Console Owner Steps
+- Collects user data: `Yes`
+- Data encrypted in transit: `Yes`
+- Users can request deletion: `Yes`
+- All data optional: `No`; direct Swiggy cart functionality requires some data
+- Data sharing: disclose Google/Firebase/Swiggy service-provider processing and
+  opted-in Google Ads conversion measurement according to the current form
 
-### 1. Confirm The Store Listing
+Declare the applicable types and purposes:
 
-Check that the long description explicitly says `AccessibilityService`, names Swiggy Instamart and Blinkit, and describes the current Swiggy MCP-first flow with the reversible screen-assisted fallback:
+| Play category | Transition disclosure |
+| --- | --- |
+| Personal info → Name | Saved Swiggy address payload if present; also legacy visible delivery UI. App functionality. |
+| Personal info → Physical address | Saved/selected Swiggy addresses; also legacy visible delivery UI. App functionality. |
+| Financial info → Purchase history | Recent completed Instamart orders used to rank current products. App functionality/personalisation. This is not payment-card data. |
+| App activity → App interactions | Requests, flow state, product discovery, confirmations, cart result and opted-in activation/retention events. App functionality and analytics. |
+| App activity → Other user-generated content | Grocery instruction text and optional feedback. App functionality/support. |
+| User IDs | Pseudonymous Beta installation/connection identity. App functionality, security and opted-in analytics. |
+| Device or other IDs | Firebase app-instance/device identifiers when analytics is enabled. Analytics and campaign measurement. Advertising ID is disabled. |
+| Approximate location | Firebase may derive approximate location from the network when analytics is enabled; legacy v16 may expose a locality on screen. Analytics/app functionality. |
+| Precise location | Legacy v16 only, when visible delivery/map information was processed. Raw v17 GPS stays on-device. |
+| Photos and videos → Other visual content | Legacy v16 screen capture during a user-started cart flow. |
+| App info and performance → Diagnostics | Opted-in Crashlytics and optional feedback diagnostics. Reliability/analytics. |
 
-```text
-Beta helps testers build grocery carts in Swiggy Instamart and Blinkit from a typed or spoken instruction. Swiggy Instamart uses Beta's direct MCP connection first. Beta ranks saved addresses using recent choices and, with optional permission, an on-device current-location match; the user still chooses and confirms the address. Beta then searches the address-specific Instamart catalog, uses learned preferences and recent product choices to rank live results, shows the exact cart changes, and asks before updating the cart. A reversible screen-assisted Swiggy fallback remains available. Blinkit is labelled as beta in the app.
+Normally mark these `No` unless the implementation changes:
 
-For direct Swiggy use, Beta processes a pseudonymous installation identity, an encrypted Swiggy connection token, saved address details, address-specific catalog results and availability, go-to and recent-order product history, the current cart, and the saved address the user confirms. If the user grants location permission, current GPS is reverse-geocoded on the phone only to rank saved addresses; raw coordinates are not sent to Beta's cloud or stored by Beta. For Blinkit and the optional Swiggy fallback, Beta may read visible screen data such as product names, prices, cart contents, buttons, and delivery details only during a user-started flow. Beta uses this data only to build the requested cart. It does not see the Swiggy OTP, use GPS as the authoritative delivery selector, place orders, make payments, complete checkout, sell personal data, or use this data for advertising.
-```
-
-### 2. Set Privacy Policy And Deletion Details
-
-Use the Beta privacy-policy URL above.
-
-If Play asks for deletion instructions:
-
-```text
-Users can request deletion by emailing gandharv@musicaigeneration.com with the subject line "Delete my Beta data". They should include any tester email address they used and note that the request is for the Beta app. We review and action deletion requests within 14 days. Users can also clear saved preferences in the app.
-```
-
-### 3. Complete Data Safety
-
-Conservative answers for current behavior:
-
-- Does the app collect user data? `Yes`
-- Is data encrypted in transit? `Yes`
-- Can users request deletion? `Yes`
-- Is all data optional? `No`
-- Is data shared? Treat the Beta backend as service-provider processing for app functionality; do not mark advertising or sale of data.
-
-Data types to declare:
-
-- App activity -> App interactions: typed/spoken grocery instruction, cart-building interaction state, and supported grocery app screen context used for app functionality.
-- App activity -> Other user-generated content: user order instruction text, if Play offers this option.
-- Photos and videos -> Photos or other visual content: screen capture from supported grocery apps during an active user-started cart-building flow.
-- Location -> Approximate location and Precise location: visible supported-app delivery area, locality, map pin, or precise delivery location text if shown.
-- Personal info -> Name: visible name in supported-app account, delivery, or address UI if shown.
-- Personal info -> Physical address: visible supported-app delivery address, apartment/building details, or home header text if shown.
-- Personal info -> Physical address: saved Swiggy addresses returned through the direct MCP connection and shown for explicit user selection.
-- App activity -> App interactions: Swiggy go-to/recent-order product metadata, address-specific catalog results, selected products, and current cart contents used for app functionality and personalization.
-- User IDs: pseudonymous Beta installation identity used to bind the encrypted Swiggy connection and one-time cart confirmation.
-- App info and performance -> Diagnostics: optional feedback logs, app version, device model, Android version, and order result when the tester submits feedback.
-
-Data types to mark `No` unless code changes:
-
-- Financial info: Beta stops before payment and does not process payment details.
+- Payment information: Beta does not process payment credentials.
 - Messages: Beta does not read SMS or email.
-- Audio files: Android speech recognition may produce order text, but Beta does not store or upload raw audio in the current release.
-- With optional permission, Beta processes the current device location on-device
-  to rank nearby saved Swiggy addresses. It does not transmit or persist raw GPS
-  coordinates for the direct Swiggy address-selection flow.
+- Audio files: Beta receives recognised text but does not upload/store raw audio.
 
-API note: `applications.dataSafety` expects an exact `safetyLabels` CSV payload. It does not export or generate the form. Export/download the current Data Safety CSV/template first if you want me to upload it by API.
+For advertising purpose, disclose only pseudonymous consented product events
+used for Google Ads conversion measurement. Grocery requests, item/product
+names, carts, addresses, Swiggy purchase details, feedback and raw GPS are not
+sent to Firebase Analytics or Google Ads.
 
-### 4. Complete AccessibilityService Declaration
+Do not hand-author a Data Safety API CSV from memory. Export the current Play
+template/form first, map these answers to the current schema, review it, then
+write it through `applications.dataSafety` or the Console.
 
-Answers:
+## 5. Narrowing after v17 is the only distributed build
 
-- Does the app use AccessibilityService API? `Yes`
-- Is the app an accessibility tool? `No`
-- Does the app collect and/or share personal or sensitive user data using AccessibilityService API? `Yes`
+After Play readback proves that no legacy bundle is active on any track:
 
-Core purpose:
+- Remove the v16 screen-capture visual-content declaration.
+- Remove the v16-only precise-location/accessibility-screen categories.
+- Remove AccessibilityService and media-projection declarations from Console.
+- Remove the temporary **Older test versions** section from the privacy policy.
+- Retain direct Swiggy addresses, purchase history, user-generated grocery
+  requests, user/app identifiers, app interactions, optional diagnostics and
+  analytics-derived approximate geography as applicable.
 
-```text
-For Blinkit and the optional Swiggy screen-assisted fallback, Beta uses AccessibilityService after the user starts a cart-building flow. Direct Swiggy MCP use does not use AccessibilityService. In a screen-assisted flow, Beta reads visible text, content descriptions, buttons, window structure, and delivery details such as name, precise delivery location, and address if shown so it can tap the controls needed to add user-requested items to the cart. Beta stops before checkout/payment and never places an order or pays.
-```
+## 6. Upload and readback
 
-Data accessed:
+1. Create a temporary edit and re-read every track. Confirm `17` is unused.
+2. Upload the final signed AAB from
+   `app/build/outputs/bundle/release/app-release.aab`.
+3. Update the open-testing `beta` track with version `17` and the release notes.
+4. Replace both locale listings and every final image set.
+5. Commit the edit without `changesNotSentForReview` unless fresh API behavior
+   proves that flag is required.
+6. Read back the track, version, listing and image counts through the Publisher
+   API. A committed edit proves receipt, not approval.
+7. Review Publishing overview and send the policy/release changes for review.
 
-```text
-Visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text from Blinkit or the optional Swiggy screen-assisted fallback during an active user-started flow.
-```
+Play review may take days. Submission can be completed today, but approval and
+tester availability cannot be guaranteed by end of day.
 
-Collection/sharing explanation:
+## 7. After approval
 
-```text
-During an active user-started Blinkit or optional Swiggy screen-assisted cart-building flow, Beta accesses visible text, content descriptions, view IDs, bounds, clickable state, product names, prices, cart contents, buttons, and delivery details such as name, precise delivery location, delivery address, locality, and delivery-area/header text if shown. Beta sends this screen context to the Beta backend only to build the grocery cart requested by the user. Direct Swiggy MCP use does not use AccessibilityService or screen capture. Beta does not start a screen-assisted flow until the user accepts the prominent disclosure and grants Android permissions. Beta stops before checkout/payment and does not place orders or make payments.
-```
-
-Why AccessibilityService is needed:
-
-```text
-Blinkit does not expose an approved cart/search integration used by this prototype. AccessibilityService lets Beta understand and interact with the same visible controls the user sees after the user starts the flow, so it can build a cart and stop for manual review before checkout. Swiggy uses the direct MCP connection first; AccessibilityService is used for Swiggy only when the user explicitly switches to the reversible screen-assisted fallback.
-```
-
-Video URL: use the AccessibilityService review video URL above.
-
-### 5. Complete Foreground Service / Media Projection Declaration
-
-Select the closest task option for media/content projection or screen capture.
-
-Use this explanation:
-
-```text
-For Blinkit and the optional Swiggy screen-assisted fallback, Beta uses Android screen capture after the user starts an active cart-building flow. Screen capture lets Beta understand the visible grocery app screen so it can help add requested items to the cart and stop before checkout/payment. The user can stop the flow, and Beta does not capture screens in the background for unrelated purposes. Direct Swiggy MCP use does not use screen capture.
-```
-
-Video URL: use the foreground service / media projection review video URL above.
-
-### 6. Confirm The New Build Is Pending
-
-Because the in-app disclosure changed after the earlier Play rejection, confirm the new release build is present before resubmitting.
-
-Current Play API state:
-
-- Track: open testing first
-- Release name: `0.2.5 open testing`
-- Version code: `7`
-- Status: completed through Android Publisher API; confirm in Play Console Publishing overview
-
-Release notes:
-
-```text
-Fixes Beta overlay recovery after automated Blinkit flows, so the helper control returns once automation is idle. Includes the Blinkit recovery, checkout safety, and overlay stop fixes from the prior open-testing build.
-```
-
-### 7. Send Changes For Review
-
-Before sending:
-
-- Confirm Store listing contains the exact term `AccessibilityService`.
-- Confirm Data Safety includes precise location, name, and physical address because these can be visible in supported grocery app screens.
-- Confirm AccessibilityService declaration is complete and uses the current video URL.
-- Confirm Foreground Service / Media Projection declaration is complete and uses the current video URL.
-- Confirm the new AAB version code is assigned to open testing.
-- Confirm no old SMS Classifier URL is present anywhere.
-
-Then use Play Console Publishing overview to send the changes for review. This final submission is an owner attestation and should be clicked by you after reviewing the declarations.
-
-## After Approval
-
-For open testing:
-
-1. Install from the Play testing link.
-2. Grant the disclosed screen permissions and run one Swiggy Instamart
-   cart-only smoke test.
-3. Run one Blinkit cart-only smoke test.
-4. Submit one worked feedback item.
-5. Submit one issue feedback item with logs enabled.
-6. Verify feedback reaches the backend.
-
-For production:
-
-1. Promote only after open testing is accepted and smoke-tested.
-2. Use a staged rollout.
-3. Monitor Play vitals, backend logs, and tester feedback.
+Install from the Play testing link and repeat a cart-only smoke test. Confirm
+the Play-delivered manifest has no legacy permissions, verify analytics consent,
+submit one worked and one issue feedback response, and monitor Firebase,
+Cloud Run and Play vitals. Promote beyond open testing only after this readback.

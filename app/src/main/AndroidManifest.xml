@@ -1,17 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <!-- BIND_ACCESSIBILITY_SERVICE is declared on the AccessibilityService below. -->
+
+    <!-- Beta uses consented GA4 measurement without the advertising identifier. -->
+    <uses-permission
+        android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_AD_ID"
+        tools:node="remove" />
 
     <queries>
-        <package android:name="com.grofers.customerapp" />
         <package android:name="in.swiggy.android" />
         <package android:name="in.swiggy.android.instamart" />
         <intent>
@@ -31,12 +35,23 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Beta">
 
-        <!-- InputBroadcastReceiver removed - not available in current version -->
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="firebase_crashlytics_collection_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="google_analytics_adid_collection_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="google_analytics_default_allow_ad_personalization_signals"
+            android:value="false" />
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:hardwareAccelerated="false"
+            android:hardwareAccelerated="true"
             android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -46,38 +61,12 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-
                 <data
                     android:scheme="beta"
                     android:host="swiggy"
                     android:path="/oauth" />
             </intent-filter>
         </activity>
-
-        <!-- AutomatedActionTestActivity removed - not available in current version -->
-
-        <service
-            android:name=".MyAccessibilityService"
-            android:enabled="true"
-            android:exported="true"
-            android:label="@string/accessibility_service_name"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config" />
-        </service>
-
-        <service
-            android:name=".ScreenCaptureService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection">
-            <meta-data android:name="android.service.foreground"
-            android:value="true"/>
-        </service>
 
         <receiver
             android:name=".AutomationInstructionReceiver"
@@ -89,14 +78,6 @@
                 <action android:name="live.betaapp.android.CLEAR_PREFERENCES" />
             </intent-filter>
         </receiver>
-
-        <!-- OverlayInputService removed - not available in current version -->
-
-        <!-- ButtonHighlightService removed - not available in current version -->
-
-        <!-- ButtonAccessibilityService removed - not available in current version -->
-
-        <!-- AutomatedActionService removed - not available in current version -->
     </application>
 
 </manifest>

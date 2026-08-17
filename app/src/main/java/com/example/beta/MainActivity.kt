@@ -1,75 +1,45 @@
 package com.example.beta
 
 import android.Manifest
-import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.projection.MediaProjectionConfig
-import android.media.projection.MediaProjectionManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings
-import android.util.DisplayMetrics
 import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageButton
-import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.beta.SwiggyMcpClient.SwiggyMcpResult
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var captureScreenButton: Button
     private lateinit var agentStatusText: TextView
     private lateinit var primaryNoteText: TextView
+    private lateinit var orderComposerCard: View
     private lateinit var orderCommandInput: EditText
     private lateinit var orderVoiceInputButton: ImageButton
     private lateinit var orderSubmitButton: Button
     private lateinit var orderInputStatus: TextView
-    private lateinit var feedbackMessageInput: EditText
-    private lateinit var includeLogsCheckbox: CheckBox
-    private lateinit var feedbackWorkedButton: Button
-    private lateinit var feedbackIssueButton: Button
-    private lateinit var setupAccessibilityStep: TextView
-    private lateinit var setupOverlayStep: TextView
-    private lateinit var setupScreenCaptureStep: TextView
-    private lateinit var setupMicrophoneStep: TextView
-    private lateinit var setupHeading: View
-    private lateinit var setupPermissionsCard: View
-    private lateinit var providerChoiceGroup: RadioGroup
-    private lateinit var providerChoiceNote: TextView
+    private lateinit var analyticsSettingsButton: ImageButton
     private lateinit var swiggyConnectionPanel: View
     private lateinit var swiggyConnectionStatus: TextView
     private lateinit var swiggyConnectionDetail: TextView
     private lateinit var swiggySelectedAddress: TextView
     private lateinit var swiggyChangeAddressAction: Button
     private lateinit var swiggyConnectionAction: Button
-    private lateinit var swiggyExecutionModeAction: Button
-    private lateinit var mediaProjectionManager: MediaProjectionManager
-    private val screenCaptureRequestCode = 100
-    private var isCapturing = false // Track capture state
-
-    // Declare the screenCaptureResult as a lateinit var
-    private lateinit var screenCaptureResult: ActivityResultLauncher<Intent>
     private lateinit var microphonePermissionResult: ActivityResultLauncher<String>
     private lateinit var locationPermissionResult: ActivityResultLauncher<Array<String>>
     private lateinit var voiceInputController: OrderVoiceInputController
     private lateinit var textToSpeech: IndianEnglishTextToSpeech
-    private var isBindingProviderChoice = false
     private var swiggyConnectionState = SwiggyMcpClient.ConnectionState.DISCONNECTED
     private var swiggyMcpRequestGeneration = 0L
     private var swiggyStatusRequestGeneration: Long? = null
@@ -82,65 +52,24 @@ class MainActivity : ComponentActivity() {
     private var selectedSwiggyAddressLabel: String? = null
     private lateinit var swiggyOrderCoordinator: SwiggyVoiceOrderCoordinator
 
-    /*// Activity result launcher for screen capture
-    private var screenCaptureResult =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK && result.data != null) {
-                Log.d("MainActivity", "Media projection successful, starting service")
-                // Start the ScreenCaptureService
-                val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-                    putExtra("resultCode", result.resultCode)
-                    putExtra("resultData", result.data)
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(serviceIntent)
-                } else {
-                    startService(serviceIntent)
-                }
-                isCapturing = true
-            } else {
-                Log.e("MainActivity", "Media projection failed")
-                Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
-                isCapturing = false
-            }
-        }*/
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Initialize UI elements
-        captureScreenButton = findViewById(R.id.captureScreenButton)
         agentStatusText = findViewById(R.id.text_agent_status)
         primaryNoteText = findViewById(R.id.mainPrimaryNote)
+        orderComposerCard = findViewById(R.id.orderComposerCard)
         orderCommandInput = findViewById(R.id.orderCommandInput)
         orderVoiceInputButton = findViewById(R.id.orderVoiceInputButton)
         orderSubmitButton = findViewById(R.id.orderSubmitButton)
         orderInputStatus = findViewById(R.id.orderInputStatus)
-        feedbackMessageInput = findViewById(R.id.feedbackMessageInput)
-        includeLogsCheckbox = findViewById(R.id.includeLogsCheckbox)
-        feedbackWorkedButton = findViewById(R.id.feedbackWorkedButton)
-        feedbackIssueButton = findViewById(R.id.feedbackIssueButton)
-        setupAccessibilityStep = findViewById(R.id.setupAccessibilityStep)
-        setupOverlayStep = findViewById(R.id.setupOverlayStep)
-        setupScreenCaptureStep = findViewById(R.id.setupScreenCaptureStep)
-        setupMicrophoneStep = findViewById(R.id.setupMicrophoneStep)
-        setupHeading = findViewById(R.id.setupHeading)
-        setupPermissionsCard = findViewById(R.id.setupPermissionsCard)
-        providerChoiceGroup = findViewById(R.id.providerChoiceGroup)
-        providerChoiceNote = findViewById(R.id.providerChoiceNote)
+        analyticsSettingsButton = findViewById(R.id.analyticsSettingsButton)
         swiggyConnectionPanel = findViewById(R.id.swiggyConnectionPanel)
         swiggyConnectionStatus = findViewById(R.id.swiggyConnectionStatus)
         swiggyConnectionDetail = findViewById(R.id.swiggyConnectionDetail)
         swiggySelectedAddress = findViewById(R.id.swiggySelectedAddress)
         swiggyChangeAddressAction = findViewById(R.id.swiggyChangeAddressAction)
         swiggyConnectionAction = findViewById(R.id.swiggyConnectionAction)
-        swiggyExecutionModeAction = findViewById(R.id.swiggyExecutionModeAction)
-        configureProviderChoice()
-
-        // Get MediaProjectionManager
-        mediaProjectionManager =
-            getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
         textToSpeech = IndianEnglishTextToSpeech(this)
         voiceInputController = OrderVoiceInputController(
@@ -165,6 +94,7 @@ class MainActivity : ComponentActivity() {
             },
             onAddressChanged = ::renderSwiggySelectedAddress,
             onTerminal = ::resetSwiggyOrderInputStatus,
+            onVerified = ::onSwiggyCartVerified,
         )
         SwiggyCartMutationGuard.register(this) { inFlight ->
             runOnUiThread {
@@ -176,83 +106,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Initialize ActivityResultLauncher
-        screenCaptureResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK && result.data != null) {
-                Log.d("MainActivity", "Media projection successful, starting service")
-
-                // Keep getMetrics only as diagnostic evidence; the capture frame must use real display bounds.
-                val displayMetrics = DisplayMetrics()
-                windowManager.defaultDisplay.getMetrics(displayMetrics)
-
-                // Also get real metrics for comparison (includes status bar and navigation bar)
-                val realMetrics = DisplayMetrics()
-                windowManager.defaultDisplay.getRealMetrics(realMetrics)
-
-                val (captureWidth, captureHeight) = ScreenMetrics.getScreenDimensions(this)
-                val captureDensity = resources.displayMetrics.densityDpi
-
-                // Log dimension comparison for scaling hypothesis verification
-                Log.i("MainActivity", "Display Metrics (getMetrics): ${displayMetrics.widthPixels}x${displayMetrics.heightPixels}")
-                Log.i("MainActivity", "Real Metrics (getRealMetrics): ${realMetrics.widthPixels}x${realMetrics.heightPixels}")
-                Log.i("BetaAgent", "CAPTURE_FRAME_REQUESTED: ${captureWidth}x${captureHeight} @ $captureDensity dpi")
-
-                val widthDiff = captureWidth - displayMetrics.widthPixels
-                val heightDiff = captureHeight - displayMetrics.heightPixels
-
-                if (widthDiff != 0 || heightDiff != 0) {
-                    Log.w("MainActivity", "DIMENSION MISMATCH: getMetrics differs from capture frame by ${widthDiff}px x ${heightDiff}px")
-                    Log.w("MainActivity", "Using real/window metrics for MediaProjection to keep screenshots and taps in one frame.")
-                } else {
-                    Log.i("MainActivity", "Dimensions match - no scaling issues expected")
-                }
-
-                // Start the ScreenCaptureService with the metrics after receiving result from projection intent
-                val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-                    putExtra("resultCode", result.resultCode)
-                    putExtra("resultData", result.data)
-                    putExtra("width", captureWidth)
-                    putExtra("height", captureHeight)
-                    putExtra("density", captureDensity)
-                }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(serviceIntent)
-                } else {
-                    startService(serviceIntent)
-                }
-
-                // OverlayInputService removed - not available in current version
-
-                isCapturing = true
-                updateSetupStatus(
-                    statusRes = R.string.main_status_active,
-                    noteRes = R.string.main_primary_note_ready,
-                    actionRes = R.string.main_primary_action_ready
-                )
-                Handler(Looper.getMainLooper()).postDelayed({
-                    refreshSetupChecklist()
-                }, 1000)
-            } else {
-                Log.e("MainActivity", "Media projection failed")
-                Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
-                isCapturing = false
-                updateSetupStatus(
-                    statusRes = R.string.main_status_permission_needed,
-                    noteRes = R.string.main_primary_note,
-                    actionRes = R.string.main_primary_action
-                )
-                refreshSetupChecklist()
-            }
-        }
-
         microphonePermissionResult = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) {
                 startVoiceRecognition()
             } else {
                 Toast.makeText(this, R.string.voice_microphone_required, Toast.LENGTH_LONG).show()
             }
-            refreshSetupChecklist()
+            BetaTelemetry.instance?.logPermissionResult("microphone", granted)
         }
 
         locationPermissionResult = registerForActivityResult(
@@ -261,26 +121,8 @@ class MainActivity : ComponentActivity() {
             val granted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
             Log.i("BetaAgent", "SWIGGY_ADDRESS_LOCATION_PERMISSION_RESULT granted=$granted")
+            BetaTelemetry.instance?.logPermissionResult("location", granted)
             continuePendingLocationAwareSwiggyOrder()
-        }
-
-        // Set click listener for the capture screen button
-        captureScreenButton.setOnClickListener {
-            if (CommerceProviderRouter.currentSessionProvider() ==
-                CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
-            ) {
-                if (SwiggyExecutionMode.usesMcpExperience()) {
-                    if (swiggyConnectionState == SwiggyMcpClient.ConnectionState.READY) {
-                        checkMicrophoneAndStartVoice()
-                    } else {
-                        startSwiggyConnection()
-                    }
-                } else {
-                    checkPermissionsAndStartCapture()
-                }
-            } else {
-                checkPermissionsAndStartCapture()
-            }
         }
 
         orderVoiceInputButton.setOnClickListener {
@@ -313,45 +155,23 @@ class MainActivity : ComponentActivity() {
                 announceSwiggy(getString(R.string.swiggy_cart_update_in_progress))
             }
         }
-
-        swiggyExecutionModeAction.setOnClickListener {
-            if (SwiggyExecutionMode.usesMcpExperience()) {
-                selectSwiggyExecutionMode(SwiggyExecutionMode.Mode.SCREEN_ASSISTED)
-            } else {
-                selectSwiggyExecutionMode(SwiggyExecutionMode.Mode.MCP)
-            }
-        }
-
-        feedbackWorkedButton.setOnClickListener {
-            sendFeedback("worked", "order_flow")
-        }
-
-        feedbackIssueButton.setOnClickListener {
-            sendFeedback("did_not_work", "order_flow")
-        }
-
-        // AutomatedActionTestActivity removed - not available in current version
-
-        (application as MyApplication).registerActivity(this)
-        refreshSetupChecklist()
-        handleStartCaptureIntent(intent)
+        analyticsSettingsButton.setOnClickListener { showAnalyticsConsentDialog(force = true) }
+        configurePrimaryExperience()
+        BetaTelemetry.instance?.onAppResume()
         handleSwiggyOAuthIntent(intent)
         handleSwiggyOrderIntent(intent)
     }
 
     override fun onResume() {
         super.onResume()
-        syncProviderChoiceFromSession()
-        refreshSetupChecklist()
-        if (isSwiggyMcpSelected()) {
-            refreshSwiggyConnectionStatus(resumePendingOrder = true)
-        }
+        BetaTelemetry.instance?.onAppResume()
+        refreshSwiggyConnectionStatus(resumePendingOrder = true)
+        maybeShowFeedbackPrompt()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleStartCaptureIntent(intent)
         handleSwiggyOAuthIntent(intent)
         handleSwiggyOrderIntent(intent)
     }
@@ -362,34 +182,31 @@ class MainActivity : ComponentActivity() {
         SwiggyCartMutationGuard.unregister(this)
         if (::voiceInputController.isInitialized) voiceInputController.destroy()
         if (::textToSpeech.isInitialized) textToSpeech.shutdown()
-        (application as MyApplication).unregisterActivity(this)
     }
 
     private fun speak(message: String) {
         if (::textToSpeech.isInitialized) textToSpeech.speak(message)
     }
 
-    private fun handleStartCaptureIntent(sourceIntent: Intent?) {
-        if (sourceIntent?.getBooleanExtra(EXTRA_START_CAPTURE_ON_OPEN, false) != true) {
-            return
-        }
-
-        val reason = sourceIntent.getStringExtra(EXTRA_CAPTURE_RESTART_REASON).orEmpty()
-        sourceIntent.removeExtra(EXTRA_START_CAPTURE_ON_OPEN)
-        sourceIntent.removeExtra(EXTRA_CAPTURE_RESTART_REASON)
-        Log.i("BetaAgent", "CAPTURE_RESTART_REQUESTED_FROM_INTENT: reason=$reason")
-        Toast.makeText(this, "Restarting screen capture", Toast.LENGTH_SHORT).show()
-        Handler(Looper.getMainLooper()).post {
-            checkPermissionsAndStartCapture()
-        }
-    }
-
     private fun checkMicrophoneAndStartVoice() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             startVoiceRecognition()
-        } else {
-            microphonePermissionResult.launch(Manifest.permission.RECORD_AUDIO)
+            return
         }
+        val preferences = getSharedPreferences(VOICE_PERMISSION_PREFERENCES, MODE_PRIVATE)
+        if (preferences.getBoolean(VOICE_PERMISSION_EXPLAINED, false)) {
+            microphonePermissionResult.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.microphone_prompt_title)
+            .setMessage(R.string.microphone_prompt_message)
+            .setPositiveButton(R.string.microphone_prompt_allow) { _, _ ->
+                preferences.edit().putBoolean(VOICE_PERMISSION_EXPLAINED, true).apply()
+                microphonePermissionResult.launch(Manifest.permission.RECORD_AUDIO)
+            }
+            .setNegativeButton(R.string.common_not_now, null)
+            .show()
     }
 
     private fun startVoiceRecognition() {
@@ -441,23 +258,13 @@ class MainActivity : ComponentActivity() {
             orderCommandInput.announceForAccessibility(getString(R.string.order_input_required))
             return
         }
-        CommerceProviderRouter.unsupportedProviderName(instruction)?.let { providerName ->
-            val message = getString(R.string.provider_not_supported, providerName)
-            orderInputStatus.text = message
-            speak(message)
-            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-            Log.i("BetaAgent", "ORDER_INSTRUCTION_REJECTED_UNSUPPORTED_PROVIDER provider=$providerName")
-            return
-        }
         voiceInputController.cancel()
         textToSpeech.stop()
         orderCommandInput.setText(instruction)
         orderCommandInput.setSelection(instruction.length)
         orderInputStatus.setText(R.string.voice_processing)
         Log.i("BetaAgent", "ORDER_INSTRUCTION_RECEIVED source=$source characters=${instruction.length}")
-
-        CommerceProviderRouter.selectProviderFromInstruction(instruction)
-        syncProviderChoiceFromSession()
+        BetaTelemetry.instance?.logOrderRequestSubmitted(source, instruction)
 
         if (CommerceProviderRouter.isOpenCommerceAppInstruction(instruction)) {
             val launchResult = CommerceAppLauncher.launchPreferred(this, instruction)
@@ -469,161 +276,39 @@ class MainActivity : ComponentActivity() {
             ).show()
             return
         }
-
-        val selectedProvider = CommerceProviderRouter.currentSessionProvider()
-        if (
-            selectedProvider == CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
-            SwiggyExecutionMode.usesMcpExperience()
-        ) {
-            handleSwiggyVoiceInstruction(instruction)
-            return
-        }
-        if (selectedProvider == CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART) {
-            Log.i("BetaAgent", "SWIGGY_SCREEN_ASSISTED_VOICE_INSTRUCTION_RECEIVED")
-        }
-
-        val service = (application as MyApplication).getScreenCaptureService()
-        if (service == null) {
-            speak(getString(R.string.voice_start_capture_first))
-            Toast.makeText(this, getString(R.string.voice_start_capture_first), Toast.LENGTH_LONG).show()
-            return
-        }
-        Log.i("BetaAgent", "SCREEN_ASSISTED_INSTRUCTION_READY source=$source characters=${instruction.length}")
-        val launchResult = CommerceAppLauncher.launchPreferred(this, instruction)
-        if (!launchResult.launched) {
-            speak(launchResult.message)
-            Toast.makeText(this, launchResult.message, Toast.LENGTH_LONG).show()
-            return
-        }
-        speak("Opening ${launchResult.appName}. I heard $instruction")
-        Toast.makeText(this, launchResult.message, Toast.LENGTH_SHORT).show()
-        Handler(Looper.getMainLooper()).postDelayed({
-            service.submitAutomationInstruction(instruction)
-        }, CommerceAppLauncher.LAUNCH_SETTLE_DELAY_MS)
-    }
-
-    private fun configureProviderChoice() {
-        syncProviderChoiceFromSession()
-        providerChoiceGroup.setOnCheckedChangeListener { _, checkedId ->
-            if (isBindingProviderChoice) return@setOnCheckedChangeListener
-            if (::swiggyOrderCoordinator.isInitialized && swiggyOrderCoordinator.isMutationInFlight()) {
-                syncProviderChoiceFromSession()
-                announceSwiggy(getString(R.string.swiggy_cart_update_in_progress))
-                return@setOnCheckedChangeListener
-            }
-            val provider = when (checkedId) {
-                R.id.providerSwiggy -> CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
-                R.id.providerBlinkit -> CommerceProviderRouter.CommerceProvider.BLINKIT
-                else -> return@setOnCheckedChangeListener
-            }
-            CommerceProviderRouter.selectProviderFromUi(provider)
-            if (provider != CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART) {
-                cancelPendingSwiggyMcpWork("provider_changed_to_${provider.name}")
-            }
-            val message = getString(R.string.provider_selected_for_session, provider.appName)
-            providerChoiceNote.text = providerChoiceNoteFor(provider)
-            providerChoiceGroup.announceForAccessibility(message)
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-            Log.i("BetaAgent", "PROVIDER_SESSION_SELECTED source=UI provider=${provider.name}")
-            updateSwiggyPanelVisibility()
-            configurePrimaryExperience()
-            if (
-                provider == CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
-                SwiggyExecutionMode.usesMcpExperience()
-            ) {
-                refreshSwiggyConnectionStatus()
-            }
-        }
-    }
-
-    private fun syncProviderChoiceFromSession() {
-        if (!::providerChoiceGroup.isInitialized) return
-        val provider = CommerceProviderRouter.currentSessionProvider()
-        val checkedId = when (provider) {
-            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART -> R.id.providerSwiggy
-            CommerceProviderRouter.CommerceProvider.BLINKIT -> R.id.providerBlinkit
-        }
-        isBindingProviderChoice = true
-        providerChoiceGroup.check(checkedId)
-        isBindingProviderChoice = false
-        providerChoiceNote.text = providerChoiceNoteFor(provider)
-        updateSwiggyPanelVisibility()
-        configurePrimaryExperience()
-    }
-
-    private fun providerChoiceNoteFor(provider: CommerceProviderRouter.CommerceProvider): String {
-        return when {
-            provider != CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART ->
-                getString(R.string.provider_choice_current, provider.appName)
-            SwiggyExecutionMode.usesMcpExperience() ->
-                getString(R.string.provider_choice_swiggy_mcp)
-            else -> getString(R.string.provider_choice_swiggy_screen_assisted)
-        }
-    }
-
-    private fun updateSwiggyPanelVisibility() {
-        if (!::swiggyConnectionPanel.isInitialized) return
-        val swiggySelected = CommerceProviderRouter.currentSessionProvider() ==
-            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
-        swiggyConnectionPanel.visibility = if (swiggySelected) View.VISIBLE else View.GONE
-        if (swiggySelected) renderSwiggyConnectionPanel()
+        handleSwiggyVoiceInstruction(instruction)
     }
 
     private fun configurePrimaryExperience() {
-        if (!::setupHeading.isInitialized) return
-        val usesSwiggyMcp = isSwiggyMcpSelected()
-        captureScreenButton.visibility = if (usesSwiggyMcp) View.GONE else View.VISIBLE
-        setupHeading.visibility = if (usesSwiggyMcp) View.GONE else View.VISIBLE
-        setupPermissionsCard.visibility = if (usesSwiggyMcp) View.GONE else View.VISIBLE
-        if (!usesSwiggyMcp) {
-            refreshSetupChecklist()
-            return
+        if (!::swiggyConnectionPanel.isInitialized) return
+        swiggyConnectionPanel.visibility = View.VISIBLE
+        orderComposerCard.visibility = if (swiggyConnectionState == SwiggyMcpClient.ConnectionState.READY) {
+            View.VISIBLE
+        } else {
+            View.GONE
         }
 
         when (swiggyConnectionState) {
             SwiggyMcpClient.ConnectionState.READY -> updateSetupStatus(
                 statusRes = R.string.swiggy_connection_ready,
                 noteRes = R.string.swiggy_primary_note_ready,
-                actionRes = R.string.swiggy_primary_action_ready,
             )
             SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED -> updateSetupStatus(
                 statusRes = R.string.swiggy_connection_reconnect,
                 noteRes = R.string.swiggy_primary_note_disconnected,
-                actionRes = R.string.swiggy_connection_reconnect_action,
             )
             SwiggyMcpClient.ConnectionState.DISCONNECTED -> updateSetupStatus(
                 statusRes = R.string.swiggy_connection_status,
                 noteRes = R.string.swiggy_primary_note_disconnected,
-                actionRes = R.string.swiggy_connection_action,
             )
         }
+        renderSwiggyConnectionPanel()
     }
 
     private fun renderSwiggyConnectionPanel(detailOverride: String? = null) {
         if (!::swiggyConnectionPanel.isInitialized) return
-        if (!SwiggyExecutionMode.usesMcpExperience()) {
-            swiggyConnectionStatus.setText(R.string.swiggy_screen_assisted_status)
-            swiggyConnectionDetail.setText(R.string.swiggy_screen_assisted_detail)
-            swiggyConnectionAction.visibility = View.GONE
-            swiggySelectedAddress.visibility = View.GONE
-            swiggyChangeAddressAction.visibility = View.GONE
-            swiggyExecutionModeAction.apply {
-                visibility = View.VISIBLE
-                isEnabled = !isSwiggyMutationInFlight()
-                setText(R.string.swiggy_use_mcp)
-                contentDescription = getString(R.string.swiggy_use_mcp)
-            }
-            return
-        }
-
         swiggyConnectionAction.visibility = View.VISIBLE
         renderSwiggySelectedAddress(selectedSwiggyAddressLabel)
-        swiggyExecutionModeAction.apply {
-            visibility = View.VISIBLE
-            isEnabled = !isSwiggyMutationInFlight()
-            setText(R.string.swiggy_use_screen_assisted)
-            contentDescription = getString(R.string.swiggy_use_screen_assisted)
-        }
         when (swiggyConnectionState) {
             SwiggyMcpClient.ConnectionState.READY -> {
                 swiggyConnectionStatus.setText(R.string.swiggy_connection_ready)
@@ -659,7 +344,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshSwiggyConnectionStatus(resumePendingOrder: Boolean = false) {
-        if (!isSwiggyMcpSelected()) return
         if (!::swiggyConnectionStatus.isInitialized) return
         if (resumePendingOrder) resumeSwiggyOrderAfterStatus = true
         if (swiggyStatusRequestGeneration != null) return
@@ -677,7 +361,7 @@ class MainActivity : ComponentActivity() {
                     swiggyStatusRequestGeneration = null
                 }
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                if (requestGeneration != swiggyMcpRequestGeneration || !isSwiggyMcpSelected()) {
+                if (requestGeneration != swiggyMcpRequestGeneration) {
                     Log.i("BetaAgent", "SWIGGY_MCP_STATUS_IGNORED_STALE")
                     return@runOnUiThread
                 }
@@ -718,6 +402,7 @@ class MainActivity : ComponentActivity() {
         state: SwiggyMcpClient.ConnectionState,
         detailOverride: String? = null,
     ) {
+        val previousState = swiggyConnectionState
         if (state != SwiggyMcpClient.ConnectionState.READY && ::swiggyOrderCoordinator.isInitialized) {
             swiggyOrderCoordinator.clearRememberedAddress()
         }
@@ -726,10 +411,23 @@ class MainActivity : ComponentActivity() {
         swiggyConnectionAction.isEnabled = !isSwiggyMutationInFlight()
         swiggyConnectionStatus.announceForAccessibility(swiggyConnectionStatus.text)
         configurePrimaryExperience()
+        if (state == SwiggyMcpClient.ConnectionState.READY && previousState != state) {
+            val connectionPreferences = getSharedPreferences(CONNECTION_PREFERENCES, MODE_PRIVATE)
+            if (connectionPreferences.getBoolean(CONNECTION_ATTEMPT_PENDING, false)) {
+                BetaTelemetry.instance?.logEvent("swiggy_connect_completed")
+                connectionPreferences.edit().putBoolean(CONNECTION_ATTEMPT_PENDING, false).apply()
+            }
+            BetaTelemetry.instance?.maybeLogOnboardingCompleted()
+            showAnalyticsConsentDialog(force = false)
+        }
     }
 
     private fun startSwiggyConnection() {
-        if (!isSwiggyMcpSelected()) return
+        BetaTelemetry.instance?.logEvent("swiggy_connect_started")
+        getSharedPreferences(CONNECTION_PREFERENCES, MODE_PRIVATE)
+            .edit()
+            .putBoolean(CONNECTION_ATTEMPT_PENDING, true)
+            .apply()
         val requestGeneration = swiggyMcpRequestGeneration
         swiggyConnectionAction.isEnabled = false
         swiggyConnectionStatus.setText(R.string.swiggy_connection_connecting)
@@ -737,7 +435,7 @@ class MainActivity : ComponentActivity() {
         SwiggyMcpClient.connect(this) { result ->
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                if (requestGeneration != swiggyMcpRequestGeneration || !isSwiggyMcpSelected()) {
+                if (requestGeneration != swiggyMcpRequestGeneration) {
                     Log.i("BetaAgent", "SWIGGY_MCP_CONNECT_IGNORED_STALE")
                     return@runOnUiThread
                 }
@@ -745,6 +443,11 @@ class MainActivity : ComponentActivity() {
                     is SwiggyMcpResult.Success -> {
                         val authUrl = result.value.authorizationUrl
                         if (authUrl.isNullOrBlank() || !openTrustedSwiggyAuthorization(authUrl)) {
+                            BetaTelemetry.instance?.logEvent(
+                                "swiggy_connect_failed",
+                                mapOf("reason" to "invalid_authorization_link"),
+                            )
+                            clearPendingConnectionAttempt()
                             updateSwiggyConnectionUi(
                                 SwiggyMcpClient.ConnectionState.DISCONNECTED,
                                 getString(R.string.swiggy_connection_invalid_link),
@@ -752,6 +455,11 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     is SwiggyMcpResult.Failure -> {
+                        BetaTelemetry.instance?.logEvent(
+                            "swiggy_connect_failed",
+                            mapOf("reason" to if (result.reconnectRequired) "reconnect_required" else "backend_failure"),
+                        )
+                        clearPendingConnectionAttempt()
                         updateSwiggyConnectionUi(
                             if (result.reconnectRequired) SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED
                             else SwiggyMcpClient.ConnectionState.DISCONNECTED,
@@ -773,20 +481,25 @@ class MainActivity : ComponentActivity() {
         }.getOrDefault(false)
     }
 
+    private fun clearPendingConnectionAttempt() {
+        getSharedPreferences(CONNECTION_PREFERENCES, MODE_PRIVATE)
+            .edit()
+            .putBoolean(CONNECTION_ATTEMPT_PENDING, false)
+            .apply()
+    }
+
     private fun handleSwiggyOAuthIntent(sourceIntent: Intent?) {
         val data = sourceIntent?.data ?: return
         if (data.scheme != "beta" || data.host != "swiggy" || data.path != "/oauth") return
         sourceIntent.data = null
-        if (!isSwiggyMcpSelected()) {
-            Log.i("BetaAgent", "SWIGGY_MCP_CALLBACK_IGNORED_SCREEN_ASSISTED_MODE")
-            return
-        }
         if (data.getQueryParameter("status") == "connected") {
             swiggyOrderCoordinator.clearRememberedAddress()
             swiggyConnectionStatus.setText(R.string.swiggy_connection_checking)
             swiggyConnectionDetail.setText(R.string.swiggy_connection_finishing)
             refreshSwiggyConnectionStatus(resumePendingOrder = true)
         } else {
+            BetaTelemetry.instance?.logEvent("swiggy_connect_failed", mapOf("reason" to "oauth_callback"))
+            clearPendingConnectionAttempt()
             updateSwiggyConnectionUi(
                 SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED,
                 getString(R.string.swiggy_connection_failed),
@@ -804,20 +517,10 @@ class MainActivity : ComponentActivity() {
             Log.w("BetaAgent", "SWIGGY_ORDER_HANDOFF_REJECTED")
             return
         }
-        CommerceProviderRouter.selectProviderFromUi(CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART)
-        syncProviderChoiceFromSession()
-        Handler(Looper.getMainLooper()).post {
-            if (SwiggyExecutionMode.usesMcpExperience()) {
-                handleSwiggyVoiceInstruction(instruction)
-            } else {
-                Log.i("BetaAgent", "STALE_SWIGGY_MCP_INTENT_ROUTED_TO_SCREEN_ASSISTED")
-                submitOrderInstruction(instruction, source = "handoff")
-            }
-        }
+        orderCommandInput.post { handleSwiggyVoiceInstruction(instruction) }
     }
 
     private fun promptToConnectSwiggy() {
-        if (!isSwiggyMcpSelected()) return
         if (pendingSwiggyInstruction.isNullOrBlank() || swiggyConnectPromptShowing) return
         swiggyConnectPromptShowing = true
         val reconnect = swiggyConnectionState == SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED
@@ -828,7 +531,7 @@ class MainActivity : ComponentActivity() {
                 swiggyConnectPromptShowing = false
                 startSwiggyConnection()
             }
-            .setNegativeButton(R.string.automation_disclosure_cancel) { _, _ ->
+            .setNegativeButton(R.string.common_not_now) { _, _ ->
                 swiggyConnectPromptShowing = false
                 pendingSwiggyInstruction = null
             }
@@ -846,7 +549,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startPendingSwiggyOrder() {
-        if (!isSwiggyMcpSelected()) return
         val instruction = pendingSwiggyInstruction?.takeIf { it.isNotBlank() } ?: return
         pendingSwiggyInstruction = null
         startSwiggyOrderWithOptionalLocation(instruction)
@@ -901,7 +603,7 @@ class MainActivity : ComponentActivity() {
     private fun continuePendingLocationAwareSwiggyOrder() {
         val instruction = pendingLocationSwiggyInstruction?.takeIf { it.isNotBlank() } ?: return
         pendingLocationSwiggyInstruction = null
-        if (isSwiggyMcpSelected() && !isFinishing && !isDestroyed) {
+        if (!isFinishing && !isDestroyed) {
             swiggyOrderCoordinator.start(instruction)
         }
     }
@@ -911,13 +613,12 @@ class MainActivity : ComponentActivity() {
             .setTitle(R.string.swiggy_disconnect_dialog_title)
             .setMessage(R.string.swiggy_disconnect_dialog_message)
             .setPositiveButton(R.string.swiggy_connection_disconnect) { _, _ ->
-                if (!isSwiggyMcpSelected()) return@setPositiveButton
                 val requestGeneration = swiggyMcpRequestGeneration
                 swiggyConnectionAction.isEnabled = false
                 SwiggyMcpClient.disconnect(this) { result ->
                     runOnUiThread {
                         if (isFinishing || isDestroyed) return@runOnUiThread
-                        if (requestGeneration != swiggyMcpRequestGeneration || !isSwiggyMcpSelected()) {
+                        if (requestGeneration != swiggyMcpRequestGeneration) {
                             Log.i("BetaAgent", "SWIGGY_MCP_DISCONNECT_IGNORED_STALE")
                             return@runOnUiThread
                         }
@@ -932,39 +633,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            .setNegativeButton(R.string.automation_disclosure_cancel, null)
+            .setNegativeButton(R.string.common_not_now, null)
             .show()
-    }
-
-    private fun selectSwiggyExecutionMode(mode: SwiggyExecutionMode.Mode) {
-        if (SwiggyExecutionMode.current() == mode) return
-        if (isSwiggyMutationInFlight()) {
-            announceSwiggy(getString(R.string.swiggy_cart_update_in_progress))
-            return
-        }
-        cancelPendingSwiggyMcpWork("execution_mode_changed_to_${mode.name}")
-        when (mode) {
-            SwiggyExecutionMode.Mode.MCP -> SwiggyExecutionMode.useMcp()
-            SwiggyExecutionMode.Mode.SCREEN_ASSISTED -> SwiggyExecutionMode.useScreenAssisted()
-        }
-        Log.i("BetaAgent", "SWIGGY_EXECUTION_MODE_SELECTED mode=${mode.name}")
-        providerChoiceNote.text = providerChoiceNoteFor(
-            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART
-        )
-        updateSwiggyPanelVisibility()
-        configurePrimaryExperience()
-
-        val messageRes = if (mode == SwiggyExecutionMode.Mode.MCP) {
-            R.string.swiggy_mode_mcp_selected
-        } else {
-            R.string.swiggy_mode_screen_assisted_selected
-        }
-        val message = getString(messageRes)
-        swiggyConnectionStatus.announceForAccessibility(message)
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-        if (mode == SwiggyExecutionMode.Mode.MCP) {
-            refreshSwiggyConnectionStatus()
-        }
     }
 
     private fun cancelPendingSwiggyMcpWork(reason: String) {
@@ -990,13 +660,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateSwiggyMutationControls(inFlight: Boolean) {
-        if (!::providerChoiceGroup.isInitialized) return
-        for (index in 0 until providerChoiceGroup.childCount) {
-            providerChoiceGroup.getChildAt(index).isEnabled = !inFlight
-        }
-        if (::swiggyExecutionModeAction.isInitialized) {
-            swiggyExecutionModeAction.isEnabled = !inFlight
-        }
         if (::swiggyConnectionAction.isInitialized) {
             swiggyConnectionAction.isEnabled = !inFlight
         }
@@ -1013,12 +676,6 @@ class MainActivity : ComponentActivity() {
             (::swiggyOrderCoordinator.isInitialized && swiggyOrderCoordinator.isMutationInFlight())
     }
 
-    private fun isSwiggyMcpSelected(): Boolean {
-        return CommerceProviderRouter.currentSessionProvider() ==
-            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
-            SwiggyExecutionMode.usesMcpExperience()
-    }
-
     private fun announceSwiggy(message: String) {
         if (::swiggyConnectionDetail.isInitialized) swiggyConnectionDetail.text = message
         speak(message)
@@ -1029,7 +686,6 @@ class MainActivity : ComponentActivity() {
         selectedSwiggyAddressLabel = label?.trim()?.takeIf { it.isNotBlank() }
         if (!::swiggySelectedAddress.isInitialized || !::swiggyChangeAddressAction.isInitialized) return
         val visible = selectedSwiggyAddressLabel != null &&
-            SwiggyExecutionMode.usesMcpExperience() &&
             swiggyConnectionState == SwiggyMcpClient.ConnectionState.READY
         swiggySelectedAddress.visibility = if (visible) View.VISIBLE else View.GONE
         swiggyChangeAddressAction.visibility = if (visible) View.VISIBLE else View.GONE
@@ -1042,262 +698,108 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkPermissionsAndStartCapture() {
-        updateSetupStatus(
-            statusRes = R.string.main_status_starting,
-            noteRes = R.string.main_primary_note
-        )
-        /*Log.d("MainActivity", "checkPermissionsAndStartCapture: Checking storage permission")
-        // Check for storage permissions, request if not granted.
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
-                STORAGE_PERMISSION_CODE
-            )
+    private fun showAnalyticsConsentDialog(force: Boolean) {
+        val consent = (application as MyApplication).analyticsConsentManager
+        if (!force && consent.hasSeenChoice()) return
+        val enabled = consent.isAnalyticsAllowed()
+        val builder = AlertDialog.Builder(this)
+            .setTitle(R.string.analytics_consent_title)
+            .setMessage(R.string.analytics_consent_message)
+            .setPositiveButton(R.string.analytics_consent_allow) { _, _ ->
+                consent.setAnalyticsAllowed(true)
+                BetaTelemetry.instance?.logEvent(
+                    "consent_changed",
+                    mapOf("consent_kind" to "analytics", "value" to true),
+                )
+                BetaTelemetry.instance?.onAppResume()
+                if (swiggyConnectionState == SwiggyMcpClient.ConnectionState.READY) {
+                    BetaTelemetry.instance?.maybeLogOnboardingCompleted()
+                }
+            }
+        if (force && enabled) {
+            builder.setNegativeButton(R.string.analytics_consent_turn_off) { _, _ ->
+                BetaTelemetry.instance?.logEvent(
+                    "consent_changed",
+                    mapOf("consent_kind" to "analytics", "value" to false),
+                )
+                consent.setAnalyticsAllowed(false)
+            }
         } else {
-            Log.d("MainActivity", "Storage permission granted, checking overlay permission")
-            checkOverlayPermissionAndStartCapture()
-        }*/
-        if (BuildConfig.REQUIRE_AUTOMATION_DISCLOSURE && !automationDisclosureAccepted()) {
-            showAutomationDisclosure()
-        } else if (!isBetaAccessibilityEnabled()) {
-            refreshSetupChecklist()
-            showAccessibilitySetupHelp()
-        } else {
-            checkOverlayPermissionAndStartCapture()
+            builder.setNegativeButton(R.string.analytics_consent_not_now) { _, _ ->
+                consent.setAnalyticsAllowed(false)
+            }
         }
+        builder.show()
     }
 
-    private fun isBetaAccessibilityEnabled(): Boolean {
-        val expected = ComponentName(this, MyAccessibilityService::class.java).flattenToString()
-        val enabled = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ).orEmpty()
-        return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
-    }
-
-    private fun showAccessibilitySetupHelp() {
-        AlertDialog.Builder(this)
-            .setTitle(R.string.accessibility_setup_title)
-            .setMessage(R.string.accessibility_setup_message)
-            .setPositiveButton(R.string.accessibility_setup_open_settings) { _, _ ->
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
-            .setNegativeButton(R.string.automation_disclosure_cancel) { _, _ ->
-                refreshSetupChecklist()
-            }
-            .show()
-    }
-
-    private fun automationDisclosureAccepted(): Boolean {
-        return getSharedPreferences("beta_release_prefs", MODE_PRIVATE)
-            .getBoolean("automation_disclosure_accepted", false)
-    }
-
-    private fun markAutomationDisclosureAccepted() {
-        getSharedPreferences("beta_release_prefs", MODE_PRIVATE)
+    private fun onSwiggyCartVerified(itemCount: Int) {
+        BetaTelemetry.instance?.logCartUpdateVerified(itemCount)
+        getSharedPreferences(FEEDBACK_PREFERENCES, MODE_PRIVATE)
             .edit()
-            .putBoolean("automation_disclosure_accepted", true)
+            .putBoolean(FEEDBACK_SUCCESS_PENDING, true)
             .apply()
     }
 
-    private fun showAutomationDisclosure() {
+    private fun maybeShowFeedbackPrompt() {
+        if (isSwiggyMutationInFlight()) return
+        val preferences = getSharedPreferences(FEEDBACK_PREFERENCES, MODE_PRIVATE)
+        val successPending = preferences.getBoolean(FEEDBACK_SUCCESS_PENDING, false)
+        val milestone = BetaTelemetry.instance?.dueFeedbackMilestone()
+        if (!successPending && milestone == null) return
+        preferences.edit().putBoolean(FEEDBACK_SUCCESS_PENDING, false).apply()
+        milestone?.let { BetaTelemetry.instance?.markFeedbackMilestoneShown(it) }
+        showFeedbackPrompt(if (successPending) "verified_cart" else "retention_${milestone ?: 0}")
+    }
+
+    private fun showFeedbackPrompt(category: String) {
+        BetaTelemetry.instance?.logEvent("feedback_prompt_shown", mapOf("category" to category))
         AlertDialog.Builder(this)
-            .setTitle(R.string.automation_disclosure_title)
-            .setMessage(R.string.automation_disclosure_message)
-            .setPositiveButton(R.string.automation_disclosure_accept) { _, _ ->
-                markAutomationDisclosureAccepted()
-                checkPermissionsAndStartCapture()
+            .setTitle(R.string.feedback_prompt_title)
+            .setMessage(R.string.feedback_prompt_message)
+            .setPositiveButton(R.string.feedback_worked) { _, _ ->
+                submitFeedback("worked", category, "")
             }
-            .setNegativeButton(R.string.automation_disclosure_cancel) { _, _ ->
-                refreshSetupChecklist()
+            .setNegativeButton(R.string.feedback_issue) { _, _ ->
+                showFeedbackIssueChoices(category)
             }
             .show()
     }
 
-    private fun sendFeedback(rating: String, category: String) {
-        val message = feedbackMessageInput.text?.toString().orEmpty()
-        val includeLogs = includeLogsCheckbox.isChecked
-        feedbackWorkedButton.isEnabled = false
-        feedbackIssueButton.isEnabled = false
+    private fun showFeedbackIssueChoices(category: String) {
+        val labels = resources.getStringArray(R.array.feedback_issue_labels)
+        val codes = resources.getStringArray(R.array.feedback_issue_codes)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.feedback_issue_title)
+            .setItems(labels) { _, which ->
+                submitFeedback("did_not_work", category, codes.getOrElse(which) { "other" })
+            }
+            .setNegativeButton(R.string.analytics_consent_not_now, null)
+            .show()
+    }
+
+    private fun submitFeedback(rating: String, category: String, message: String) {
         FeedbackClient.submit(
             context = this,
             rating = rating,
             category = category,
             message = message,
-            includeLogs = includeLogs
+            includeLogs = false,
         ) { success, detail ->
             runOnUiThread {
-                feedbackWorkedButton.isEnabled = true
-                feedbackIssueButton.isEnabled = true
-                if (success) {
-                    feedbackMessageInput.setText("")
-                    includeLogsCheckbox.isChecked = false
-                    Toast.makeText(this, "Feedback sent", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this, "Feedback failed: $detail", Toast.LENGTH_LONG).show()
-                }
+                BetaTelemetry.instance?.logEvent(
+                    "feedback_submitted",
+                    mapOf("category" to category, "outcome" to if (success) "success" else "failed"),
+                )
+                Toast.makeText(
+                    this,
+                    if (success) getString(R.string.feedback_sent) else getString(R.string.feedback_failed, detail),
+                    if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG,
+                ).show()
             }
         }
-
     }
 
-    private fun checkOverlayPermissionAndStartCapture() {
-        Log.d("MainActivity", "checkOverlayPermissionAndStartCapture: Checking overlay permission")
-        // Check for overlay permission
-        if (!Settings.canDrawOverlays(this)) {
-            refreshSetupChecklist()
-            updateSetupStatus(
-                statusRes = R.string.main_status_permission_needed,
-                noteRes = R.string.setup_overlay_body
-            )
-            // Request overlay permission
-            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            startActivity(intent)
-            Toast.makeText(
-                this,
-                "Please grant overlay permission to use screen capture",
-                Toast.LENGTH_LONG
-            ).show()
-        } else {
-            Log.d("MainActivity", "Overlay permission granted, starting media projection")
-            startMediaProjection()
-        }
-    }
-
-    private fun startMediaProjection() {
-        Log.d("MainActivity", "startMediaProjection: Starting media projection")
-        updateSetupStatus(
-            statusRes = R.string.main_status_capture_prompt,
-            noteRes = R.string.main_primary_note_capture_prompt
-        )
-        val projectionIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            Log.i("BetaAgent", "MEDIA_PROJECTION_DEFAULT_DISPLAY_REQUEST")
-            mediaProjectionManager.createScreenCaptureIntent(
-                MediaProjectionConfig.createConfigForDefaultDisplay()
-            )
-        } else {
-            mediaProjectionManager.createScreenCaptureIntent()
-        }
-        screenCaptureResult.launch(projectionIntent)  // Only responsible for starting projection
-
-        /*// Get display metrics here to pass it along to the service
-        val displayMetrics = DisplayMetrics()
-        windowManager.defaultDisplay.getMetrics(displayMetrics)
-
-        // Start the ScreenCaptureService with the metrics after receiving result from projection intent
-        val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
-            putExtra("width", displayMetrics.widthPixels)
-            putExtra("height", displayMetrics.heightPixels)
-            putExtra("density", displayMetrics.densityDpi)
-        }
-
-        // Once you receive the result, start the service from the result handler:
-        screenCaptureResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK && result.data != null) {
-                Log.d("MainActivity", "Media projection successful, starting service")
-                startForegroundService(serviceIntent)
-            } else {
-                Log.e("MainActivity", "Media projection failed")
-                Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
-            }
-        }*/
-    }
-
-    private fun refreshSetupChecklist() {
-        if (!::setupAccessibilityStep.isInitialized) return
-
-        if (
-            CommerceProviderRouter.currentSessionProvider() ==
-                CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
-            SwiggyExecutionMode.usesMcpExperience()
-        ) {
-            configurePrimaryExperience()
-            return
-        }
-
-        val accessibilityReady = isBetaAccessibilityEnabled()
-        val overlayReady = Settings.canDrawOverlays(this)
-        val screenCaptureService = (application as? MyApplication)?.getScreenCaptureService()
-        val captureReady = screenCaptureService?.canCapture() == true
-        isCapturing = captureReady
-        val microphoneReady = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-
-        val currentStep = when {
-            !accessibilityReady -> 1
-            !overlayReady -> 2
-            !captureReady -> 3
-            !microphoneReady -> 4
-            else -> 0
-        }
-
-        updateStepMarker(setupAccessibilityStep, "1", accessibilityReady, currentStep == 1)
-        updateStepMarker(setupOverlayStep, "2", overlayReady, currentStep == 2)
-        updateStepMarker(setupScreenCaptureStep, "3", captureReady, currentStep == 3)
-        updateStepMarker(setupMicrophoneStep, "4", microphoneReady, currentStep == 4)
-
-        if (BackendProcessing.isSequenceActive()) {
-            return
-        }
-
-        when {
-            !accessibilityReady -> updateSetupStatus(
-                statusRes = R.string.main_status_permission_needed,
-                noteRes = R.string.setup_accessibility_body,
-                actionRes = R.string.main_primary_action
-            )
-            !overlayReady -> updateSetupStatus(
-                statusRes = R.string.main_status_permission_needed,
-                noteRes = R.string.setup_overlay_body,
-                actionRes = R.string.main_primary_action
-            )
-            !captureReady -> updateSetupStatus(
-                statusRes = R.string.main_status_ready,
-                noteRes = R.string.main_primary_note,
-                actionRes = R.string.main_primary_action
-            )
-            else -> updateSetupStatus(
-                statusRes = R.string.main_status_active,
-                noteRes = R.string.main_primary_note_ready,
-                actionRes = R.string.main_primary_action_ready
-            )
-        }
-    }
-
-    private fun updateStepMarker(
-        marker: TextView,
-        number: String,
-        done: Boolean,
-        current: Boolean
-    ) {
-        marker.text = if (done) "\u2713" else number
-        marker.setBackgroundResource(
-            when {
-                done -> R.drawable.beta_step_done
-                current -> R.drawable.beta_step_current
-                else -> R.drawable.beta_step_pending
-            }
-        )
-        marker.setTextColor(
-            ContextCompat.getColor(
-                this,
-                if (done || current) R.color.white else R.color.beta_text_secondary
-            )
-        )
-    }
-
-    private fun updateSetupStatus(statusRes: Int, noteRes: Int, actionRes: Int? = null) {
+    private fun updateSetupStatus(statusRes: Int, noteRes: Int) {
         if (::agentStatusText.isInitialized) {
             agentStatusText.setText(statusRes)
             agentStatusText.contentDescription = getString(statusRes)
@@ -1305,33 +807,16 @@ class MainActivity : ComponentActivity() {
         if (::primaryNoteText.isInitialized) {
             primaryNoteText.setText(noteRes)
         }
-        if (actionRes != null && ::captureScreenButton.isInitialized) {
-            captureScreenButton.setText(actionRes)
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == STORAGE_PERMISSION_CODE) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Log.d("MainActivity", "Storage permission granted in onRequestPermissionsResult")
-                checkOverlayPermissionAndStartCapture()
-            } else {
-                Log.e("MainActivity", "Storage permission denied")
-                Toast.makeText(this, "Storage permission is required", Toast.LENGTH_SHORT).show()
-            }
-        }
     }
 
     companion object {
-        const val EXTRA_START_CAPTURE_ON_OPEN = "com.example.beta.extra.START_CAPTURE_ON_OPEN"
-        const val EXTRA_CAPTURE_RESTART_REASON = "com.example.beta.extra.CAPTURE_RESTART_REASON"
-        private const val STORAGE_PERMISSION_CODE = 101
         private const val SWIGGY_LOCATION_PREFERENCES = "swiggy_location_preferences"
         private const val SWIGGY_LOCATION_PERMISSION_ASKED = "location_permission_asked"
+        private const val VOICE_PERMISSION_PREFERENCES = "voice_permission_preferences"
+        private const val VOICE_PERMISSION_EXPLAINED = "voice_permission_explained"
+        private const val FEEDBACK_PREFERENCES = "feedback_prompt_preferences"
+        private const val FEEDBACK_SUCCESS_PENDING = "feedback_success_pending"
+        private const val CONNECTION_PREFERENCES = "swiggy_connection_preferences"
+        private const val CONNECTION_ATTEMPT_PENDING = "connection_attempt_pending"
     }
 }

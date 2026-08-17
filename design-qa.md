@@ -64,7 +64,7 @@
 ## Implementation checklist
 
 - [x] Replace stacked Swiggy `AlertDialog` screens with one full-screen step surface.
-- [x] Keep Swiggy as the first session default while retaining Blinkit as an explicitly labelled beta choice.
+- [x] Keep Swiggy as the single direct cart-building experience with no provider-choice or screen-assisted controls.
 - [x] Show address reassurance and fail closed on cart-address mismatch.
 - [x] Make bounded two-search concurrency visible without inventing completed results.
 - [x] Ask one product ambiguity at a time.

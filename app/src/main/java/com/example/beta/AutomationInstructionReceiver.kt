@@ -3,10 +3,7 @@ package com.example.beta
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
-import android.widget.Toast
 import com.example.beta.automation.Preference
 import com.example.beta.automation.PreferenceSource
 import com.example.beta.automation.PreferenceStore
@@ -37,7 +34,7 @@ class AutomationInstructionReceiver : BroadcastReceiver() {
             Log.i("BetaAgent", "PREFERENCES_CLEARED")
             return
         }
-        if (intent?.action != ScreenCaptureService.ACTION_SUBMIT_AUTOMATION_INSTRUCTION) {
+        if (intent?.action != ACTION_SUBMIT_AUTOMATION_INSTRUCTION) {
             return
         }
 
@@ -46,70 +43,30 @@ class AutomationInstructionReceiver : BroadcastReceiver() {
             Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_EMPTY")
             return
         }
-        CommerceProviderRouter.unsupportedProviderName(instruction)?.let { providerName ->
-            Toast.makeText(
-                context,
-                context.getString(R.string.provider_not_supported, providerName),
-                Toast.LENGTH_LONG,
-            ).show()
-            Log.i("BetaAgent", "ORDER_INSTRUCTION_REJECTED_UNSUPPORTED_PROVIDER provider=$providerName")
-            return
-        }
-
         Log.i("BetaAgent", "AUTOMATION_INSTRUCTION_RECEIVED characters=${instruction.length}")
-        CommerceProviderRouter.selectProviderFromInstruction(instruction)
-        if (
-            CommerceProviderRouter.currentSessionProvider() ==
-            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
-            SwiggyExecutionMode.usesMcpExperience() &&
-            !CommerceProviderRouter.isOpenCommerceAppInstruction(instruction)
-        ) {
-            val handoffToken = SwiggyOrderHandoff.issue(instruction)
-            runCatching {
-                context.startActivity(
-                    Intent(context, MainActivity::class.java)
-                        .putExtra(SwiggyOrderHandoff.EXTRA_TOKEN, handoffToken)
-                        .addFlags(
-                            Intent.FLAG_ACTIVITY_NEW_TASK or
-                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        )
-                )
-            }.onFailure { error ->
-                SwiggyOrderHandoff.consume(handoffToken)
-                Log.e("BetaAgent", "SWIGGY_MCP_RECEIVER_ROUTE_FAILED: ${error.javaClass.simpleName}")
-            }
+        if (CommerceProviderRouter.isOpenCommerceAppInstruction(instruction)) {
+            CommerceAppLauncher.launchPreferred(context, instruction)
             return
         }
+        val handoffToken = SwiggyOrderHandoff.issue(instruction)
+        runCatching {
+            context.startActivity(
+                Intent(context, MainActivity::class.java)
+                    .putExtra(SwiggyOrderHandoff.EXTRA_TOKEN, handoffToken)
+                    .addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+            )
+        }.onFailure { error ->
+            SwiggyOrderHandoff.consume(handoffToken)
+            Log.e("BetaAgent", "SWIGGY_MCP_RECEIVER_ROUTE_FAILED: ${error.javaClass.simpleName}")
+        }
+    }
 
-        val service = (context.applicationContext as? MyApplication)?.getScreenCaptureService()
-        if (service == null) {
-            Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_SCREEN_SERVICE characters=${instruction.length}")
-            return
-        }
-
-        if (
-            CommerceProviderRouter.currentSessionProvider() ==
-            CommerceProviderRouter.CommerceProvider.SWIGGY_INSTAMART &&
-            !CommerceProviderRouter.isOpenCommerceAppInstruction(instruction)
-        ) {
-            service.submitAutomationInstruction(instruction)
-            return
-        }
-        if (intent.getBooleanExtra(CommerceAppLauncher.EXTRA_LAUNCH_PREFERRED_COMMERCE_APP, false)) {
-            val launchResult = CommerceAppLauncher.launchPreferred(context, instruction)
-            if (!launchResult.launched) {
-                Toast.makeText(context, launchResult.message, Toast.LENGTH_LONG).show()
-                Log.w("BetaAgent", "AUTOMATION_INSTRUCTION_NO_COMMERCE_APP characters=${instruction.length}")
-                return
-            }
-            Toast.makeText(context, launchResult.message, Toast.LENGTH_SHORT).show()
-            Handler(Looper.getMainLooper()).postDelayed({
-                service.submitAutomationInstruction(instruction)
-            }, CommerceAppLauncher.LAUNCH_SETTLE_DELAY_MS)
-            return
-        }
-
-        service.submitAutomationInstruction(instruction)
+    private companion object {
+        const val ACTION_SUBMIT_AUTOMATION_INSTRUCTION =
+            "live.betaapp.android.SUBMIT_AUTOMATION_INSTRUCTION"
     }
 }

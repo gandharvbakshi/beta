@@ -1,95 +1,123 @@
-# Play Store Policy Knowledge Base
+# Beta Play Store Policy Knowledge Base
 
-Last updated: 2026-05-22
+Last updated: August 17, 2026
 
-## Current App Context
+## Current app context
 
-- Play app name: `Beta`
-- Package / application ID: `live.betaapp.android`
-- Android namespace and Kotlin package: `com.example.beta`
-- Core feature: user-started, cart-only grocery assistance for Swiggy Instamart and Blinkit.
-- Hard boundary: Beta must stop before checkout and payment. It must not place orders or pay.
+- Play app: `Beta`
+- Package: `live.betaapp.android`
+- Android namespace: `com.example.beta`
+- Current product: Swiggy Instamart cart building by voice or text through the
+  authorised Swiggy MCP connection.
+- Safety boundary: stop after cart verification; never checkout, pay or place
+  an order.
+- Current runtime permissions: optional microphone and coarse/fine location,
+  requested only when the related feature is used.
+- Removed from the active app: Blinkit, Zepto, overlay, media projection,
+  screen capture and Android AccessibilityService.
 
-## Where To Look First
+The retired Android and backend implementations are preserved in private
+archive repositories with build, test and restoration documentation. They must
+not be copied back into a Swiggy-only Play release accidentally.
 
-- Google rejection PDF, if present: `MusicMakers Mail - Action Required_ Your app is not compliant with Google Play Policies (Beta).pdf`
-- App prominent disclosure copy: `app/src/main/res/values/strings.xml`
-- Accessibility service config: `app/src/main/res/xml/accessibility_service_config.xml`
-- Manifest service declaration: `app/src/main/AndroidManifest.xml`
-- Public privacy policy asset: `play_store_assets/privacy-policy.html`
-- Draft privacy policy: `PRIVACY_POLICY_DRAFT.md`
-- Human Play Console checklist: `PLAY_CONSOLE_SUBMISSION_GUIDE.md`
-- Short operational checklist: `PLAY_STORE_TESTING_PREP.md`
+## Historical 2026-05-22 rejection
 
-## 2026-05-22 Rejection Summary
+Google rejected an older Beta build because the Play listing and prominent
+disclosure did not accurately describe AccessibilityService data access,
+including possible visible name, precise location and address data. The old app
+was remediated with expanded disclosure, Data Safety guidance and review-video
+assets.
 
-Google rejected `Beta (live.betaapp.android)` because:
+That remediation path is historical and superseded for version 0.3.0 because
+the active app no longer declares or runs AccessibilityService or screen
+capture. Preserve the record for auditability, but do not upload the old review
+videos or paste old AccessibilityService copy into the new listing.
 
-- The Play Store long description did not clearly document use of `AccessibilityService`.
-- The in-app prominent disclosure did not sufficiently explain data accessed through `AccessibilityService`.
-- Google specifically named missing data types: `Precise location`, `Name`, and `Address`.
+## Current policy requirements
 
-Treat this as a disclosure/listing/Data Safety issue, not a build/package-name issue.
+Play-facing text and imagery must match the shipped binary:
 
-## 2026-05-22 Remediation Status
+- Describe Swiggy Instamart only.
+- Explain voice/text input, saved-address confirmation, live product discovery,
+  exact cart review and the no-checkout/payment boundary.
+- Explain that raw voice audio is not stored and raw GPS remains on-device.
+- Explain default-off Firebase Analytics/Crashlytics and any consented Google
+  Ads conversion measurement accurately.
+- Do not state that Beta collects no data: direct MCP still processes saved
+  addresses, recent purchase history, requests, catalogue/cart data and a
+  pseudonymous connection identity.
+- Do not state that financial information is entirely absent. Play classifies
+  recent completed orders as **Financial info → Purchase history**, separately
+  from payment credentials.
+- Keep **Contains ads** as `No` unless the app starts displaying ads.
 
-- App disclosure copy was updated in `app/src/main/res/values/strings.xml`.
-- Public privacy-policy asset was updated in `play_store_assets/privacy-policy.html`.
-- Play Console copy-paste guidance was updated in `PLAY_CONSOLE_SUBMISSION_GUIDE.md`.
-- The `en-US` Play Store listing draft was updated through the Android Publisher API for `live.betaapp.android` with `changesNotSentForReview=true`.
-- Data Safety was not updated through the API because that requires an up-to-date Data Safety CSV payload.
-- AccessibilityService declaration still requires developer-owner review/submission in Play Console.
-- Review video assets in `play_store_assets/accessibility_review/` were regenerated after the prominent disclosure text changed.
+## Transition rule for old tracks
 
-## Required Disclosure Positioning
+Data Safety applies to all distributed versions, not only the newly uploaded
+bundle. While version 16 or another legacy build is active on any track, the
+form and privacy policy must cover both:
 
-Keep all Play-facing copy aligned with actual behavior:
+1. legacy screen-assisted visual/accessibility behavior, and
+2. version 17 direct Swiggy plus optional Analytics/Crashlytics/Ads measurement.
 
-- Beta uses `AccessibilityService` and screen capture only after the user starts a cart-building flow and gives consent.
-- Beta may read visible supported grocery app screen data, including product names, prices, cart contents, buttons, visible text, view metadata, name, precise delivery location, delivery address, locality, and delivery-area/header text if shown by the grocery app.
-- Beta sends this screen context to the Beta backend only to build the cart requested by the user.
-- Beta stops before checkout/payment and does not place orders or make payments.
-- Beta does not sell personal or sensitive user data and does not use grocery screen data for advertising.
-- Do not claim Beta is an accessibility tool unless the product is redesigned primarily to serve users with disabilities. Current config intentionally uses `android:isAccessibilityTool="false"`.
+Only after fresh Play API/Console readback proves no legacy bundle is active may
+the developer remove legacy screen-capture, precise-location and accessibility
+declarations. The temporary legacy section in the privacy policy follows the
+same rule.
 
-## Play Console / API Reality
+## Release gates
 
-The Google Play Developer API can update localized store listings through `edits.listings` and can write Data Safety labels through `applications.dataSafety` if an up-to-date Data Safety CSV and valid service-account credentials are available.
+Before each upload:
 
-The Data Safety API is not a form-answer generator and does not export the current Play Console form. It accepts a POST body whose `safetyLabels` value is the exact CSV text for the Data Safety answers. Use a Play Console export or Google's current sample CSV as the template before writing this API field; do not hand-roll a CSV from memory because question IDs and required rows can change.
+1. Read every Play track and choose a genuinely unused version code.
+2. Build with the hosted backend URL, current Secret Manager keys and verified
+   release signing; never commit secrets.
+3. Run unit, instrumentation-build, lint and signed-bundle tasks.
+4. Inspect the merged release manifest/AAB for forbidden legacy permissions,
+   components and provider package queries.
+5. Run the cart-only physical-phone suite, including long recent orders,
+   address confirmation, voice/text continuity, cancel/no-mutation and one
+   controlled verified-cart mutation.
+6. Verify consent-off and consent-on telemetry contains no grocery, item, cart,
+   address, GPS, OTP, token or free-text payload.
+7. Capture listing screenshots only from the final build and remove stale image
+   sets before uploading replacements.
+8. Read the committed Play edit back. Never report review approval based only
+   on an API commit.
 
-Check for these service-account key locations without printing contents:
+## Console and API boundaries
+
+The Android Publisher API can update releases, listings and images. Data Safety
+can be written only with a current exact CSV/template payload; export it from
+Play first and review the mapping. App access and some policy declarations may
+still require owner attestation in Play Console.
+
+Credential files, if present, must never be printed or committed:
 
 - `D:\Projects\Android Keys\beta-play-publisher.json`
 - `D:\Projects\beta\beta-496723-040570e7b0fa.json`
 
-The root `beta-496723-040570e7b0fa.json` file is intentionally ignored by git. Do not commit it and do not paste its contents into chat.
+The package is `live.betaapp.android`; the open-testing API track is `beta`.
+Commit future edits without `changesNotSentForReview` unless current API
+readback demonstrates a changed requirement.
 
-Do not claim Play Console changes were submitted unless credentials were verified and the API call succeeded. The AccessibilityService permission declaration is still a developer-owner policy attestation and should be reviewed in Play Console by the account owner.
+## Canonical files
 
-## Resubmission Checklist
+- App copy and consent: `app/src/main/res/values/strings.xml`
+- Active manifest: `app/src/main/AndroidManifest.xml`
+- Public privacy asset: `play_store_assets/privacy-policy.html`
+- Working privacy text: `PRIVACY_POLICY_DRAFT.md`
+- Listing drafts: `play_store_assets/listing/`
+- Submission checklist: `PLAY_CONSOLE_SUBMISSION_GUIDE.md`
+- Test/release checklist: `PLAY_STORE_TESTING_PREP.md`
 
-1. Update the app prominent disclosure in `strings.xml`.
-2. Update `play_store_assets/privacy-policy.html`.
-3. Update the Play listing long description to use the exact term `AccessibilityService`.
-4. Update Data Safety for all visible grocery-screen data that can be collected, including precise location, name, and physical address when shown on screen.
-5. Update the AccessibilityService declaration in Play Console with the same data categories.
-6. Regenerate the review video after the disclosure copy changes; the video must show the current disclosure text, consent path, Accessibility settings grant, decline path if requested, and one core cart-building flow.
-7. Upload a new build if the app disclosure changed.
-8. Resubmit from Play Console Publishing overview.
+Keep these aligned after every behavior, permission, analytics or release change.
 
-Zepto support was removed on 2026-08-15. Before resubmitting, make sure the Play listing, privacy policy, review assets, and smoke plan name only Swiggy Instamart and Blinkit consistently.
+## Official references
 
-## Review Video Regeneration
-
-- Reusable renderer: `scripts/render_accessibility_review_video.py`.
-- Source frames: `play_store_assets/accessibility_review/01_home.png` through `04_android_accessibility_settings.png`.
-- Output: `play_store_assets/accessibility_review/beta_accessibility_prominent_disclosure_review.mp4`.
-- If the emulator shows Settings ANR dialogs, black boot frames, `init.svc.bootanim=running` after `sys.boot_completed=1`, or `dumpsys window` has no focused windows, stop testing and cold-restart the emulator before further capture attempts. Repeated tap retries after those signs waste time and can pollute review assets.
-
-## Useful Official References
-
-- AccessibilityService API policy: `https://support.google.com/googleplay/android-developer/answer/10964491`
-- User Data policy / prominent disclosure: `https://support.google.com/googleplay/android-developer/answer/10144311`
-- Android Publisher listings API: `https://developers.google.com/android-publisher/api-ref/rest/v3/edits.listings`
-- Android Publisher Data Safety API: `https://developers.google.com/android-publisher/api-ref/rest/v3/applications/dataSafety`
+- Data Safety: `https://support.google.com/googleplay/android-developer/answer/10787469`
+- Accurate store behavior: `https://support.google.com/googleplay/android-developer/answer/17006354`
+- AccessibilityService policy: `https://support.google.com/googleplay/android-developer/answer/10964491`
+- User Data policy: `https://support.google.com/googleplay/android-developer/answer/10144311`
+- Android Publisher listings: `https://developers.google.com/android-publisher/api-ref/rest/v3/edits.listings`
+- Android Publisher Data Safety: `https://developers.google.com/android-publisher/api-ref/rest/v3/applications/dataSafety`

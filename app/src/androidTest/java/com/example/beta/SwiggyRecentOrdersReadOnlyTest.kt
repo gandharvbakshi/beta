@@ -15,7 +15,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.net.URLEncoder
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -23,9 +22,9 @@ import java.util.concurrent.TimeUnit
  * Explicitly opted-in, read-only diagnostic for recent Swiggy Instamart orders.
  *
  * The test never touches checkout or payment. It only reads order history and
- * validates that each recent order detail exposes at least one usable item.
- * It can optionally preview a cart plan in read-only mode when the order detail
- * contains enough information to do so safely.
+ * validates the item list embedded in each recent order. It can optionally
+ * preview a cart plan in read-only mode when the order entry contains enough
+ * information to do so safely.
  */
 @RunWith(AndroidJUnit4::class)
 class SwiggyRecentOrdersReadOnlyTest {
@@ -73,24 +72,18 @@ class SwiggyRecentOrdersReadOnlyTest {
 
         var totalItems = 0
         var maxItems = 0
-        var detailsUnavailable = 0
         var plansPreviewed = 0
         var itemsUnavailableNow = 0
         recentOrders.forEachIndexed { index, recentOrder ->
-            val detailRoot = getJson(
-                path = "/swiggy/orders/${URLEncoder.encode(recentOrder.orderId, Charsets.UTF_8.name())}",
-                installationToken = installationToken,
-                operationLabel = "recent order detail #${index + 1}",
-            )
-            val detailUnavailable = containsError(detailRoot)
-            if (detailUnavailable) detailsUnavailable += 1
-            val validationRoot = if (detailUnavailable) recentOrder.summary else detailRoot
+            val validationRoot = recentOrder.summary
             val items = extractOrderItems(validationRoot)
             totalItems += items.size
             maxItems = maxOf(maxItems, items.size)
             Log.i(
                 "BetaAgent",
-                "SWIGGY_RECENT_ORDER_DETAIL index=${index + 1} itemCount=${items.size} detailUnavailable=$detailUnavailable schemaKeys=${describeSchemaKeys(validationRoot)} addressFields=${describeAddressFieldAvailability(validationRoot)}",
+                "SWIGGY_RECENT_ORDER_EMBEDDED index=${index + 1} itemCount=${items.size} " +
+                    "schemaKeys=${describeSchemaKeys(validationRoot)} " +
+                    "addressFields=${describeAddressFieldAvailability(validationRoot)}",
             )
 
             assertTrue(
@@ -136,7 +129,7 @@ class SwiggyRecentOrdersReadOnlyTest {
         Log.i(
             "BetaAgent",
             "SWIGGY_RECENT_ORDERS_VALIDATED orders=${recentOrders.size} totalItems=$totalItems " +
-                "maxItems=$maxItems detailUnavailable=$detailsUnavailable plansPreviewed=$plansPreviewed " +
+                "maxItems=$maxItems plansPreviewed=$plansPreviewed " +
                 "itemsUnavailableNow=$itemsUnavailableNow",
         )
     }
@@ -171,14 +164,6 @@ class SwiggyRecentOrdersReadOnlyTest {
         }
         if (orders.isNotEmpty()) return orders
         return extractOrderIds(root).map { RecentOrder(it, JSONObject()) }
-    }
-
-    private fun containsError(root: Any?): Boolean {
-        var found = false
-        walkJson(root) { obj ->
-            if (obj.has("error")) found = true
-        }
-        return found
     }
 
     private fun getJson(

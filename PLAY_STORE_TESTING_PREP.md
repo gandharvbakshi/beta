@@ -1,108 +1,123 @@
-# Play Store Testing Prep
+# Beta Play and Live Testing Preparation
 
-Current target: open testing first, using the existing Play developer
-account and existing Google Cloud account.
+Current target: Swiggy-only version `0.3.0` (`versionCode 17`) on the open
+testing track after all release gates pass.
 
-## Build Configuration
+## Hosted backend
 
-- Debug backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
-- Release backend default: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
-- Optional backend overrides:
-  - `BETA_BACKEND_DEBUG_URL`
-  - `BETA_BACKEND_RELEASE_URL`
-- Backend request auth:
-  - `BETA_BACKEND_API_KEY`
-  - `BETA_FEEDBACK_API_KEY`
-  - `BETA_BACKEND_API_KEY` should match Secret Manager `BETA_BACKEND_API_KEY`.
-  - `BETA_FEEDBACK_API_KEY` should match Secret Manager `BETA_FEEDBACK_API_KEY`.
-- Version values:
-  - `BETA_VERSION_CODE`
-  - `BETA_VERSION_NAME`
-- Optional release signing Gradle properties:
-  - `BETA_RELEASE_STORE_FILE`
-  - `BETA_RELEASE_STORE_PASSWORD`
-  - `BETA_RELEASE_KEY_ALIAS`
-  - `BETA_RELEASE_KEY_PASSWORD`
+- Google Cloud project: `beta-496723`
+- Cloud Run service: `beta-backend-staging`
+- Region: `asia-south1`
+- URL: `https://beta-backend-staging-kvuem5t7mq-el.a.run.app`
 
-Example release bundle:
+Verify the hosted target before phone testing:
 
 ```powershell
-$props = ConvertFrom-StringData (Get-Content -Raw -LiteralPath key.properties)
-$env:BETA_BACKEND_RELEASE_URL = "https://beta-backend-staging-kvuem5t7mq-el.a.run.app"
-$env:BETA_BACKEND_API_KEY = "<same value as Secret Manager BETA_BACKEND_API_KEY>"
-$env:BETA_FEEDBACK_API_KEY = "<same value as Secret Manager BETA_FEEDBACK_API_KEY>"
-$env:BETA_RELEASE_STORE_PASSWORD = $props.BETA_RELEASE_STORE_PASSWORD
-$env:BETA_RELEASE_KEY_ALIAS = $props.BETA_RELEASE_KEY_ALIAS
-$env:BETA_RELEASE_KEY_PASSWORD = $props.BETA_RELEASE_KEY_PASSWORD
-$storePath = (Resolve-Path -LiteralPath $props.BETA_RELEASE_STORE_FILE).Path
-.\gradlew.bat --no-daemon "-PBETA_RELEASE_STORE_FILE=$storePath" :app:bundleRelease
+gcloud run services describe beta-backend-staging --project beta-496723 --region asia-south1 --format="value(status.url)"
+curl.exe -s https://beta-backend-staging-kvuem5t7mq-el.a.run.app/health
 ```
 
-`BETA_RELEASE_STORE_FILE` must be absolute or relative to `app/`, because the
-Android Gradle plugin resolves `storeFile = file(...)` from the app module.
-Normal Gradle builds do not auto-start logcat capture. Set
-`BETA_AUTO_LOGCAT=true` only when a build should start
-`scripts/start-logcat-capture.ps1`.
+Use Secret Manager for `BETA_BACKEND_API_KEY` and
+`BETA_FEEDBACK_API_KEY`. Do not print either value.
 
-## Policy Checklist
+## Build and signing
 
-- AccessibilityService disclosure appears before a Blinkit or optional Swiggy screen-assisted flow starts.
-- AccessibilityService description explains cart-building assistance,
-  stop-before-payment behavior, backend processing, and visible grocery-screen
-  data that may include name, precise delivery location, and address if shown.
-- Swiggy onboarding clearly says the MCP connection is primary and the
-  screen-assisted path is a reversible fallback.
-- Direct Swiggy disclosure covers its encrypted connection token, saved-address
-  selection, address-specific catalog, recent-choice/history signals, current
-  cart, and locally learned shorthand preferences.
-- Play Store long description explicitly documents `AccessibilityService` use.
-- App does not request broad all-files storage access.
-- Feedback logs are opt-in.
-- Screenshot/log feedback attachments must remain opt-in.
-- Release backend must be Cloud Run HTTPS, not emulator-local.
-- Debug/emulator builds also default to Cloud Run HTTPS, not local Docker.
-- Screenshot automation requires `x-beta-backend-key`; release builds should
-  set `BETA_BACKEND_API_KEY`.
-- Feedback endpoint requires `x-beta-feedback-key`; release builds should set
-  `BETA_FEEDBACK_API_KEY`.
+Supported overrides:
 
-## Play Console Checklist
+- `BETA_BACKEND_DEBUG_URL`, `BETA_BACKEND_RELEASE_URL`
+- `BETA_BACKEND_API_KEY`, `BETA_FEEDBACK_API_KEY`
+- `BETA_VERSION_CODE`, `BETA_VERSION_NAME`
+- `BETA_RELEASE_STORE_FILE`, `BETA_RELEASE_STORE_PASSWORD`
+- `BETA_RELEASE_KEY_ALIAS`, `BETA_RELEASE_KEY_PASSWORD`
 
-- Create new app under the existing developer account.
-- Upload testing AABs to open testing. In the Android Publisher API this track
-  is named `beta`.
-- Add privacy policy URL.
-- Complete Data Safety using actual data sent:
-  - feedback text
-  - optional diagnostics logs
-  - app/device version metadata
-  - screen/accessibility-derived data used for Blinkit and the optional Swiggy
-    screen-assisted automation
-  - direct Swiggy saved addresses, selected address, address-specific catalog
-    results, go-to/recent-order product metadata, current cart contents, and
-    pseudonymous installation identity
-  - approximate and precise current device location when the user enables smart
-    address suggestions; Beta reverse-geocodes it on-device only to rank saved
-    Swiggy addresses and does not send or persist raw GPS coordinates
-  - precise location, name, and physical address if visible in Blinkit or the
-    optional Swiggy screen-assisted flow
-- Complete AccessibilityService declaration.
-- Before the next Play release, replace the existing review video with one that
-  shows the Swiggy MCP connection and saved-address/cart confirmation flow, plus
-  the disclosure, consent, Accessibility grant, cart-only stop, and feedback for
-  the screen-assisted fallback.
+Run the smallest test first, then the complete release gate:
 
-## Open Test Smoke
+```powershell
+.\gradlew testDebugUnitTest
+.\gradlew assembleDebug
+.\gradlew assembleDebugAndroidTest
+.\gradlew lintRelease
+.\gradlew bundleRelease
+```
 
-1. Install from open testing.
-2. Start Beta and accept disclosure.
-3. Connect Swiggy directly; do not enable Accessibility or screen capture for
-   this primary MCP check.
-4. Run one Swiggy Instamart cart-only order; confirm Beta uses the selected
-   saved address, adds only the requested item, verifies the cart, and stops
-   before checkout/payment.
-5. Switch to the screen-assisted fallback and verify its prominent disclosure.
-6. Run one Blinkit cart-only smoke test and confirm the app stops before checkout/payment.
-7. Submit "Worked" feedback.
-8. Submit "Report issue" feedback with logs enabled.
-9. Verify both feedback rows reach the backend.
+Before upload, inspect the release merged manifest and fail the release if it
+contains any of these:
+
+```text
+SYSTEM_ALERT_WINDOW
+FOREGROUND_SERVICE_MEDIA_PROJECTION
+BIND_ACCESSIBILITY_SERVICE
+MyAccessibilityService
+ScreenCaptureService
+com.grofers.customerapp
+com.zeptoconsumerapp
+com.zepto.customer
+```
+
+The active app may request microphone and coarse/fine location just in time.
+It must not request screen capture, overlay or AccessibilityService.
+
+## Physical-phone acceptance suite
+
+All live tests stop after a verified cart. Never open checkout, place an order
+or make a payment.
+
+1. Fresh install: confirm the first screen asks only for Swiggy connection and
+   optional analytics consent; no Android permission is requested on launch.
+2. Returning user: confirm the voice/text composer is above the fold and the
+   connected status is announced correctly at large font scale.
+3. Voice/text continuity: type a request, use voice for the next request, then
+   edit with text; confirm state and draft content remain coherent.
+4. Microphone denial: deny once and permanently; confirm typed input remains
+   fully usable and Settings recovery is clear.
+5. Address ranking: verify the most recently used address is preferred; grant
+   optional location and confirm only a nearby saved address is suggested.
+6. Address confirmation: verify the selected saved label and shortened street
+   or apartment address are shown and spoken before discovery.
+7. Recent orders: replay every recent Instamart order as a read-only discovery
+   plan, including the longest order, and compare found/unavailable/ambiguous
+   counts without printing item names or address data to logs.
+8. Complicated products: cover pack size, quantity, duplicate wording,
+   ambiguous brands, unavailable items, substitutes and plural quantities.
+9. Review/cancel: generate a long cart plan, inspect all rows, cancel and prove
+   the server cart did not change.
+10. Controlled mutation: after the plan is verified, apply one small confirmed
+    cart plan, read the cart back and remove only the test-added items. Stop if
+    the pre-existing cart cannot be distinguished safely.
+11. Session expiry: force or observe a 401 and confirm the app requests Swiggy
+    reconnection instead of silently falling back to screen automation.
+12. Feedback: exercise success, D1 and D5 prompts; submit one worked and one
+    issue response, with diagnostic logs included only by explicit choice.
+13. Analytics: with consent off, confirm no Analytics/Crashlytics upload. With
+    consent on, confirm allowlisted first-open, activation, connection,
+    discovery, verified-cart, feedback and retention events contain no grocery,
+    product, address, cart, GPS or identity text.
+
+Use Espresso for Beta UI, UI Automator only for Android/Swiggy UI that cannot be
+controlled in-app, and ADB for installation and logs. Never include user-private
+order contents, addresses, tokens or authentication codes in committed output.
+
+## Store assets
+
+- Keep `play_store_assets/app_icon_512.png`.
+- Use the Swiggy-only `play_store_assets/feature_graphic_1024x500.png`.
+- Capture new phone and tablet screenshots from the final verified build.
+- Delete old Play image sets through the Publisher API before uploading the new
+  sets so legacy provider/permission screens cannot remain visible.
+- Do not upload the retired AccessibilityService or media-projection review
+  videos; those belong only in the private archive.
+
+## Play readback and release
+
+- Package: `live.betaapp.android`
+- Open-testing API track: `beta`
+- Fresh readback on August 17, 2026 showed maximum active version code `16`, so
+  `17` is the next candidate. Read tracks again immediately before upload.
+- Upload the signed AAB, assign it to `beta`, commit the edit, then read the
+  track and localized listing back through the API.
+- A Play edit commit proves submission, not review approval or availability.
+
+While version 16 is still distributed anywhere, the Data Safety form and
+privacy policy must cover the union of its legacy screen-assisted behavior and
+version 17's direct Swiggy/analytics behavior. Narrow the declarations only
+after fresh Play readback proves no legacy bundle is active on any track.

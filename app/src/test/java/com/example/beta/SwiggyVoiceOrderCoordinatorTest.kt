@@ -20,8 +20,51 @@ class SwiggyVoiceOrderCoordinatorTest {
         )
 
         assertEquals(
-            "You have selected your address marked Home, which is 8/18 in Lynwood Avenue.",
+            "You selected Home, 8/18 in Lynwood Avenue.",
             swiggySpokenAddressConfirmation(address),
+        )
+    }
+
+    @Test
+    fun spokenAddressConfirmationDropsPinCodesAndCapsLongDetail() {
+        val address = SwiggyMcpClient.SwiggyAddress(
+            id = "home",
+            label = "Home",
+            categoryLabel = "Home",
+            confirmationDetail = "602, 4th block in Jains Prakrithi apartments Bengaluru Karnataka 560047 near the long landmark after the main gate",
+        )
+
+        val spoken = swiggySpokenAddressConfirmation(address)
+
+        assertFalse(spoken.contains("560047"))
+        assertTrue(spoken.split(' ').size <= 19)
+    }
+
+    @Test
+    fun onlyTopRankedAddressCarriesSuggestedPrefix() {
+        val home = SwiggyMcpClient.SwiggyAddress("home", "Home")
+        val work = SwiggyMcpClient.SwiggyAddress("work", "Work")
+        val reasons = mapOf("home" to "Recently used", "work" to "Near your current location")
+
+        assertEquals("Suggested · Recently used", swiggyAddressSuggestionDetail(home, 0, reasons))
+        assertEquals("Near your current location", swiggyAddressSuggestionDetail(work, 1, reasons))
+    }
+
+    @Test
+    fun candidateCopyDeduplicatesPackAndPluralizesQuestionSummary() {
+        val candidate = SwiggyMcpClient.RecommendationCandidate(
+            spinId = "milk",
+            label = "Organic Milk · 500 ml",
+            variant = "500 ml",
+            subtitle = "Chilled",
+        )
+
+        assertEquals("Chilled", swiggyCandidateDetail(candidate))
+        assertEquals("Organic Milk · 500 ml — Chilled", swiggyCandidateLabel(candidate))
+        assertEquals(null, swiggyMatchedWithoutQuestionMessage(0))
+        assertEquals(
+            "1 other item matched without a question. Choose one exact pack for this item.",
+            swiggyMatchedWithoutQuestionMessage(1),
         )
     }
 
