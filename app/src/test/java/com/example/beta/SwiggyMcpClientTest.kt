@@ -119,6 +119,35 @@ class SwiggyMcpClientTest {
     }
 
     @Test
+    fun parseAddressesMarksTheCurrentCartAddressFromTheBackendPayload() {
+        val parsed = SwiggyMcpClient.parseAddresses(
+            """
+            {
+              "success": true,
+              "data": {
+                "addresses": [
+                  {
+                    "id": "home-1",
+                    "addressLine": "12, Main Street, Bengaluru",
+                    "addressCategory": "HOME"
+                  },
+                  {
+                    "id": "work-2",
+                    "addressLine": "602, 4th block, Jains prakrithi apartments, Bengaluru",
+                    "addressCategory": "WORK"
+                  }
+                ],
+                "currentCartAddressId": "work-2"
+              }
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(listOf(false, true), parsed.map { it.hasCurrentCart })
+        assertEquals("work-2", parsed.last().id)
+    }
+
+    @Test
     fun shortAddressConfirmationKeepsOnlyUsefulLeadingParts() {
         assertEquals(
             "8/18 in Lynwood Avenue",
@@ -180,6 +209,11 @@ class SwiggyMcpClientTest {
               "data": {
                 "cart_mutation_enabled": true,
                 "confirmation_token": "confirm-123",
+                "existingItems": [
+                  {"spinId": "existing-1", "quantity": 1},
+                  {"spinId": "existing-2", "quantity": 2},
+                  {"spinId": "existing-3", "quantity": 1}
+                ],
                 "changes": [
                   {
                     "spinId": "pencil-spin",
@@ -206,6 +240,7 @@ class SwiggyMcpClientTest {
 
         assertTrue(plan.cartMutationEnabled)
         assertEquals("confirm-123", plan.confirmationToken)
+        assertEquals(3, plan.existingItemCount)
         assertEquals(1, plan.changes.size)
         assertEquals("pencil-spin", plan.changes[0].spinId)
         assertEquals("add", plan.changes[0].kind)

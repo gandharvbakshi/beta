@@ -90,6 +90,9 @@ internal fun isSafeSwiggyCartPlan(
     }
 }
 
+internal fun swiggyCartStartsEmpty(plan: SwiggyMcpClient.CartPlan): Boolean =
+    plan.existingItemCount == 0
+
 internal fun areSwiggyRecommendationsOrdered(
     recommendations: List<Recommendations>,
     queries: List<String>,
@@ -103,9 +106,14 @@ internal fun areSwiggyRecommendationsOrdered(
 internal fun rememberedSwiggyAddress(
     addresses: List<SwiggyAddress>,
     rememberedAddressId: String?,
-): SwiggyAddress? = rememberedAddressId
-    ?.takeIf { it.isNotBlank() }
-    ?.let { id -> addresses.firstOrNull { it.id == id } }
+): SwiggyAddress? {
+    val remembered = rememberedAddressId
+        ?.takeIf { it.isNotBlank() }
+        ?.let { id -> addresses.firstOrNull { it.id == id } }
+        ?: return null
+    val currentCartAddress = addresses.firstOrNull(SwiggyAddress::hasCurrentCart)
+    return remembered.takeIf { currentCartAddress == null || currentCartAddress.id == remembered.id }
+}
 
 internal fun isRememberedSwiggyAddressFresh(
     selectedAtElapsedRealtime: Long,
@@ -209,6 +217,7 @@ class SwiggyVoiceOrderCoordinator(
     private val announce: (String) -> Unit,
     private val onReconnectRequired: () -> Unit,
     private val onAddressChanged: (String?) -> Unit = {},
+    private val onTerminal: () -> Unit = {},
 ) {
     private var running = false
     private var operationGeneration = 0L
@@ -222,6 +231,7 @@ class SwiggyVoiceOrderCoordinator(
     fun start(instruction: String) {
         if (SwiggyCartMutationGuard.isInFlight()) {
             announce("Swiggy is still checking the last confirmed cart update. Please wait.")
+            notifyTerminal()
             return
         }
         if (running) {
@@ -234,10 +244,12 @@ class SwiggyVoiceOrderCoordinator(
         )
         if (items.isEmpty()) {
             announce("I could not find a grocery item in that request. Please try again.")
+            notifyTerminal()
             return
         }
         swiggyMcpItemValidationMessage(instruction, items)?.let { message ->
             announce(message)
+            notifyTerminal()
             return
         }
 
@@ -261,6 +273,7 @@ class SwiggyVoiceOrderCoordinator(
         operationGeneration += 1
         running = false
         dismissActiveDialog()
+        notifyTerminal()
         return true
     }
 
@@ -683,7 +696,7 @@ class SwiggyVoiceOrderCoordinator(
             finish(operationId, "Beta could not verify that the Swiggy cart plan only adds your selected items. Nothing was changed.")
             return
         }
-        val cartStartsEmpty = plan.changes.all { (it.fromQuantity ?: 0) == 0 }
+        val cartStartsEmpty = swiggyCartStartsEmpty(plan)
         val rows = plan.changes.map { change ->
             val from = change.fromQuantity ?: 0
             val to = change.toQuantity ?: from
@@ -858,6 +871,7 @@ class SwiggyVoiceOrderCoordinator(
         )
         announce(message)
         if (completedMutation) setMutationInFlight(false)
+        notifyTerminal()
     }
 
     private fun showNoSubstitution(
@@ -1010,6 +1024,7 @@ class SwiggyVoiceOrderCoordinator(
             )
         )
         announce(caption)
+        notifyTerminal()
     }
 
     private fun completeAndDismiss(operationId: Long, message: String) {
@@ -1019,6 +1034,7 @@ class SwiggyVoiceOrderCoordinator(
         stepDialog.dismiss()
         announce(message)
         if (completedMutation) setMutationInFlight(false)
+        notifyTerminal()
     }
 
     private fun cancelAndDismiss(operationId: Long, message: String) {
@@ -1040,6 +1056,7 @@ class SwiggyVoiceOrderCoordinator(
                         "Swiggy finished the cart request while Beta was reopening. Please review your Swiggy cart before continuing.",
                     )
                 }
+                notifyTerminal()
             }
         }
     }
@@ -1052,6 +1069,12 @@ class SwiggyVoiceOrderCoordinator(
         if (mutationInFlight == inFlight) return
         mutationInFlight = inFlight
         if (inFlight) SwiggyCartMutationGuard.begin() else SwiggyCartMutationGuard.end()
+    }
+
+    private fun notifyTerminal() {
+        if (!mutationInFlight) {
+            onTerminal()
+        }
     }
 
     private fun dismissActiveDialog() {

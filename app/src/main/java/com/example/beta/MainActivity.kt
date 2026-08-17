@@ -164,6 +164,7 @@ class MainActivity : ComponentActivity() {
                 updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED)
             },
             onAddressChanged = ::renderSwiggySelectedAddress,
+            onTerminal = ::resetSwiggyOrderInputStatus,
         )
         SwiggyCartMutationGuard.register(this) { inFlight ->
             runOnUiThread {
@@ -425,6 +426,11 @@ class MainActivity : ComponentActivity() {
         }
         orderInputStatus.setText(messageRes)
         Toast.makeText(this, messageRes, Toast.LENGTH_LONG).show()
+    }
+
+    private fun resetSwiggyOrderInputStatus() {
+        if (!::orderInputStatus.isInitialized || isSwiggyMutationInFlight()) return
+        orderInputStatus.setText(R.string.order_input_help)
     }
 
     private fun submitOrderInstruction(rawInstruction: String, source: String) {

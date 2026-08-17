@@ -51,6 +51,18 @@ class SwiggyRecentOrdersReadOnlyTest {
         )
         val recentOrders = extractRecentOrders(recentOrdersRoot)
         val hasMore = extractHasMore(recentOrdersRoot)
+        val addressRoot = getJson(
+            path = "/swiggy/addresses",
+            installationToken = installationToken,
+            operationLabel = "saved addresses",
+        )
+        val currentCartAddressId = extractCurrentCartAddressId(addressRoot)
+        val activeAddressId = currentCartAddressId ?: extractFirstSavedAddressId(addressRoot)
+        assertTrue(
+            "Expected either the current cart address or at least one saved delivery address",
+            !activeAddressId.isNullOrBlank(),
+        )
+        val selectedAddressId = requireNotNull(activeAddressId)
         Log.i(
             "BetaAgent",
             "SWIGGY_RECENT_ORDERS_LIST count=${recentOrders.size} hasMore=$hasMore schemaKeys=${describeSchemaKeys(recentOrdersRoot)}",
@@ -63,6 +75,7 @@ class SwiggyRecentOrdersReadOnlyTest {
         var maxItems = 0
         var detailsUnavailable = 0
         var plansPreviewed = 0
+        var itemsUnavailableNow = 0
         recentOrders.forEachIndexed { index, recentOrder ->
             val detailRoot = getJson(
                 path = "/swiggy/orders/${URLEncoder.encode(recentOrder.orderId, Charsets.UTF_8.name())}",
@@ -92,35 +105,39 @@ class SwiggyRecentOrdersReadOnlyTest {
                 )
             }
 
-            val addressId = extractAddressId(validationRoot)
-            val previewableItems = items
-                .filter { !it.spinId.isNullOrBlank() }
-                .map { it.toRequestedItem() }
-            if (
-                !addressId.isNullOrBlank() &&
-                previewableItems.isNotEmpty() &&
-                previewableItems.size <= MAX_CART_PLAN_ITEMS
-            ) {
-                val previewRoot = previewPlan(
-                    addressId = addressId,
-                    requestedItems = previewableItems,
-                    installationToken = installationToken,
-                )
-                plansPreviewed += 1
-                Log.i(
-                    "BetaAgent",
-                    "SWIGGY_CART_PLAN_PREVIEW index=${index + 1} itemCount=${previewableItems.size} schemaKeys=${describeSchemaKeys(previewRoot)}",
-                )
-            } else {
-                Log.i(
-                    "BetaAgent",
-                    "SWIGGY_CART_PLAN_PREVIEW index=${index + 1} itemCount=0 schemaKeys=[]",
-                )
-            }
+            assertTrue(
+                "Recent order #${index + 1} is too large for one safe cart preview",
+                items.size <= MAX_CART_PLAN_ITEMS,
+            )
+            val discoveryRoot = discoverRecommendations(
+                addressId = selectedAddressId,
+                requestedItems = items,
+                installationToken = installationToken,
+            )
+            val previewableItems = extractSuggestedItems(discoveryRoot, items)
+            val unavailableCount = items.size - previewableItems.size
+            itemsUnavailableNow += unavailableCount
+            assertTrue(
+                "Expected at least one currently available item to exercise a safe cart preview for recent order #${index + 1}",
+                previewableItems.isNotEmpty(),
+            )
+            val previewRoot = previewPlan(
+                addressId = selectedAddressId,
+                requestedItems = previewableItems,
+                installationToken = installationToken,
+            )
+            plansPreviewed += 1
+            Log.i(
+                "BetaAgent",
+                "SWIGGY_CART_PLAN_PREVIEW index=${index + 1} itemCount=${previewableItems.size} " +
+                    "unavailableCount=$unavailableCount schemaKeys=${describeSchemaKeys(previewRoot)}",
+            )
         }
         Log.i(
             "BetaAgent",
-            "SWIGGY_RECENT_ORDERS_VALIDATED orders=${recentOrders.size} totalItems=$totalItems maxItems=$maxItems detailUnavailable=$detailsUnavailable plansPreviewed=$plansPreviewed",
+            "SWIGGY_RECENT_ORDERS_VALIDATED orders=${recentOrders.size} totalItems=$totalItems " +
+                "maxItems=$maxItems detailUnavailable=$detailsUnavailable plansPreviewed=$plansPreviewed " +
+                "itemsUnavailableNow=$itemsUnavailableNow",
         )
     }
 
@@ -217,7 +234,8 @@ class SwiggyRecentOrdersReadOnlyTest {
         client.newCall(request).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             val parsed = runCatching { JSONTokener(responseBody).nextValue() }.getOrNull()
-            val noChangeAccepted = responseBody.lowercase(Locale.US).contains("no change") ||
+            val noChangeAccepted = extractReason(parsed) == "cart_no_changes" ||
+                responseBody.lowercase(Locale.US).contains("no change") ||
                 responseBody.lowercase(Locale.US).contains("no-op") ||
                 responseBody.lowercase(Locale.US).contains("nothing to do") ||
                 responseBody.lowercase(Locale.US).contains("already up to date")
@@ -234,6 +252,103 @@ class SwiggyRecentOrdersReadOnlyTest {
             )
             return parsed
         }
+    }
+
+    private fun discoverRecommendations(
+        addressId: String,
+        requestedItems: List<RequestedItemPreview>,
+        installationToken: String,
+    ): Any? {
+        val body = JSONObject()
+            .put("addressId", addressId)
+            .put("queries", JSONArray().apply { requestedItems.forEach { put(it.usableLabel) } })
+            .put("strictMatchPhrases", JSONArray().apply { requestedItems.forEach { put(JSONObject.NULL) } })
+            .toString()
+        val request = Request.Builder()
+            .url("${AppConfig.backendBaseUrl}/swiggy/recommendations/batch")
+            .header("x-beta-backend-key", AppConfig.backendApiKey)
+            .header("x-beta-installation-token", installationToken)
+            .post(body.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string().orEmpty()
+            assertTrue(
+                "Expected successful recommendation discovery, got HTTP ${response.code}",
+                response.isSuccessful,
+            )
+            assertFalse("Expected recommendation discovery JSON", responseBody.isBlank())
+            return JSONTokener(responseBody).nextValue()
+        }
+    }
+
+    private fun extractSuggestedItems(
+        root: Any?,
+        requestedItems: List<RequestedItemPreview>,
+    ): List<RequestedItemPreview> {
+        val results = (root as? JSONObject)?.optJSONArray("results") ?: return emptyList()
+        if (results.length() != requestedItems.size) return emptyList()
+        val candidateCounts = (0 until results.length()).map { index ->
+            results.optJSONObject(index)?.optJSONArray("candidates")?.length() ?: 0
+        }
+        val warningCodes = (0 until results.length()).map { index ->
+            val warnings = results.optJSONObject(index)?.optJSONArray("warnings")
+            (0 until (warnings?.length() ?: 0)).mapNotNull { warningIndex ->
+                warnings?.optString(warningIndex)?.takeIf { it.matches(Regex("[a-z0-9_]+")) }
+            }
+        }
+        Log.i(
+            "BetaAgent",
+            "SWIGGY_RECENT_ORDER_DISCOVERY requested=${requestedItems.size} " +
+                "candidateCounts=$candidateCounts warningCodes=$warningCodes",
+        )
+        return (0 until results.length()).mapNotNull { index ->
+            val result = results.optJSONObject(index) ?: return@mapNotNull null
+            val suggested = result.optJSONObject("suggested")
+                ?: result.optJSONArray("candidates")?.optJSONObject(0)
+                ?: return@mapNotNull null
+            val spinId = firstString(suggested, "spinId", "spin_id") ?: return@mapNotNull null
+            RequestedItemPreview(
+                spinId = spinId,
+                usableLabel = firstString(suggested, "label", "name", "productName")
+                    ?: requestedItems[index].usableLabel,
+                quantity = requestedItems[index].quantity,
+                skuId = firstString(suggested, "skuId", "sku_id"),
+            )
+        }
+    }
+
+    private fun extractCurrentCartAddressId(root: Any?): String? {
+        var currentCartAddressId: String? = null
+        walkJson(root) { obj ->
+            if (currentCartAddressId == null) {
+                firstString(obj, "currentCartAddressId", "current_cart_address_id")
+                    ?.let { currentCartAddressId = it }
+            }
+        }
+        return currentCartAddressId
+    }
+
+    private fun extractFirstSavedAddressId(root: Any?): String? {
+        var addressId: String? = null
+        walkJson(root) { obj ->
+            if (addressId != null) return@walkJson
+            val addresses = obj.optJSONArray("addresses") ?: return@walkJson
+            val firstAddress = addresses.optJSONObject(0) ?: return@walkJson
+            firstString(firstAddress, "id", "addressId", "address_id")
+                ?.let { addressId = it }
+        }
+        return addressId
+    }
+
+    private fun extractReason(root: Any?): String? {
+        var reason: String? = null
+        walkJson(root) { obj ->
+            if (reason == null) {
+                firstString(obj, "reason")?.let { reason = it }
+            }
+        }
+        return reason
     }
 
     private fun extractOrderIds(root: Any?): List<String> {

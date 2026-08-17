@@ -232,6 +232,7 @@ object SwiggyMcpClient {
         val shortLabel: String = normalizedLabel,
         val categoryLabel: String = shortLabel.substringBefore(" —").trim(),
         val confirmationDetail: String? = null,
+        val hasCurrentCart: Boolean = false,
     )
 
     data class RecommendationCandidate(
@@ -268,6 +269,7 @@ object SwiggyMcpClient {
 
     data class CartPlan(
         val changes: List<CartPlanChange>,
+        val existingItemCount: Int? = null,
         val confirmationToken: String? = null,
         val cartMutationEnabled: Boolean = false,
         val message: String? = null
@@ -488,15 +490,21 @@ object SwiggyMcpClient {
     }
 
     internal fun parseAddresses(body: String): List<SwiggyAddress> {
+        return parseAddressesResponse(body).addresses
+    }
+
+    internal fun parseAddressesResponse(body: String): AddressResponse {
         val root = parseRoot(body)
         val array = firstArray(root, "addresses", "data", "items", "results")
             ?: JsonValue.Arr(emptyList())
-        return array.items.mapIndexed { index, value ->
+        val currentCartAddressId = firstString(root, "currentCartAddressId", "current_cart_address_id")
+        val addresses = array.items.mapIndexed { index, value ->
             when (value) {
-                is JsonValue.Obj -> parseAddressObject(value, index)
+                is JsonValue.Obj -> parseAddressObject(value, index, currentCartAddressId)
                 else -> null
             }
         }.filterNotNull().filter { it.id.isNotBlank() && it.normalizedLabel.isNotBlank() }
+        return AddressResponse(addresses = addresses, currentCartAddressId = currentCartAddressId)
     }
 
     internal fun parseRecommendations(body: String): Recommendations {
@@ -581,6 +589,7 @@ object SwiggyMcpClient {
         }
         return CartPlan(
             changes = changes,
+            existingItemCount = firstArray(root, "existingItems", "existing_items")?.items?.size,
             confirmationToken = firstString(root, "confirmationToken", "confirmation_token", "token"),
             cartMutationEnabled = isTruthy(root, "cartMutationEnabled", "cart_mutation_enabled", "mutationEnabled"),
             message = firstString(root, "message", "statusMessage", "status_message")
@@ -734,7 +743,7 @@ object SwiggyMcpClient {
         }
     }
 
-    private fun parseAddressObject(value: JsonValue.Obj, index: Int): SwiggyAddress {
+    private fun parseAddressObject(value: JsonValue.Obj, index: Int, currentCartAddressId: String?): SwiggyAddress {
         val label = normalizeLabel(
             firstString(
                 value,
@@ -768,8 +777,14 @@ object SwiggyMcpClient {
             ),
             categoryLabel = categoryLabel,
             confirmationDetail = conciseAddressConfirmationDetail(label, categoryLabel),
+            hasCurrentCart = currentCartAddressId?.isNotBlank() == true && currentCartAddressId == providerId,
         )
     }
+
+    internal data class AddressResponse(
+        val addresses: List<SwiggyAddress>,
+        val currentCartAddressId: String?,
+    )
 
     internal fun conciseAddressLabel(
         fullLabel: String,

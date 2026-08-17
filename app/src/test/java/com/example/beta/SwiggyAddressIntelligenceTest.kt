@@ -78,10 +78,33 @@ class SwiggyAddressIntelligenceTest {
         assertTrue(ranked.first().reason.orEmpty().contains("Recently used"))
     }
 
-    private fun address(id: String, label: String) = SwiggyAddress(
+    @Test
+    fun currentCartAddressRanksAheadOfGpsAndRecencyWithAnExplicitReason() {
+        val strongGpsRecent = address("home", "602, Jains Prakrithi, 4th Block, Bengaluru, 560041")
+        val cartAddress = address(
+            id = "cart",
+            label = "8/18, Lynwood Avenue, Bengaluru, 560047",
+            hasCurrentCart = true,
+        )
+
+        val ranked = rankSwiggyAddresses(
+            addresses = listOf(strongGpsRecent, cartAddress),
+            usageByAddressId = mapOf(
+                strongGpsRecent.id to SwiggyAddressUsage(now - 60_000L, 5),
+            ),
+            locationHint = SwiggyLocationHint(postalCode = "560041"),
+            nowMillis = now,
+        )
+
+        assertEquals("cart", ranked.first().address.id)
+        assertEquals("Current cart address", ranked.first().reason)
+    }
+
+    private fun address(id: String, label: String, hasCurrentCart: Boolean = false) = SwiggyAddress(
         id = id,
         label = label,
         normalizedLabel = label,
         shortLabel = label,
+        hasCurrentCart = hasCurrentCart,
     )
 }

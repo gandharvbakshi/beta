@@ -62,6 +62,7 @@ internal fun rankSwiggyAddresses(
         val providerScore = providerRecency[address.id] ?: 0
         val locationScore = locationMatchScore(address, locationHint)
         val reason = when {
+            address.hasCurrentCart -> "Current cart address"
             locationScore >= 600 && (recencyScore > 0 || providerScore > 0) -> "Near you · recently used"
             locationScore >= 600 -> "Near your current location"
             recencyScore > 0 || providerScore > 0 -> "Recently used"
@@ -73,7 +74,8 @@ internal fun rankSwiggyAddresses(
             providerIndex = providerIndex,
         )
     }.sortedWith(
-        compareByDescending<ScoredAddress> { it.score }
+        compareByDescending<ScoredAddress> { it.ranked.address.hasCurrentCart }
+            .thenByDescending { it.score }
             .thenBy { it.providerIndex }
     ).map(ScoredAddress::ranked)
 }

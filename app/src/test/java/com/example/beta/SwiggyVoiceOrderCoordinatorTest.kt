@@ -68,6 +68,20 @@ class SwiggyVoiceOrderCoordinatorTest {
     }
 
     @Test
+    fun rememberedAddressCannotBypassDifferentCurrentCartAddress() {
+        val home = SwiggyMcpClient.SwiggyAddress(
+            id = "home",
+            label = "Home",
+            normalizedLabel = "Home",
+            hasCurrentCart = true,
+        )
+        val work = SwiggyMcpClient.SwiggyAddress("work", "Work", "Work")
+
+        assertEquals(null, rememberedSwiggyAddress(listOf(home, work), "work"))
+        assertEquals(home, rememberedSwiggyAddress(listOf(home, work), "home"))
+    }
+
+    @Test
     fun rememberedAddressExpiresAndAddressChoiceLeadsWithConciseLabel() {
         assertTrue(isRememberedSwiggyAddressFresh(1_000L, 5_000L, 10_000L))
         assertFalse(isRememberedSwiggyAddressFresh(1_000L, 20_000L, 10_000L))
@@ -280,6 +294,20 @@ class SwiggyVoiceOrderCoordinatorTest {
         assertFalse(isSafeSwiggyCartPlan(missingSpinIdPlan, selected))
         assertFalse(isSafeSwiggyCartPlan(duplicateSpinIdPlan, selected))
         assertFalse(isSafeSwiggyCartPlan(mismatchedQuantityPlan, selected))
+    }
+
+    @Test
+    fun cartEmptinessUsesBackendExistingItemsInsteadOfOnlyRequestedChanges() {
+        val addedLine = SwiggyMcpClient.CartPlanChange(
+            spinId = "butter",
+            kind = "add",
+            displayName = "Butter",
+            fromQuantity = 0,
+            toQuantity = 1,
+        )
+        assertTrue(swiggyCartStartsEmpty(SwiggyMcpClient.CartPlan(listOf(addedLine), existingItemCount = 0)))
+        assertFalse(swiggyCartStartsEmpty(SwiggyMcpClient.CartPlan(listOf(addedLine), existingItemCount = 3)))
+        assertFalse(swiggyCartStartsEmpty(SwiggyMcpClient.CartPlan(listOf(addedLine), existingItemCount = null)))
     }
 
     @Test
