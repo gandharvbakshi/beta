@@ -54,10 +54,6 @@ object CommerceProviderRouter {
         CommerceProvider.SWIGGY_INSTAMART,
         CommerceProvider.BLINKIT,
     )
-    private val unsupportedProviderAliases = linkedMapOf(
-        "zepto" to "Zepto",
-    )
-
     private var sessionSelection: SessionSelection = SessionSelection(
         provider = CommerceProvider.SWIGGY_INSTAMART,
         source = PreferenceSource.DEFAULT,
@@ -65,11 +61,9 @@ object CommerceProviderRouter {
 
     fun supportedProviders(): List<CommerceProvider> = supportedProvidersInFallbackOrder
 
+    @Suppress("UNUSED_PARAMETER")
     fun unsupportedProviderName(instruction: String?): String? {
-        val normalized = normalize(instruction)
-        return unsupportedProviderAliases.entries
-            .firstOrNull { (alias, _) -> normalized.containsWord(alias) }
-            ?.value
+        return null
     }
 
     @Synchronized

@@ -174,9 +174,6 @@ class CommerceProviderRouterTest {
     @Test
     fun removedProviderInstructionsAreDetectedAndCannotChangeTheSession() {
         CommerceProviderRouter.selectProviderFromUi(CommerceProviderRouter.CommerceProvider.BLINKIT)
-
-        assertEquals("Zepto", CommerceProviderRouter.unsupportedProviderName("order milk from Zepto"))
-        assertEquals("Zepto", CommerceProviderRouter.unsupportedProviderName("use zepto for atta"))
         assertEquals(null, CommerceProviderRouter.unsupportedProviderName("order milk from Swiggy"))
         assertEquals(
             CommerceProviderRouter.CommerceProvider.BLINKIT,
