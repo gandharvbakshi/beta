@@ -27,6 +27,53 @@ class SwiggyMcpClientTest {
     }
 
     @Test
+    fun fastApiRateLimitUsesNestedDetailReasonWithoutReconnect() {
+        val body = """
+            {
+              "detail": {
+                "reason": "swiggy_rate_limited",
+                "retryAfterSeconds": 70
+              }
+            }
+        """.trimIndent()
+
+        assertEquals("swiggy_rate_limited", SwiggyMcpClient.swiggyHttpErrorReason(body))
+        assertEquals(
+            "Swiggy needs a short pause. Please wait 2 minutes, then try again.",
+            SwiggyMcpClient.swiggyUserMessageForHttpCode("/swiggy/recommendations/batch", 429, body),
+        )
+        assertFalse(SwiggyMcpClient.swiggyReconnectRequired(body))
+        assertTrue(SwiggyMcpClient.swiggyRetryable("/swiggy/recommendations/batch", 429))
+        assertFalse(SwiggyMcpClient.swiggyRetryable("/swiggy/cart/apply", 429))
+    }
+
+    @Test
+    fun fastApiRateLimitWaitMinutesRoundsUpFromNestedDetail() {
+        assertEquals(
+            2,
+            SwiggyMcpClient.swiggyRateLimitWaitMinutes(
+                """{"detail":{"reason":"swiggy_rate_limited","retryAfterSeconds":70}}"""
+            ),
+        )
+        assertEquals(
+            1,
+            SwiggyMcpClient.swiggyRateLimitWaitMinutes(
+                """{"detail":{"reason":"swiggy_rate_limited","retryAfterSeconds":23}}"""
+            ),
+        )
+        assertEquals(
+            null,
+            SwiggyMcpClient.swiggyRateLimitWaitMinutes(
+                """{"detail":{"reason":"swiggy_rate_limited","retryAfterSeconds":"invalid"}}"""
+            ),
+        )
+        assertEquals(
+            null,
+            SwiggyMcpClient.swiggyRateLimitWaitMinutes("""{"detail":{"reason":"other"}}"""),
+        )
+    }
+
+    @Test
     fun parseStatusDetectsReconnectRequiredAndAuthorizationUrl() {
         val parsed = SwiggyMcpClient.parseStatus(
             """

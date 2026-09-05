@@ -55,13 +55,22 @@ class SwiggyRecentOrdersReadOnlyTest {
             installationToken = installationToken,
             operationLabel = "saved addresses",
         )
+        val addressResponse = SwiggyMcpClient.parseAddressesResponse(addressRoot.toString())
         val currentCartAddressId = extractCurrentCartAddressId(addressRoot)
-        val activeAddressId = currentCartAddressId ?: extractFirstSavedAddressId(addressRoot)
-        assertTrue(
-            "Expected either the current cart address or at least one saved delivery address",
-            !activeAddressId.isNullOrBlank(),
+        val rememberedSelection = resolveRememberedSwiggyAddress(context, addressResponse.addresses)
+        assertRememberedAddressMatchesCurrentCart(
+            currentCartAddressId = currentCartAddressId,
+            rememberedAddressId = rememberedSelection.address.id,
         )
-        val selectedAddressId = requireNotNull(activeAddressId)
+        assertTrue(
+            "Expected a remembered Swiggy address selection to exist in the fresh saved-address list",
+            rememberedSelection.address.id.isNotBlank(),
+        )
+        val selectedAddressId = rememberedSelection.address.id
+        Log.i(
+            "BetaAgent",
+            "SWIGGY_RECENT_ORDERS_ADDRESS_SELECTION source=${rememberedSelection.source} currentCartPresent=${currentCartAddressId?.isNotBlank() == true}",
+        )
         Log.i(
             "BetaAgent",
             "SWIGGY_RECENT_ORDERS_LIST count=${recentOrders.size} hasMore=$hasMore schemaKeys=${describeSchemaKeys(recentOrdersRoot)}",
@@ -125,6 +134,14 @@ class SwiggyRecentOrdersReadOnlyTest {
                 "SWIGGY_CART_PLAN_PREVIEW index=${index + 1} itemCount=${previewableItems.size} " +
                     "unavailableCount=$unavailableCount schemaKeys=${describeSchemaKeys(previewRoot)}",
             )
+
+            if (index < recentOrders.lastIndex) {
+                Log.i(
+                    "BetaAgent",
+                    "SWIGGY_RECENT_ORDER_RATE_LIMIT_PAUSE nextIndex=${index + 2} waitMs=60000",
+                )
+                Thread.sleep(60_000)
+            }
         }
         Log.i(
             "BetaAgent",
@@ -327,18 +344,6 @@ class SwiggyRecentOrdersReadOnlyTest {
             }
         }
         return currentCartAddressId
-    }
-
-    private fun extractFirstSavedAddressId(root: Any?): String? {
-        var addressId: String? = null
-        walkJson(root) { obj ->
-            if (addressId != null) return@walkJson
-            val addresses = obj.optJSONArray("addresses") ?: return@walkJson
-            val firstAddress = addresses.optJSONObject(0) ?: return@walkJson
-            firstString(firstAddress, "id", "addressId", "address_id")
-                ?.let { addressId = it }
-        }
-        return addressId
     }
 
     private fun extractReason(root: Any?): String? {

@@ -176,9 +176,13 @@ Additional one-review acceptance cases:
 | E2E-092 | Multiple unmatched or vague symptom items | One grouped skip/edit screen; skipped items remain visible in review | live | PARTIAL |
 | E2E-093 | Provider returns a different address ID after cart update | Never report verified success or retry the mutation; require address investigation | contract/live | PASS guard; overall cart acceptance FAIL |
 | E2E-094 | Typed pronunciation-like spelling: “keenwaa” | Resolve a known quinoa alias or safely flag it; never choose an unrelated product | live text | PASS after fix: quinoa in actual three-item review; not an acoustic test |
-| E2E-095 | Sesame paste semantic identity | Sesame paste is not silently treated as fish-fry paste; final review shows the actual item outcome | live | FAIL |
+| E2E-095 | Sesame paste semantic identity | Sesame paste is not silently treated as fish-fry paste; final review shows the actual item outcome | live | PASS identity safeguard after fix: grouped missing-product help, no fish-fry suggestion; catalogue availability remains unproven |
 | E2E-096 | 1.5 litres milk | Review shows 3x500ml equivalence for confirmation | live | PASS review only |
 | E2E-097 | Cold process restart | Never auto-apply; recover the draft for a new explicit review | live | PASS after fix: force-stop/relaunch from composer and review restored text only |
+| E2E-098 | Swiggy HTTP 429 during discovery | Preserve rate-limit reason and Retry-After; stop queued searches instead of reporting missing products | contract | PASS offline; live original failure diagnosed from provider HTTP logs |
+| E2E-099 | Rate limit after cart mutation, before readback | Stop readback retries; report unknown outcome; never repeat mutation | contract only | PASS synthetic; no live mutation for this case |
+| E2E-100 | Shared quota and capacity pressure | Atomic admission, fractional-time cooldown, bounded memory, shared Firestore state, readback quota reserve | contract | PASS offline; hosted Firestore admission exercised by read-only requests |
+| E2E-101 | Latest remembered address removed from saved list | Fail the diagnostic instead of silently choosing a different/older address | harness | Implemented; current valid remembered selection exercised live |
 
 - For every live case, record the starting cart count, ending cart count, and the exact items added by the test.
 - For any case that mutates the cart, verify that the readback matches the confirmed cart plan before cleanup.
@@ -186,7 +190,7 @@ Additional one-review acceptance cases:
 - Ordinary ambiguity belongs in the combined review; unavailable or unsafe requests require grouped help before a cart addition.
 - For medicine-like phrases, the safe result is clarification or refusal, not substitution.
 - If the backend or device fails, mark the case failed and preserve the evidence instead of retrying blindly.
-- Execution note: September 5 results and evidence are recorded in [SWIGGY_ELDERLY_E2E_RESULTS_20260905.md](./SWIGGY_ELDERLY_E2E_RESULTS_20260905.md); this plan keeps the remaining uncaptured cases as not run unless explicitly updated here.
+- Execution note: September 5 results and evidence are recorded in [SWIGGY_ELDERLY_E2E_RESULTS_20260905.md](./SWIGGY_ELDERLY_E2E_RESULTS_20260905.md), with the latest rate-limit/history/stockout continuation in [SWIGGY_RATE_LIMIT_FIXES_20260905.md](./SWIGGY_RATE_LIMIT_FIXES_20260905.md). This plan keeps the remaining uncaptured cases as not run unless explicitly updated here. Native sold-out observations do not waive the unusual-basket fixture's failed availability assertion.
 
 ## What this plan expects versus what the existing automated tests already prove
 

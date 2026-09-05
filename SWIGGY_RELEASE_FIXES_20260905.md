@@ -1,6 +1,8 @@
 # Swiggy release-readiness fixes — September 5
 
-Updated: 2026-09-05 11:54 IST.
+Updated: 2026-09-05 13:48 IST.
+
+Latest continuation: [SWIGGY_RATE_LIMIT_FIXES_20260905.md](./SWIGGY_RATE_LIMIT_FIXES_20260905.md) supersedes the undiagnosed 502/history failure and old canary below. The root cause was provider 429 flattened to 502; the new rate-guard canary passed all six recent-order previews (36 lines, longest 11). Complete suites now pass 418 backend and 160 Android tests. Native tahini/edamame stockout observations qualify the remaining catalogue expectations, not address identity. Exact-address cart and acoustic acceptance still block release. The 11:54 evidence below is retained as dated history.
 
 Release gate remains **NOT PASSED**. This report supersedes the three matching/draft failures in the earlier E2E report, not its outstanding cart/address or acoustic-voice gates.
 

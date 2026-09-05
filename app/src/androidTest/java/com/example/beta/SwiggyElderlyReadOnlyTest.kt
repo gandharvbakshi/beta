@@ -58,17 +58,23 @@ class SwiggyElderlyReadOnlyTest {
             operationLabel = "saved Swiggy addresses",
         )
         val addressResponse = SwiggyMcpClient.parseAddressesResponse(addressBody)
-        val activeAddressId = addressResponse.currentCartAddressId
-            ?.takeIf { it.isNotBlank() }
-            ?: addressResponse.addresses.firstOrNull()?.id
+        val rememberedSelection = resolveRememberedSwiggyAddress(context, addressResponse.addresses)
+        assertRememberedAddressMatchesCurrentCart(
+            currentCartAddressId = addressResponse.currentCartAddressId,
+            rememberedAddressId = rememberedSelection.address.id,
+        )
         assertTrue(
-            "Expected either the current cart address or at least one saved Swiggy address",
-            !activeAddressId.isNullOrBlank(),
+            "Expected a remembered Swiggy address selection to exist in the fresh saved-address list",
+            rememberedSelection.address.id.isNotBlank(),
         )
 
-        val addressId = requireNotNull(activeAddressId)
+        val addressId = rememberedSelection.address.id
+        Log.i(
+            "BetaAgent",
+            "SWIGGY_ELDERLY_ADDRESS_SELECTION source=${rememberedSelection.source} currentCartPresent=${addressResponse.currentCartAddressId?.isNotBlank() == true}",
+        )
 
-        cases.forEach { case ->
+        cases.forEachIndexed { caseIndex, case ->
             val preparedItems = prepareSwiggyMcpItems(case.instruction, lookup = { null })
             assertListEquals(
                 message = "Case ${case.caseId} should parse the expected elderly instruction in order",
@@ -193,6 +199,14 @@ class SwiggyElderlyReadOnlyTest {
                     "candidateCountMax=${candidateCounts.maxOrNull() ?: 0} requiresConfirmationCount=$clarificationCount " +
                     "topSuggestionMatchCount=$topMatchCount candidateSetHasExpectedCount=$candidateSetMatchCount latencyMs=$elapsedMs",
             )
+
+            if (caseIndex < cases.lastIndex) {
+                Log.i(
+                    "BetaAgent",
+                    "SWIGGY_ELDERLY_RATE_LIMIT_PAUSE nextCase=${cases[caseIndex + 1].caseId} waitMs=60000",
+                )
+                Thread.sleep(60_000)
+            }
         }
 
         val payload = JSONArray()

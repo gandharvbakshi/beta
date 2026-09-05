@@ -675,10 +675,10 @@ object SwiggyMcpClient {
                         }
                     } else {
                         callback(SwiggyMcpResult.Failure(
-                            userMessage = userMessageForHttpCode(it.code, responseBody),
+                            userMessage = swiggyUserMessageForHttpCode(path, it.code, responseBody),
                             httpCode = it.code,
-                            reconnectRequired = isReconnectRequired(responseBody),
-                            retryable = it.code >= 500
+                            reconnectRequired = swiggyReconnectRequired(responseBody),
+                            retryable = swiggyRetryable(path, it.code)
                         ))
                     }
                 }
@@ -708,10 +708,37 @@ object SwiggyMcpClient {
 
     internal fun isCartMutationPath(path: String): Boolean = path == "/swiggy/cart/apply"
 
-    private fun userMessageForHttpCode(code: Int, body: String): String {
-        val reason = firstString(parseRoot(body), "reason")
+    internal fun swiggyHttpErrorReason(body: String): String? {
+        val root = parseRoot(body)
+        return firstString(root, "reason")
+            ?: firstObject(root, "detail")?.let { detail ->
+                firstString(detail, "reason", "error", "message", "detail")
+            }
+    }
+
+    internal fun swiggyReconnectRequired(body: String): Boolean {
+        return containsReconnectRequired(parseRoot(body))
+    }
+
+    internal fun swiggyRetryable(path: String, code: Int): Boolean {
         return when {
-            isReconnectRequired(body) -> "Swiggy connection needs to be reconnected."
+            code == 429 -> !isCartMutationPath(path)
+            code in 500..599 -> true
+            else -> false
+        }
+    }
+
+    internal fun swiggyUserMessageForHttpCode(path: String, code: Int, body: String): String {
+        val reason = swiggyHttpErrorReason(body)
+        val waitMinutes = swiggyRateLimitWaitMinutes(body)
+        return when {
+            swiggyReconnectRequired(body) -> "Swiggy connection needs to be reconnected."
+            code == 429 || reason == "swiggy_rate_limited" -> {
+                val waitText = waitMinutes?.let { minute ->
+                    if (minute <= 1) "a minute" else "$minute minutes"
+                } ?: "a minute"
+                "Swiggy needs a short pause. Please wait $waitText, then try again."
+            }
             reason == "cart_changed_replan_required" -> "Your Swiggy cart changed. Please repeat the voice order so Beta can check it again."
             reason == "cart_confirmation_already_used" -> "That cart confirmation was already used. Please repeat the voice order."
             reason == "cart_confirmation_expired" -> "That cart review expired. Please repeat the voice order so Beta can check the cart again."
@@ -730,8 +757,22 @@ object SwiggyMcpClient {
         }
     }
 
-    private fun isReconnectRequired(body: String): Boolean {
-        return containsReconnectRequired(parseRoot(body))
+    internal fun swiggyRateLimitWaitMinutes(body: String): Int? {
+        val retryAfterSeconds = swiggyRetryAfterSeconds(body) ?: return null
+        return ((retryAfterSeconds.toLong() + 59) / 60).toInt()
+    }
+
+    internal fun swiggyRetryAfterSeconds(body: String): Int? {
+        val root = parseRoot(body)
+        val candidates = sequenceOf(
+            firstString(root, "retryAfterSeconds", "retry_after_seconds"),
+            firstObject(root, "detail")?.let { detail ->
+                firstString(detail, "retryAfterSeconds", "retry_after_seconds")
+            },
+        )
+        return candidates.firstNotNullOfOrNull { value ->
+            value?.toLongOrNull()?.takeIf { it in 1L..1_000_000L }?.toInt()
+        }
     }
 
     private fun parseConnectionState(raw: String?): ConnectionState {
