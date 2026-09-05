@@ -11,7 +11,7 @@ class InstructionParserPreferenceTest {
 
         prompts.forEach { prompt ->
             val item = InstructionParser.parse(prompt).single()
-            assertEquals(prompt, item.query)
+            assertEquals(if (prompt == "aata") "atta" else prompt, item.query)
         }
     }
 
@@ -20,7 +20,7 @@ class InstructionParserPreferenceTest {
         val items = InstructionParser.parse("mints, aata, bhindi, juice, chips")
 
         assertEquals(
-            listOf("mints", "aata", "bhindi", "juice", "chips"),
+            listOf("mints", "atta", "bhindi", "juice", "chips"),
             items.map { it.query }
         )
     }

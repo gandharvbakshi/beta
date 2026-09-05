@@ -132,6 +132,16 @@ class SwiggyRecentOrdersReadOnlyTest {
                 "maxItems=$maxItems plansPreviewed=$plansPreviewed " +
                 "itemsUnavailableNow=$itemsUnavailableNow",
         )
+        val summary = JSONObject()
+            .put("orders", recentOrders.size)
+            .put("totalItems", totalItems)
+            .put("maxItems", maxItems)
+            .put("plansPreviewed", plansPreviewed)
+            .put("itemsWithoutCandidates", itemsUnavailableNow)
+            .put("hasMore", hasMore)
+        context.openFileOutput("swiggy-recent-orders-read-only-summary.json", android.content.Context.MODE_PRIVATE).use {
+            it.write(summary.toString().toByteArray(Charsets.UTF_8))
+        }
     }
 
     private fun extractHasMore(root: Any?): Boolean? {
@@ -219,15 +229,20 @@ class SwiggyRecentOrdersReadOnlyTest {
         client.newCall(request).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             val parsed = runCatching { JSONTokener(responseBody).nextValue() }.getOrNull()
-            val noChangeAccepted = extractReason(parsed) == "cart_no_changes" ||
-                responseBody.lowercase(Locale.US).contains("no change") ||
-                responseBody.lowercase(Locale.US).contains("no-op") ||
-                responseBody.lowercase(Locale.US).contains("nothing to do") ||
-                responseBody.lowercase(Locale.US).contains("already up to date")
+            val noChangeAccepted = response.code == 409 && extractReason(parsed) == "cart_no_changes"
 
             if (!response.isSuccessful && !noChangeAccepted) {
+                val context = InstrumentationRegistry.getInstrumentation().targetContext
+                val receipt = JSONObject().put("httpStatus", response.code)
+                    .put("receivedAtMillis", System.currentTimeMillis())
+                    .put("itemCount", requestedItems.size)
+                    .put("body", responseBody)
+                context.openFileOutput("swiggy-preview-failure-response.json", android.content.Context.MODE_PRIVATE).use {
+                    it.write(receipt.toString().toByteArray(Charsets.UTF_8))
+                }
+                val reason = extractReason(parsed).orEmpty().takeIf { it.matches(Regex("[a-z_]{1,80}")) }.orEmpty()
                 assertTrue(
-                    "Expected a successful or explicitly no-change cart-plan preview, got HTTP ${response.code}",
+                    "Expected a successful or explicitly no-change cart-plan preview, got HTTP ${response.code} reason=$reason",
                     false,
                 )
             }

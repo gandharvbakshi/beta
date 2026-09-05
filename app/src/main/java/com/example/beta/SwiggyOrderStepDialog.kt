@@ -27,6 +27,7 @@ internal data class SwiggyStepRow(
     val detail: String? = null,
     val badge: String? = null,
     val tone: SwiggyStepTone = SwiggyStepTone.NEUTRAL,
+    val action: SwiggyStepAction? = null,
 )
 
 internal data class SwiggyStepChoice(
@@ -58,6 +59,8 @@ internal data class SwiggyStepScreen(
 
 /** Full-screen, single-surface UI for the direct Swiggy MCP cart journey. */
 internal class SwiggyOrderStepDialog(private val activity: Activity) {
+    private val interactionGate = SwiggyStepInteractionGate()
+    private var activeEpoch = 0L
     private val dialog = Dialog(activity, android.R.style.Theme_Material_Light_NoActionBar).apply {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         setContentView(R.layout.dialog_swiggy_order_step)
@@ -103,25 +106,40 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
     }
 
     fun show(screen: SwiggyStepScreen) {
+        val epoch = interactionGate.beginPresentation()
+        activeEpoch = epoch
+        val cancel = screen.cancel
         eyebrow.text = screen.eyebrow
         title.text = screen.title
         message.text = screen.message
         caption.text = screen.caption
         caption.contentDescription = screen.caption
-        renderContent(screen.rows, screen.choices)
+        renderContent(screen.rows, screen.choices, epoch)
 
         safetyNote.text = screen.safetyNote.orEmpty()
         safetyNote.visibility = if (screen.safetyNote.isNullOrBlank()) View.GONE else View.VISIBLE
 
-        bindAction(primary, screen.primary, R.drawable.beta_btn_primary)
-        bindAction(secondary, screen.secondary, R.drawable.beta_btn_secondary)
-        bindAction(tertiary, screen.tertiary, android.R.color.transparent)
+        bindAction(primary, screen.primary, R.drawable.beta_btn_primary, epoch)
+        bindAction(secondary, screen.secondary, R.drawable.beta_btn_secondary, epoch)
+        bindAction(tertiary, screen.tertiary, android.R.color.transparent, epoch)
 
-        close.visibility = if (screen.cancel == null) View.GONE else View.VISIBLE
-        close.setOnClickListener { screen.cancel?.invoke() }
+        close.visibility = if (cancel == null) View.GONE else View.VISIBLE
+        if (cancel != null) {
+            close.setOnClickListener {
+                interactionGate.wrap(epoch, cancel).invoke()
+            }
+        } else {
+            close.setOnClickListener(null)
+        }
         dialog.setCancelable(screen.cancel != null)
         dialog.setCanceledOnTouchOutside(false)
-        dialog.setOnCancelListener { screen.cancel?.invoke() }
+        dialog.setOnCancelListener {
+            interactionGate.wrap(epoch) {
+                interactionGate.invalidate(epoch)
+                cancel?.invoke()
+            }.invoke()
+        }
+        dialog.setOnDismissListener { interactionGate.invalidate(epoch) }
 
         if (!dialog.isShowing && !activity.isFinishing && !activity.isDestroyed) {
             dialog.show()
@@ -135,10 +153,11 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
     }
 
     fun dismiss() {
+        interactionGate.invalidate(activeEpoch)
         if (dialog.isShowing) dialog.dismiss()
     }
 
-    private fun bindAction(button: Button, action: SwiggyStepAction?, backgroundRes: Int) {
+    private fun bindAction(button: Button, action: SwiggyStepAction?, backgroundRes: Int, epoch: Long) {
         button.visibility = if (action == null) View.GONE else View.VISIBLE
         if (action == null) {
             button.setOnClickListener(null)
@@ -146,17 +165,19 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
         }
         button.text = action.label
         button.setBackgroundResource(backgroundRes)
-        button.setOnClickListener { action.onClick() }
+        button.setOnClickListener {
+            interactionGate.wrap(epoch, action.onClick).invoke()
+        }
     }
 
-    private fun renderContent(rows: List<SwiggyStepRow>, choices: List<SwiggyStepChoice>) {
+    private fun renderContent(rows: List<SwiggyStepRow>, choices: List<SwiggyStepChoice>, epoch: Long) {
         items.removeAllViews()
-        rows.forEach { items.addView(createRow(it)) }
-        choices.forEach { items.addView(createChoice(it)) }
+        rows.forEach { items.addView(createRow(it, epoch)) }
+        choices.forEach { items.addView(createChoice(it, epoch)) }
         items.visibility = if (rows.isEmpty() && choices.isEmpty()) View.GONE else View.VISIBLE
     }
 
-    private fun createRow(row: SwiggyStepRow): View {
+    private fun createRow(row: SwiggyStepRow, epoch: Long): View {
         val container = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
@@ -213,10 +234,33 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
                 setPadding(0, dp(5), 0, 0)
             })
         }
+        row.action?.let { action ->
+            container.addView(Button(activity).apply {
+                id = R.id.swiggyStepRowAction
+                text = action.label
+                contentDescription = action.label
+                gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+                setPadding(dp(18), dp(10), dp(18), dp(10))
+                minHeight = dp(48)
+                isAllCaps = false
+                stateListAnimator = null
+                setTextColor(ContextCompat.getColor(activity, R.color.beta_text_primary))
+                textSize = 15f
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                setBackgroundResource(R.drawable.beta_btn_secondary)
+                setOnClickListener {
+                    interactionGate.wrap(epoch, action.onClick).invoke()
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(10) }
+            })
+        }
         return container
     }
 
-    private fun createChoice(choice: SwiggyStepChoice): View {
+    private fun createChoice(choice: SwiggyStepChoice, epoch: Long): View {
         return Button(activity).apply {
             text = buildString {
                 append(choice.title)
@@ -232,7 +276,9 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
             textSize = 16f
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             setBackgroundResource(R.drawable.beta_btn_secondary)
-            setOnClickListener { choice.onClick() }
+            setOnClickListener {
+                interactionGate.wrap(epoch, choice.onClick).invoke()
+            }
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,

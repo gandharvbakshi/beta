@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -18,6 +20,7 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.widget.doAfterTextChanged
 import com.example.beta.SwiggyMcpClient.SwiggyMcpResult
 
 class MainActivity : ComponentActivity() {
@@ -51,6 +54,11 @@ class MainActivity : ComponentActivity() {
     private var swiggyLocationPrompt: AlertDialog? = null
     private var selectedSwiggyAddressLabel: String? = null
     private lateinit var swiggyOrderCoordinator: SwiggyVoiceOrderCoordinator
+    private lateinit var draftStore: SwiggyDraftStore
+    private val draftHandler = Handler(Looper.getMainLooper())
+    private var draftPersistenceBlocked = false
+    private var draftRestored = false
+    private val persistDraftRunnable = Runnable { persistGroceryDraft() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,6 +68,9 @@ class MainActivity : ComponentActivity() {
         primaryNoteText = findViewById(R.id.mainPrimaryNote)
         orderComposerCard = findViewById(R.id.orderComposerCard)
         orderCommandInput = findViewById(R.id.orderCommandInput)
+        // The encrypted, no-backup store is authoritative across recreation.
+        // Never revive an already-confirmed instruction from view saved state.
+        orderCommandInput.isSaveEnabled = false
         orderVoiceInputButton = findViewById(R.id.orderVoiceInputButton)
         orderSubmitButton = findViewById(R.id.orderSubmitButton)
         orderInputStatus = findViewById(R.id.orderInputStatus)
@@ -70,6 +81,23 @@ class MainActivity : ComponentActivity() {
         swiggySelectedAddress = findViewById(R.id.swiggySelectedAddress)
         swiggyChangeAddressAction = findViewById(R.id.swiggyChangeAddressAction)
         swiggyConnectionAction = findViewById(R.id.swiggyConnectionAction)
+
+        draftStore = SwiggyDraftStore(applicationContext)
+        draftStore.load()?.let { restored ->
+            orderCommandInput.setText(restored)
+            orderCommandInput.setSelection(restored.length)
+            draftRestored = true
+            orderInputStatus.text = "Your saved list is here. Continue to check the address and products again."
+            Log.i("BetaAgent", "GROCERY_DRAFT_RESTORED")
+        }
+        orderCommandInput.doAfterTextChanged {
+            draftHandler.removeCallbacks(persistDraftRunnable)
+            // Text cannot be edited during a mutation. Clearing it in the
+            // pre-apply hook must not schedule a stale write after the clear.
+            if (draftPersistenceBlocked) return@doAfterTextChanged
+            draftRestored = false
+            draftHandler.postDelayed(persistDraftRunnable, 250L)
+        }
 
         textToSpeech = IndianEnglishTextToSpeech(this)
         voiceInputController = OrderVoiceInputController(
@@ -95,6 +123,12 @@ class MainActivity : ComponentActivity() {
             onAddressChanged = ::renderSwiggySelectedAddress,
             onTerminal = ::resetSwiggyOrderInputStatus,
             onVerified = ::onSwiggyCartVerified,
+            beforeApply = ::prepareDraftForCartApply,
+            onEditRequest = {
+                orderCommandInput.requestFocus()
+                orderCommandInput.setSelection(orderCommandInput.text.length)
+                orderCommandInput.announceForAccessibility("Edit this list or use the microphone to say a new list.")
+            },
         )
         SwiggyCartMutationGuard.register(this) { inFlight ->
             runOnUiThread {
@@ -176,7 +210,14 @@ class MainActivity : ComponentActivity() {
         handleSwiggyOrderIntent(intent)
     }
 
+    override fun onPause() {
+        draftHandler.removeCallbacks(persistDraftRunnable)
+        if (::draftStore.isInitialized) persistGroceryDraft()
+        super.onPause()
+    }
+
     override fun onDestroy() {
+        draftHandler.removeCallbacks(persistDraftRunnable)
         super.onDestroy()
         cancelPendingSwiggyMcpWork("activity_destroyed")
         SwiggyCartMutationGuard.unregister(this)
@@ -247,7 +288,35 @@ class MainActivity : ComponentActivity() {
 
     private fun resetSwiggyOrderInputStatus() {
         if (!::orderInputStatus.isInitialized || isSwiggyMutationInFlight()) return
-        orderInputStatus.setText(R.string.order_input_help)
+        draftPersistenceBlocked = false
+        if (draftRestored) {
+            orderInputStatus.text = "Your saved list is here. Continue to check the address and products again."
+        } else {
+            orderInputStatus.setText(R.string.order_input_help)
+        }
+    }
+
+    private fun persistGroceryDraft(): Boolean {
+        if (draftPersistenceBlocked || isSwiggyMutationInFlight()) return true
+        val saved = draftStore.save(orderCommandInput.text?.toString().orEmpty())
+        if (!saved) {
+            Log.w("BetaAgent", "GROCERY_DRAFT_SAVE_FAILED")
+            orderInputStatus.text = "Your list could not be saved on this phone. Keep Beta open and try again."
+        }
+        return saved
+    }
+
+    private fun prepareDraftForCartApply(): Boolean {
+        draftHandler.removeCallbacks(persistDraftRunnable)
+        draftPersistenceBlocked = true
+        if (!draftStore.clear()) {
+            draftPersistenceBlocked = false
+            Log.w("BetaAgent", "GROCERY_DRAFT_CLEAR_FAILED")
+            return false
+        }
+        orderCommandInput.setText("")
+        draftRestored = false
+        return true
     }
 
     private fun submitOrderInstruction(rawInstruction: String, source: String) {
@@ -262,6 +331,8 @@ class MainActivity : ComponentActivity() {
         textToSpeech.stop()
         orderCommandInput.setText(instruction)
         orderCommandInput.setSelection(instruction.length)
+        draftHandler.removeCallbacks(persistDraftRunnable)
+        if (!persistGroceryDraft()) return
         orderInputStatus.setText(R.string.voice_processing)
         Log.i("BetaAgent", "ORDER_INSTRUCTION_RECEIVED source=$source characters=${instruction.length}")
         BetaTelemetry.instance?.logOrderRequestSubmitted(source, instruction)
@@ -517,7 +588,11 @@ class MainActivity : ComponentActivity() {
             Log.w("BetaAgent", "SWIGGY_ORDER_HANDOFF_REJECTED")
             return
         }
-        orderCommandInput.post { handleSwiggyVoiceInstruction(instruction) }
+        orderCommandInput.post {
+            orderCommandInput.setText(instruction)
+            draftHandler.removeCallbacks(persistDraftRunnable)
+            if (persistGroceryDraft()) handleSwiggyVoiceInstruction(instruction)
+        }
     }
 
     private fun promptToConnectSwiggy() {
@@ -613,6 +688,11 @@ class MainActivity : ComponentActivity() {
             .setTitle(R.string.swiggy_disconnect_dialog_title)
             .setMessage(R.string.swiggy_disconnect_dialog_message)
             .setPositiveButton(R.string.swiggy_connection_disconnect) { _, _ ->
+                if (!prepareDraftForCartApply()) {
+                    announceSwiggy("Beta could not clear the saved list. Please try again.")
+                    return@setPositiveButton
+                }
+                draftPersistenceBlocked = false
                 val requestGeneration = swiggyMcpRequestGeneration
                 swiggyConnectionAction.isEnabled = false
                 SwiggyMcpClient.disconnect(this) { result ->
@@ -733,6 +813,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onSwiggyCartVerified(itemCount: Int) {
+        // Pre-apply already cleared durably. Do not store a replayable basket.
+        draftHandler.removeCallbacks(persistDraftRunnable)
         BetaTelemetry.instance?.logCartUpdateVerified(itemCount)
         getSharedPreferences(FEEDBACK_PREFERENCES, MODE_PRIVATE)
             .edit()

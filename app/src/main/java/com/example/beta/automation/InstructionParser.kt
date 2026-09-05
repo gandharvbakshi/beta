@@ -13,6 +13,7 @@ data class ParsedItem(
     val rawText: String,
     val query: String,
     val quantity: Quantity = Quantity.Default,
+    val quantitySignal: String? = null,
     val parserConfidence: Float = 1.0f,
     val avoidPhrases: List<String> = emptyList(),
     val strictMatchPhrase: String? = null,
@@ -33,14 +34,15 @@ fun ParsedItem.backendInputText(): String {
 }
 
 object InstructionParser {
-    const val PARSER_VERSION = "2026.08.12.1"
+    const val PARSER_VERSION = "2026.09.05.1"
 
     private val leadingCommandRegex = Regex(
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
         RegexOption.IGNORE_CASE
     )
-    private val splitterRegex = Regex(
-        "\\s*(?:[,;]+|\\s+&\\s+|\\s+and\\s+|\\s+plus\\s+|\\s+और\\s+|\\s+ಮತ್ತು\\s+|\\s+ಹಾಗೂ\\s+)\\s*",
+    private val primarySplitterRegex = Regex("\\s*(?:[,;\\r\\n]+)\\s*")
+    private val secondarySplitterRegex = Regex(
+        "\\s*(?:\\s+&\\s+|\\s+and\\s+|\\s+plus\\s+|\\s+और\\s+|\\s+ಮತ್ತು\\s+|\\s+ಹಾಗೂ\\s+)\\s*",
         RegexOption.IGNORE_CASE
     )
     private val noisySplitterRegex = Regex("\\s+(?:&|and|plus|और|ಮತ್ತು|ಹಾಗೂ)\\s+", RegexOption.IGNORE_CASE)
@@ -72,6 +74,16 @@ object InstructionParser {
         "^(?:(?:the|a|an)\\b\\s*)+|(?:\\s*\\b(?:one|ones|type|types|variant|variants|flavor|flavors|flavour|flavours)\\b)+$",
         RegexOption.IGNORE_CASE
     )
+    private val fractionalMeasureRegexes = listOf(
+        Regex(
+            "\\b(?:one\\s*(?:-\\s*)?and\\s*(?:-\\s*)?a\\s*(?:-\\s*)?half|one\\s*(?:-\\s*)?and\\s*(?:-\\s*)?half)\\s*(kg|kgs|g|gm|gms|gram|grams|ml|l|ltr|liter|litre|liters|litres)\\b",
+            RegexOption.IGNORE_CASE
+        ) to "1.5",
+        Regex(
+            "\\bhalf\\s*(kg|kgs|g|gm|gms|gram|grams|ml|l|ltr|liter|litre|liters|litres)\\b",
+            RegexOption.IGNORE_CASE
+        ) to "0.5"
+    )
     private val leadingCountRegex = Regex("^([1-9]\\d?)\\s+(.+)$")
     private val leadingMultipackDescriptorRegex = Regex(
         "^[1-9]\\d?\\s*(?:x\\s*)?(?:pack|pk|pc|pcs|piece|pieces)\\b\\s+.+$",
@@ -88,6 +100,66 @@ object InstructionParser {
         RegexOption.IGNORE_CASE
     )
     private val noOpRegex = Regex("^(?:i\\s+want\\s+)?(?:nothing|none|no\\s+items?)$", RegexOption.IGNORE_CASE)
+    private val spokenCountWords = mapOf(
+        "one" to 1,
+        "two" to 2,
+        "three" to 3,
+        "four" to 4,
+        "five" to 5,
+        "six" to 6,
+        "seven" to 7,
+        "eight" to 8,
+        "nine" to 9,
+        "ten" to 10,
+        "eleven" to 11,
+        "twelve" to 12,
+        "thirteen" to 13,
+        "fourteen" to 14,
+        "fifteen" to 15,
+        "sixteen" to 16,
+        "seventeen" to 17,
+        "eighteen" to 18,
+        "nineteen" to 19,
+        "twenty" to 20,
+        "ek" to 1,
+        "do" to 2,
+        "teen" to 3,
+        "chaar" to 4,
+        "char" to 4,
+        "paanch" to 5,
+        "panch" to 5,
+        "chhe" to 6,
+        "sat" to 7,
+        "saat" to 7,
+        "aath" to 8,
+        "ath" to 8,
+        "nau" to 9,
+        "nou" to 9,
+        "das" to 10,
+        "ondu" to 1,
+        "eradu" to 2,
+        "mooru" to 3,
+        "muru" to 3,
+        "naalku" to 4,
+        "aidu" to 5,
+        "aaru" to 6,
+        "elu" to 7,
+        "entu" to 8,
+        "ombattu" to 9,
+        "hattu" to 10
+    )
+    private val spokenCountSignalWords = setOf(
+        "zero",
+        "thirty",
+        "forty",
+        "fifty",
+        "sixty",
+        "seventy",
+        "eighty",
+        "ninety",
+        "hundred"
+    )
+    private val spokenCountConjunctionWords = setOf("and", "plus", "&", "और", "ಮತ್ತು", "ಹಾಗೂ")
 
     fun parse(input: String): List<ParsedItem> {
         val normalized = input.trim()
@@ -98,20 +170,27 @@ object InstructionParser {
         if (withoutPrefix.isEmpty()) return emptyList()
         if (noOpRegex.matches(withoutPrefix.lowercase(Locale.US))) return emptyList()
 
-        val seenQueries = linkedSetOf<String>()
         val hasNoisySplitters = noisySplitterRegex.containsMatchIn(withoutPrefix)
         val parsedItems = mutableListOf<ParsedItem>()
 
-        splitterRegex.split(withoutPrefix)
+        primarySplitterRegex.split(withoutPrefix)
             .flatMap { explicitSegment ->
-                splitterRegex.split(
-                    normalizeTrailingMeasure(explicitSegment).replace(quantityBoundaryRegex, ",")
-                )
+                // Preserve fractional "and" and the OnePlus brand before
+                // splitting the list. Each item's trailing measure stays local.
+                secondarySplitterRegex.split(normalizeFractionalMeasures(explicitSegment)
+                    .replace(Regex("\\bone\\s+plus\\b", RegexOption.IGNORE_CASE), "oneplus"))
             }
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .forEach { segment ->
-                val (withoutQuantity, quantity) = extractQuantityPrefix(segment)
+            .flatMap { segment ->
+                val spoken = normalizeSpokenQuantitySegment(stripLeadingCommands(segment))
+                val splitSegment = normalizeTrailingMeasure(spoken.text).replace(quantityBoundaryRegex, ",")
+                primarySplitterRegex.split(splitSegment).map { spoken.copy(text = it) }
+            }
+            .filter { it.text.isNotEmpty() }
+            .forEach { spokenNormalized ->
+                val segment = spokenNormalized.text
+                val quantitySignal = spokenNormalized.quantitySignal
+                val normalizedSegment = normalizeTrailingMeasure(segment)
+                val (withoutQuantity, quantity) = extractQuantityPrefix(normalizedSegment)
                 val (withoutModifiers, avoidPhrases) = extractPreferenceModifiers(withoutQuantity)
                 val cleaned = cleanSegment(
                     withoutModifiers,
@@ -123,6 +202,7 @@ object InstructionParser {
 
                 val expanded = expandKnownProductSequence(cleaned)
                 val confidence = when {
+                    quantitySignal != null -> 0.60f
                     expanded.size > 1 -> 0.70f
                     hasNoisySplitters || !cleaned.equals(segment.trim(), ignoreCase = false) -> 0.85f
                     else -> 1.0f
@@ -130,22 +210,71 @@ object InstructionParser {
 
                 expanded.forEach { item ->
                     val query = ProductLexicon.canonicalizeProductText(item).lowercase(Locale.US)
-                    if (query.isNotBlank() && seenQueries.add(query)) {
-                        val itemQuantity = if (expanded.size == 1) quantity else Quantity.Default
-                        parsedItems.add(
-                            ParsedItem(
-                                rawText = item,
-                                query = query,
-                                quantity = itemQuantity,
-                                parserConfidence = confidence,
-                                avoidPhrases = if (expanded.size == 1) avoidPhrases else emptyList()
-                            )
-                        )
+                    if (query.isBlank()) {
+                        return@forEach
                     }
+                    val itemQuantity = if (expanded.size == 1) quantity else Quantity.Default
+                    val candidate = ParsedItem(
+                        rawText = item,
+                        query = query,
+                        quantity = itemQuantity,
+                        quantitySignal = quantitySignal,
+                        parserConfidence = if (!query.equals(item, ignoreCase = true)) minOf(confidence, 0.85f) else confidence,
+                        avoidPhrases = if (expanded.size == 1) avoidPhrases else emptyList()
+                    )
+                    addParsedItem(parsedItems, candidate)
                 }
             }
 
         return parsedItems
+    }
+
+    fun normalizeSpokenQuantities(input: String): String {
+        return normalizeSpokenQuantitySegment(input).text
+    }
+
+    fun normalizeSpokenQuantitySegment(segment: String): SpokenQuantityNormalization {
+        val trimmed = segment.trim()
+        if (trimmed.isEmpty()) {
+            return SpokenQuantityNormalization(trimmed)
+        }
+
+        val fractionalNormalized = normalizeFractionalMeasures(trimmed)
+        return normalizeLeadingSpokenCount(fractionalNormalized) ?: SpokenQuantityNormalization(fractionalNormalized)
+    }
+
+    private fun addParsedItem(items: MutableList<ParsedItem>, candidate: ParsedItem) {
+        val lastIndex = items.indexOfLast { it.query == candidate.query }
+        if (lastIndex < 0) {
+            items.add(candidate)
+            return
+        }
+
+        val existing = items[lastIndex]
+        val merged = mergeParsedItems(existing, candidate)
+        if (merged != null) {
+            items[lastIndex] = merged
+            return
+        }
+
+        items.add(candidate)
+    }
+
+    private fun mergeParsedItems(existing: ParsedItem, candidate: ParsedItem): ParsedItem? {
+        if (existing.query != candidate.query) return null
+        if (existing.quantitySignal != null || candidate.quantitySignal != null) return null
+        if (existing.avoidPhrases != candidate.avoidPhrases) return null
+
+        return when {
+            existing.quantity is Quantity.Count && candidate.quantity is Quantity.Count -> {
+                existing.copy(
+                    quantity = Quantity.Count(existing.quantity.n + candidate.quantity.n),
+                    parserConfidence = minOf(existing.parserConfidence, candidate.parserConfidence)
+                )
+            }
+            existing.quantity is Quantity.Default && candidate.quantity is Quantity.Default -> existing
+            else -> null
+        }
     }
 
     private fun normalizeTrailingMeasure(segment: String): String {
@@ -154,6 +283,71 @@ object InstructionParser {
         val amount = match.groupValues[2]
         val unit = match.groupValues[3]
         return "$amount $unit $product"
+    }
+
+    private fun normalizeFractionalMeasures(segment: String): String {
+        var text = segment
+        fractionalMeasureRegexes.forEach { (pattern, replacement) ->
+            text = pattern.replace(text) { matchResult ->
+                val unit = matchResult.groupValues[1]
+                "$replacement $unit"
+            }
+        }
+        return text
+    }
+
+    private fun normalizeLeadingSpokenCount(segment: String): SpokenQuantityNormalization? {
+        val trimmed = segment.trim().trim(',', ';', '&').trim()
+        val tokens = ProductLexicon.tokenize(trimmed)
+        if (tokens.isEmpty()) return null
+
+        val first = tokens.first()
+        if (first in spokenCountSignalWords) {
+            val signal = tokens.take(1).joinToString(" ")
+            val rest = stripLeadingTokenPhrase(trimmed, signal)
+            return if (rest.isNotEmpty()) {
+                SpokenQuantityNormalization(rest, signal)
+            } else {
+                SpokenQuantityNormalization(trimmed, signal)
+            }
+        }
+
+        val firstCount = spokenCountWords[first] ?: return null
+        if (tokens.size == 1) {
+            return SpokenQuantityNormalization(trimmed, tokens.take(1).joinToString(" "))
+        }
+
+        val second = tokens[1]
+        if (second in spokenCountConjunctionWords) {
+            return null
+        }
+        if (second in spokenCountWords || second in spokenCountSignalWords) {
+            val signal = tokens.take(2).joinToString(" ")
+            val rest = stripLeadingTokenPhrase(trimmed, signal)
+            return if (rest.isNotEmpty()) {
+                SpokenQuantityNormalization(rest, signal)
+            } else {
+                SpokenQuantityNormalization(trimmed, signal)
+            }
+        }
+
+        if (firstCount > 20) {
+            return SpokenQuantityNormalization(trimmed, tokens.take(1).joinToString(" "))
+        }
+
+        val rest = stripLeadingTokenPhrase(trimmed, tokens.first())
+        if (rest.isEmpty()) {
+            return SpokenQuantityNormalization(trimmed, tokens.take(1).joinToString(" "))
+        }
+
+        return SpokenQuantityNormalization("$firstCount $rest")
+    }
+
+    private fun stripLeadingTokenPhrase(text: String, phrase: String): String {
+        val tokenPattern = phrase.split(' ').joinToString("[\\s-]+") { Regex.escape(it) }
+        val match = Regex("^\\s*$tokenPattern\\b", RegexOption.IGNORE_CASE).find(text)
+            ?: return ""
+        return text.removeRange(match.range).trimStart()
     }
 
     fun applyPreferences(
@@ -289,3 +483,8 @@ object InstructionParser {
         return if (matches.size > 1) matches else listOf(segment)
     }
 }
+
+data class SpokenQuantityNormalization(
+    val text: String,
+    val quantitySignal: String? = null
+)

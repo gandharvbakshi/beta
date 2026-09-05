@@ -12,6 +12,7 @@ import android.location.LocationManager
 import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.beta.SwiggyMcpClient.SwiggyAddress
@@ -31,9 +32,16 @@ internal data class SwiggyLocationHint(
     val locality: String? = null,
 )
 
+internal enum class SwiggyLocationAssessment {
+    UNKNOWN,
+    AREA_MATCH,
+    NOT_MATCHED,
+}
+
 internal data class RankedSwiggyAddress(
     val address: SwiggyAddress,
     val reason: String? = null,
+    val locationAssessment: SwiggyLocationAssessment = SwiggyLocationAssessment.UNKNOWN,
 )
 
 internal fun rankSwiggyAddresses(
@@ -47,6 +55,7 @@ internal fun rankSwiggyAddresses(
         .distinct()
         .withIndex()
         .associate { (index, id) -> id to (420 - index.coerceAtMost(7) * 45) }
+    val hintHasAreaSignal = hasLocationAreaSignal(locationHint)
     return addresses.mapIndexed { providerIndex, address ->
         val usage = usageByAddressId[address.id]
         val recencyScore = usage?.let {
@@ -63,13 +72,17 @@ internal fun rankSwiggyAddresses(
         val locationScore = locationMatchScore(address, locationHint)
         val reason = when {
             address.hasCurrentCart -> "Current cart address"
-            locationScore >= 600 && (recencyScore > 0 || providerScore > 0) -> "Near you · recently used"
-            locationScore >= 600 -> "Near your current location"
+            locationScore >= 600 && (recencyScore > 0 || providerScore > 0) -> "Same area · recently used"
+            locationScore >= 600 -> "Same area as your location"
             recencyScore > 0 || providerScore > 0 -> "Recently used"
             else -> null
         }
         ScoredAddress(
-            ranked = RankedSwiggyAddress(address, reason),
+            ranked = RankedSwiggyAddress(address, reason, when {
+                !hintHasAreaSignal -> SwiggyLocationAssessment.UNKNOWN
+                locationScore >= 600 -> SwiggyLocationAssessment.AREA_MATCH
+                else -> SwiggyLocationAssessment.NOT_MATCHED
+            }),
             score = locationScore + recencyScore + providerScore - providerIndex.coerceAtMost(100),
             providerIndex = providerIndex,
         )
@@ -91,7 +104,7 @@ private fun locationMatchScore(address: SwiggyAddress, hint: SwiggyLocationHint?
     val normalizedAddress = normalizeLocationText(address.label)
     fun contains(value: String?): Boolean {
         val normalized = value?.let(::normalizeLocationText).orEmpty()
-        return normalized.length >= 3 && normalizedAddress.contains(normalized)
+        return normalized.length >= 3 && containsTokenPhrase(normalizedAddress, normalized)
     }
     return when {
         contains(hint.postalCode) -> 1_050
@@ -102,9 +115,22 @@ private fun locationMatchScore(address: SwiggyAddress, hint: SwiggyLocationHint?
     }
 }
 
+private fun hasLocationAreaSignal(hint: SwiggyLocationHint?): Boolean {
+    if (hint == null) return false
+    return listOf(hint.postalCode, hint.subLocality, hint.thoroughfare)
+        .any { !it.isNullOrBlank() && normalizeLocationText(it).length >= 3 }
+}
+
+private fun containsTokenPhrase(haystack: String, needle: String): Boolean {
+    val hayTokens = haystack.split(Regex("\\s+")).filter { it.isNotBlank() }
+    val needleTokens = needle.split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (needleTokens.isEmpty() || needleTokens.size > hayTokens.size) return false
+    return hayTokens.windowed(needleTokens.size).any { window -> window == needleTokens }
+}
+
 private fun normalizeLocationText(value: String): String = value
     .lowercase(Locale.ROOT)
-    .replace(Regex("[^a-z0-9]+"), " ")
+    .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
     .trim()
 
 /**
@@ -163,7 +189,7 @@ internal class SwiggyAddressIntelligence(private val context: Context) {
             return
         }
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-        if (locationManager == null) {
+        if (locationManager == null || !runCatching { locationManager.isLocationEnabled }.getOrDefault(false)) {
             callback(null)
             return
         }
@@ -178,27 +204,46 @@ internal class SwiggyAddressIntelligence(private val context: Context) {
             )
         }.getOrNull()
         val fallback = mostRecentLastKnownLocation(locationManager)
+        fun canResolveNow(): Boolean {
+            return hasLocationPermission() &&
+                runCatching { locationManager.isLocationEnabled }.getOrDefault(false) &&
+                Geocoder.isPresent()
+        }
         if (provider.isNullOrBlank()) {
-            reverseGeocode(fallback, ::deliver)
+            if (canResolveNow()) {
+                reverseGeocode(fallback?.takeIf { location -> location.isSwiggyLocationUsable() }, ::deliver)
+            } else {
+                deliver(null)
+            }
             return
         }
         val cancellation = CancellationSignal()
-        mainHandler.postDelayed({
+        val timeoutRunnable = Runnable {
             cancellation.cancel()
-            reverseGeocode(fallback, ::deliver)
-        }, LOCATION_TIMEOUT_MILLIS)
-        if (!hasLocationPermission()) {
-            cancellation.cancel()
-            reverseGeocode(fallback, ::deliver)
-            return
+            if (!delivered.get() && canResolveNow()) {
+                reverseGeocode(fallback?.takeIf { location -> location.isSwiggyLocationUsable() }, ::deliver)
+            } else if (!delivered.get()) {
+                deliver(null)
+            }
         }
+        mainHandler.postDelayed(timeoutRunnable, LOCATION_TIMEOUT_MILLIS)
         runCatching {
             locationManager.getCurrentLocation(provider, cancellation, context.mainExecutor) { location ->
-                reverseGeocode(location ?: fallback, ::deliver)
+                val usable = when {
+                    location?.isSwiggyLocationUsable() == true -> location
+                    fallback?.isSwiggyLocationUsable() == true -> fallback
+                    else -> null
+                }
+                if (!delivered.get()) {
+                    if (canResolveNow()) reverseGeocode(usable, ::deliver) else deliver(null)
+                }
             }
         }.onFailure {
             Log.i("BetaAgent", "SWIGGY_ADDRESS_LOCATION_UNAVAILABLE")
-            reverseGeocode(fallback, ::deliver)
+            if (!delivered.get()) {
+                if (canResolveNow()) reverseGeocode(fallback?.takeIf { location -> location.isSwiggyLocationUsable() }, ::deliver)
+                else deliver(null)
+            }
         }
     }
 
@@ -211,8 +256,17 @@ internal class SwiggyAddressIntelligence(private val context: Context) {
                     if (!hasLocationPermission()) null
                     else runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
                 }
-                .maxByOrNull(Location::getTime)
+                .filter { it.isSwiggyLocationUsable() }
+                .maxByOrNull { it.elapsedRealtimeNanos }
         }.getOrNull()
+    }
+
+    private fun Location.isSwiggyLocationUsable(): Boolean {
+        val elapsedNanos = elapsedRealtimeNanos
+        val nowNanos = SystemClock.elapsedRealtimeNanos()
+        if (elapsedNanos <= 0L || elapsedNanos > nowNanos) return false
+        val ageMillis = (nowNanos - elapsedNanos) / 1_000_000L
+        return isSwiggyLocationUsable(ageMillis, accuracy)
     }
 
     private fun reverseGeocode(location: Location?, callback: (SwiggyLocationHint?) -> Unit) {
@@ -273,4 +327,11 @@ internal class SwiggyAddressIntelligence(private val context: Context) {
         private const val LOCATION_TIMEOUT_MILLIS = 2_500L
         private const val GEOCODER_TIMEOUT_MILLIS = 2_500L
     }
+}
+
+internal fun isSwiggyLocationUsable(ageMillis: Long, accuracyMeters: Float): Boolean {
+    return ageMillis in 0..300_000L &&
+        accuracyMeters.isFinite() &&
+        accuracyMeters > 0f &&
+        accuracyMeters <= 2_000f
 }

@@ -38,7 +38,16 @@ class SwiggyLiveCartSchemaTest {
 
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
-            assertTrue("Expected live cart schema response, got HTTP ${response.code}", response.isSuccessful)
+            val receipt = org.json.JSONObject()
+                .put("httpStatus", response.code)
+                .put("receivedAtMillis", System.currentTimeMillis())
+                .put("body", body)
+            context.openFileOutput("swiggy-cart-live-response.json", android.content.Context.MODE_PRIVATE).use {
+                it.write(receipt.toString().toByteArray(Charsets.UTF_8))
+            }
+            val reason = runCatching { org.json.JSONObject(body).optString("reason") }.getOrDefault("")
+                .takeIf { it.matches(Regex("[a-z_]{1,80}")) }.orEmpty()
+            assertTrue("Expected live cart schema response, got HTTP ${response.code} reason=$reason", response.isSuccessful)
             assertTrue("Expected a non-empty cart schema response", body.isNotBlank())
             context.openFileOutput(OUTPUT_FILE, android.content.Context.MODE_PRIVATE).use { output ->
                 output.write(body.toByteArray(Charsets.UTF_8))

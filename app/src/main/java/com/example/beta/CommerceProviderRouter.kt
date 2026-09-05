@@ -65,7 +65,7 @@ object CommerceProviderRouter {
     }
 
     fun sanitizeOrderInstruction(instruction: String?): String {
-        val trimmed = instruction?.trim().orEmpty()
+        val trimmed = instruction?.trim()?.replace(Regex("[\\r\\n]+"), ", ").orEmpty()
         if (trimmed.isBlank() || isOpenCommerceAppInstruction(trimmed)) return trimmed
 
         Regex(
