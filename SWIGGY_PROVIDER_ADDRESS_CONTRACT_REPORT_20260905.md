@@ -1,5 +1,17 @@
 # DRAFT-NOTSENT
 
+## Superseded at 17:45 IST: address mapping found; do not send the old premise
+
+The earlier complete-string comparison missed a native ID embedded in the saved ID. A fresh, complete 45-record list exposes composite IDs of the form `<native_id>__<22-character base64url suffix>`, with unique native prefixes in this capture. Backend commit `a05e171` validates exact selected membership and uniqueness, preserves the complete outbound saved ID, and accepts only that bound native ID on cart readback. Unknown/malformed/ambiguous mappings fail closed; no address-text or GPS equality is used. This observed encoding is not an officially documented long-term contract.
+
+Live nonempty-cart address tests now pass. Five reviewed additions with native Swiggy force-stopped remained on independent reads at 21, 59, 128 and 274 seconds, including native Swiggy cold-launch/cart display. All five were then individually removed; the original one-line baseline and address fingerprint were restored.
+
+A different issue remains: with native Swiggy warm, the same five additions initially verified, then reverted to the original baseline around 40 seconds later. The user confirmed no manual changes. A cross-client session conflict is the leading hypothesis, supported by Swiggy's official README warning, but the exact mechanism is not provider-confirmed. Do not claim an address-ID blocker still exists or that an advisory close-app instruction fixes persistence for ordinary users.
+
+The historical report below remains for evidence provenance only. No provider message has been sent in this continuation.
+
+## Historical, superseded address report
+
 Date: 2026-09-05
 
 Evidence summary from the read-only Swiggy provider/address checks:

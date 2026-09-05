@@ -2,6 +2,8 @@
 
 ## Verdict
 
+**Later continuation, 17:45 IST:** the address-ID blocker below is now resolved by backend `a05e171`; it is retained below as historical context. Nonempty address checks pass. A controlled five-addition cart-only test persisted through 274 seconds and native cold-launch when native Swiggy was first force-stopped; cleanup restored the original cart/address exactly. The earlier warm-native test reverted after immediate verification, with no user changes. This cross-client persistence risk still blocks public release. Backend incoming-request protection `d9b5c1b` passes 468 pytest checks; deployment verification is recorded separately. These additions do not upgrade acoustic tests or unresolved unusual-product lookups to passes.
+
 The app is better hardened for an elderly user's interruptions and mistakes. These checks do **not** establish release-ready cart completion. The saved-address/cart-address identifier contract still blocks exact-address cart acceptance. No cart or address was changed and no checkout, payment or order was attempted in this continuation.
 
 This report continues `SWIGGY_RATE_LIMIT_FIXES_20260905.md`; it does not overwrite the earlier unusual-product availability failure or convert read-only recent-order previews into cart-addition passes.
