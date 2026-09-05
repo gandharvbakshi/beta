@@ -2,6 +2,8 @@
 
 Status: acceptance matrix. Cases start as `NOT RUN`; actual September 5 evidence and remaining failures are recorded separately in `SWIGGY_ELDERLY_E2E_RESULTS_20260905.md`.
 
+Latest interruption, draft, large-text, telemetry and HTTP-recovery evidence is in [SWIGGY_RECOVERY_ACCEPTANCE_20260905.md](./SWIGGY_RECOVERY_ACCEPTANCE_20260905.md). Synthetic/device-harness passes are not full live voice/cart passes. The audio-injection preflight stopped without recognition because microphone mute could not be verified; keep true-audio rows open.
+
 ## Current UX direction (2026-09-05)
 
 The user's latest direction supersedes mandatory questions for every generic or uncertain product: propose a complete basket, display exact brands/packs/quantities and the address together, offer optional **Change** actions, and ask for one final cart confirmation. A usable suggestion is not an immediate cart addition. Only requests with no safe candidate or quantity need help; group those into one explicit skip/edit screen, never silently omit them. Any older case wording about routine per-product clarification below is superseded by this rule.

@@ -44,13 +44,12 @@ class BetaTelemetry(
     fun logEvent(name: String, params: Map<String, Any?> = emptyMap()) {
         if (!consentManager.isAnalyticsAllowed()) return
         val validated = TelemetryPolicy.validated(name, params, BuildConfig.DEBUG)
+        if (!TelemetryPolicy.isEventAllowed(name)) return
         val bundle = Bundle()
         validated.forEach { (key, value) ->
             when (value) {
                 is Int -> bundle.putLong(key, value.toLong())
                 is Long -> bundle.putLong(key, value)
-                is Double -> bundle.putDouble(key, value)
-                is Float -> bundle.putDouble(key, value.toDouble())
                 is Boolean -> bundle.putString(key, value.toString())
                 is String -> bundle.putString(key, value)
             }
@@ -261,25 +260,36 @@ internal object TelemetryPolicy {
             "current_cart_address",
             "near_you_recently_used",
             "near_your_current_location",
+            "same_area_recently_used",
+            "same_area_as_your_location",
             "recently_used",
             "saved_address",
         ),
     )
+    private val allowedBooleanKeys = setOf("starts_empty", "value")
+    private val allowedCountKeys = setOf("item_count", "change_count")
+    private val allowedDayKeys = setOf("days_since_first_open")
 
     fun validated(name: String, params: Map<String, Any?>, strict: Boolean): Map<String, Any> {
         val problems = mutableListOf<String>()
-        if (name !in allowedEvents) problems += "event"
+        if (!isEventAllowed(name)) {
+            if (strict) throw IllegalArgumentException("Unsafe telemetry: event")
+            return emptyMap()
+        }
         val output = linkedMapOf<String, Any>()
         params.forEach { (key, value) ->
             if (key !in allowedKeys || value == null) {
                 if (key !in allowedKeys) problems += key
                 return@forEach
             }
-            val normalized = when (value) {
-                is String -> safeLabel(value).takeIf { candidate ->
-                    candidate in allowedStringValues[key].orEmpty()
+            val normalized = when {
+                key in allowedStringValues -> {
+                    val candidate = (value as? String)?.let(::safeLabel)
+                    candidate?.takeIf { it in allowedStringValues[key].orEmpty() }
                 }
-                is Int, is Long, is Double, is Float, is Boolean -> value
+                key in allowedBooleanKeys -> value.takeIf { it is Boolean }
+                key in allowedCountKeys -> normalizedCount(value, 0, 200)
+                key in allowedDayKeys -> normalizedCount(value, 0, 36_500)
                 else -> null
             }
             if (normalized == null || forbiddenText.any { it.containsMatchIn(normalized.toString()) }) {
@@ -294,10 +304,21 @@ internal object TelemetryPolicy {
         return output
     }
 
+    fun isEventAllowed(name: String): Boolean = name in allowedEvents
+
     fun safeLabel(value: String): String = value
         .lowercase()
         .replace(Regex("[^a-z0-9_]+"), "_")
         .trim('_')
         .take(40)
         .ifBlank { "unknown" }
+
+    private fun normalizedCount(value: Any, min: Long, max: Long): Any? {
+        val longValue = when (value) {
+            is Int -> value.toLong()
+            is Long -> value
+            else -> return null
+        }
+        return if (longValue in min..max) value else null
+    }
 }

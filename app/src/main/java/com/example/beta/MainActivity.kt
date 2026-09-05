@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
     private var draftPersistenceBlocked = false
     private var draftRestored = false
     private val persistDraftRunnable = Runnable { persistGroceryDraft() }
+    private var applyingSpeechText = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,6 +92,9 @@ class MainActivity : ComponentActivity() {
             Log.i("BetaAgent", "GROCERY_DRAFT_RESTORED")
         }
         orderCommandInput.doAfterTextChanged {
+            if (!applyingSpeechText && ::voiceInputController.isInitialized && voiceInputController.isActive) {
+                voiceInputController.cancel()
+            }
             draftHandler.removeCallbacks(persistDraftRunnable)
             // Text cannot be edited during a mutation. Clearing it in the
             // pre-apply hook must not schedule a stale write after the clear.
@@ -104,12 +108,10 @@ class MainActivity : ComponentActivity() {
             context = this,
             onStateChanged = ::renderVoiceInputState,
             onPartialResult = { partial ->
-                orderCommandInput.setText(partial)
-                orderCommandInput.setSelection(partial.length)
+                setRecognizedSpeechText(partial)
             },
             onFinalResult = { instruction ->
-                orderCommandInput.setText(instruction)
-                orderCommandInput.setSelection(instruction.length)
+                setRecognizedSpeechText(instruction)
                 submitOrderInstruction(instruction, source = "voice")
             },
             onRecognitionError = ::handleVoiceInputError,
@@ -211,6 +213,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        if (::voiceInputController.isInitialized) voiceInputController.cancel()
+        if (::textToSpeech.isInitialized) textToSpeech.stop()
         draftHandler.removeCallbacks(persistDraftRunnable)
         if (::draftStore.isInitialized) persistGroceryDraft()
         super.onPause()
@@ -270,6 +274,16 @@ class MainActivity : ComponentActivity() {
                 orderVoiceInputButton.contentDescription = getString(R.string.order_voice_stop)
                 orderInputStatus.setText(R.string.voice_processing)
             }
+        }
+    }
+
+    private fun setRecognizedSpeechText(text: String) {
+        applyingSpeechText = true
+        try {
+            orderCommandInput.setText(text)
+            orderCommandInput.setSelection(text.length)
+        } finally {
+            applyingSpeechText = false
         }
     }
 

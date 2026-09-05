@@ -55,5 +55,37 @@ class TelemetryPolicyTest {
                 strict = true,
             ),
         )
+        assertEquals(
+            mapOf("selection_reason" to "same_area_recently_used"),
+            TelemetryPolicy.validated(
+                "address_selected",
+                mapOf("selection_reason" to "same_area_recently_used"),
+                strict = true,
+            ),
+        )
+        assertEquals(
+            mapOf("selection_reason" to "same_area_as_your_location"),
+            TelemetryPolicy.validated(
+                "address_selected",
+                mapOf("selection_reason" to "same_area_as_your_location"),
+                strict = true,
+            ),
+        )
+        assertEquals(
+            mapOf("selection_reason" to "current_cart_address"),
+            TelemetryPolicy.validated(
+                "address_selected",
+                mapOf("selection_reason" to "Current cart address"),
+                strict = true,
+            ),
+        )
+        assertEquals(
+            mapOf("selection_reason" to "recently_used"),
+            TelemetryPolicy.validated(
+                "address_selected",
+                mapOf("selection_reason" to "Recently used"),
+                strict = true,
+            ),
+        )
     }
 }

@@ -665,25 +665,41 @@ object SwiggyMcpClient {
             }
 
             override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    val responseBody = it.body?.string().orEmpty()
-                    if (it.isSuccessful) {
-                        try {
-                            callback(SwiggyMcpResult.Success(parser(responseBody)))
-                        } catch (e: Exception) {
-                            callback(SwiggyMcpResult.Failure(userMessage = "Swiggy backend returned an unreadable response."))
-                        }
-                    } else {
-                        callback(SwiggyMcpResult.Failure(
-                            userMessage = swiggyUserMessageForHttpCode(path, it.code, responseBody),
-                            httpCode = it.code,
-                            reconnectRequired = swiggyReconnectRequired(responseBody),
-                            retryable = swiggyRetryable(path, it.code)
-                        ))
-                    }
-                }
+                // Consume/read failures must also reach the owner, especially after an apply.
+                // Keep the owner's callback outside parser catches to prevent double delivery.
+                callback(readSwiggyHttpResponse(path, response, parser))
             }
         })
+    }
+
+    internal fun <T> readSwiggyHttpResponse(
+        path: String,
+        response: Response,
+        parser: (String) -> T,
+    ): SwiggyMcpResult<T> = response.use {
+        val body = try {
+            it.body?.string().orEmpty()
+        } catch (_: IOException) {
+            return SwiggyMcpResult.Failure(userMessage = swiggyNetworkFailureMessage(path))
+        }
+        if (!it.isSuccessful) {
+            return SwiggyMcpResult.Failure(
+                userMessage = swiggyUserMessageForHttpCode(path, it.code, body),
+                httpCode = it.code,
+                reconnectRequired = swiggyReconnectRequired(body),
+                retryable = swiggyRetryable(path, it.code),
+            )
+        }
+        val parsed = try {
+            parser(body)
+        } catch (_: Exception) {
+            return SwiggyMcpResult.Failure(userMessage = if (isCartMutationPath(path)) {
+                "Swiggy may have changed the cart, but Beta could not read the result. Open Swiggy and review the cart before trying again."
+            } else {
+                "Swiggy backend returned an unreadable response."
+            })
+        }
+        SwiggyMcpResult.Success(parsed)
     }
 
     internal fun describeAddressSchema(body: String): String {
@@ -723,7 +739,7 @@ object SwiggyMcpClient {
     internal fun swiggyRetryable(path: String, code: Int): Boolean {
         return when {
             code == 429 -> !isCartMutationPath(path)
-            code in 500..599 -> true
+            code in 500..599 -> !isCartMutationPath(path)
             else -> false
         }
     }
@@ -752,7 +768,9 @@ object SwiggyMcpClient {
             reason == "cart_no_changes" -> "Your Swiggy cart already has those quantities."
             code == 401 || code == 403 -> "Swiggy authorization is no longer valid."
             code == 404 -> "Swiggy setup is not ready yet. Please try again later."
-            code in 500..599 -> "Swiggy backend is temporarily unavailable."
+            code in 500..599 -> if (isCartMutationPath(path)) {
+                "Swiggy returned an error after the cart request. Beta cannot confirm whether the cart changed. Open Swiggy and review the cart before trying again."
+            } else "Swiggy backend is temporarily unavailable."
             else -> "Swiggy backend request failed."
         }
     }

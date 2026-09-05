@@ -60,12 +60,14 @@ internal class IndianEnglishTextToSpeech(context: Context) {
     private var requestedEngine: String? = GOOGLE_TTS_ENGINE
     private var ready = false
     private var pendingMessage: String? = null
+    private var shutdown = false
 
     init {
         initialise(GOOGLE_TTS_ENGINE)
     }
 
     fun speak(message: String) {
+        if (shutdown) return
         val normalized = message.trim()
         if (normalized.isBlank()) return
         val activeEngine = engine
@@ -82,6 +84,7 @@ internal class IndianEnglishTextToSpeech(context: Context) {
     }
 
     fun shutdown() {
+        shutdown = true
         pendingMessage = null
         ready = false
         engine?.shutdown()
@@ -99,7 +102,7 @@ internal class IndianEnglishTextToSpeech(context: Context) {
     }
 
     private fun onInitialised(status: Int, enginePackage: String?) {
-        if (enginePackage != requestedEngine) return
+        if (shutdown || enginePackage != requestedEngine) return
         if (status != TextToSpeech.SUCCESS) {
             Log.w(TAG, "TTS_ENGINE_INIT_FAILED engine=${enginePackage ?: "device_default"}")
             engine?.shutdown()
