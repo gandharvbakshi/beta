@@ -51,4 +51,36 @@ class InstructionParserQuantityTest {
         assertEquals(Quantity.Weight(100), items[0].quantity)
         assertEquals(Quantity.Volume(2000), items[1].quantity)
     }
+
+    @Test
+    fun parse_trailingPacketAndUnitKeepsCountsAndProductSpelling() {
+        val items = InstructionParser.parse("vixks cough tablet 1 packet, 2 amul dark chocolate, mosquito patche 1 unit")
+
+        assertEquals(listOf("vixks cough tablet", "amul dark chocolate", "mosquito patche"), items.map { it.query })
+        assertEquals(Quantity.Count(1), items[0].quantity)
+        assertEquals(Quantity.Count(2), items[1].quantity)
+        assertEquals(Quantity.Count(1), items[2].quantity)
+    }
+
+    @Test
+    fun parse_trailingPluralCountsRemainWithEachProductWithoutCommas() {
+        val items = InstructionParser.parse("vicks 2 packets 2 chocolate 1 mosquito patches 1 unit")
+        assertEquals(listOf("vicks", "chocolate", "mosquito patches"), items.map { it.query })
+        assertEquals(listOf(Quantity.Count(2), Quantity.Count(2), Quantity.Count(1)), items.map { it.quantity })
+    }
+
+    @Test
+    fun parse_leadingMultipackDescriptorStaysAProductDescriptor() {
+        val item = InstructionParser.parse("6 pack juice").single()
+
+        assertEquals("6 pack juice", item.query)
+        assertEquals(Quantity.Default, item.quantity)
+        assertEquals("6 pack juice", item.backendInputText())
+    }
+
+    @Test
+    fun parse_preservesOversizedPacketCountsForProviderValidation() {
+        assertEquals(Quantity.Count(21), InstructionParser.parse("mosquito patches 21 units").single().quantity)
+        assertEquals(Quantity.Count(25), InstructionParser.parse("vicks 25 packets").single().quantity)
+    }
 }

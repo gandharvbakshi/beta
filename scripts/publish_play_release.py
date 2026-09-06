@@ -21,6 +21,9 @@ import hashlib
 import json
 import mimetypes
 import os
+import shutil
+import subprocess
+import zipfile
 from pathlib import Path
 from typing import Iterator
 
@@ -50,7 +53,7 @@ SCREENSHOT_DIR_TO_IMAGE_TYPE = {
     "ten_inch": "tenInchScreenshots",
 }
 IMAGE_TYPES = tuple(dict.fromkeys(SCREENSHOT_DIR_TO_IMAGE_TYPE.values()))
-RELEASE_NAME = "0.3.0"
+RELEASE_NAME = "0.3.2"
 RELEASE_NOTES_BY_LOCALE = {
     "en-US": (
         "Swiggy checkout review is clearer, with the full cart, address, fees, "
@@ -86,6 +89,7 @@ def parse_args() -> argparse.Namespace:
         help="Upload a release bundle, listing updates, and screenshots.",
     )
     publish.add_argument("--aab", required=True, help="Path to the Android App Bundle.")
+    publish.add_argument("--draft", action="store_true", help="Keep the bundle release as a draft; Play may review listing changes automatically.")
     publish.add_argument(
         "--version-code",
         type=int,
@@ -436,14 +440,14 @@ def update_screenshots(publisher, edit_id: str, screenshots_dir: Path) -> None:
         upload_images_for_locale(publisher, edit_id, locale, screenshots_dir)
 
 
-def track_payload_for_version(version_code: int) -> dict:
+def track_payload_for_version(version_code: int, *, draft: bool = False) -> dict:
     return {
         "track": TRACK_NAME,
         "releases": [
             {
                 "name": RELEASE_NAME,
                 "versionCodes": [str(version_code)],
-                "status": "completed",
+                "status": "draft" if draft else "completed",
                 "releaseNotes": [
                     {"language": locale, "text": RELEASE_NOTES_BY_LOCALE[locale]}
                     for locale in LISTING_LOCALES
@@ -473,8 +477,22 @@ def publish_mode(
     listing_dir: Path,
     feature_graphic: Path | None,
     screenshots_dir: Path,
+    draft: bool = False,
 ) -> None:
     require_file(aab_path, "AAB")
+    # Gradle can produce an unsigned bundle when signing properties are absent.
+    # Reject it locally before creating an edit or uploading any artifact.
+    with zipfile.ZipFile(aab_path) as archive:
+        entries = [entry.upper() for entry in archive.namelist()]
+    if not any(name.startswith("META-INF/") and name.endswith(".SF") for name in entries):
+        raise SystemExit("AAB is unsigned. Rebuild with the existing upload signing configuration.")
+    verifier = shutil.which("jarsigner")
+    if verifier is None:
+        raise SystemExit("jarsigner is required to verify the signed AAB before upload.")
+    verified = subprocess.run([verifier, "-verify", str(aab_path)], capture_output=True, text=True, timeout=60)
+    if verified.returncode != 0 or "jar verified." not in verified.stdout.lower():
+        raise SystemExit("AAB signature verification did not pass; no Play edit was created.")
+    print("bundle_signature=verified")
     require_dir(listing_dir, "Listing directory")
     listing_payloads = load_listing_payloads(listing_dir)
     if feature_graphic is not None:
@@ -524,13 +542,15 @@ def publish_mode(
             packageName=PACKAGE_NAME,
             editId=edit_id,
             track=TRACK_NAME,
-            body=track_payload_for_version(version_code),
+            body=track_payload_for_version(version_code, draft=draft),
         ).execute()
         print_json_summary("track", track)
 
         publisher.edits().validate(packageName=PACKAGE_NAME, editId=edit_id).execute()
         print(f"validated=ok edit={edit_id}")
         commit_attempted = True
+        # This app rejects changesNotSentForReview even for a draft bundle.
+        # Release status governs the bundle; listing changes may be auto-reviewed.
         publisher.edits().commit(packageName=PACKAGE_NAME, editId=edit_id).execute()
         commit_succeeded = True
         print(f"commit=ok edit={edit_id} track={TRACK_NAME} versionCode={version_code}")
@@ -561,6 +581,7 @@ def main() -> None:
             listing_dir=Path(args.listing_dir).expanduser(),
             feature_graphic=Path(args.feature_graphic).expanduser() if args.feature_graphic else None,
             screenshots_dir=Path(args.screenshots_dir).expanduser(),
+            draft=args.draft,
         )
         return
 

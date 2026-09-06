@@ -34,6 +34,7 @@ class SwiggyPhoneDriverTest {
             "launch" -> launch()
             "snapshot" -> snapshot()
             "setText" -> setText()
+            "launchAndSetText" -> { launch(); setText() }
             "tapId" -> tapId()
             "scrollDown" -> scroll(Direction.DOWN)
             "scrollUp" -> scroll(Direction.UP)

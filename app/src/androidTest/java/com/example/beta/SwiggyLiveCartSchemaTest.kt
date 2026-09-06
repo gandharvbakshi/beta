@@ -27,6 +27,19 @@ class SwiggyLiveCartSchemaTest {
         assumeTrue(arguments.getString("liveSwiggySchema") == "true")
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        // Read-only diagnostic: keep only reviewed line identities in app-private
+        // storage, never the signed token, installation identity, or address.
+        if (arguments.getString("captureReviewedLines") == "true") {
+            SwiggyCartReviewStore(context).load()?.let { token ->
+                val payload = org.json.JSONObject(String(android.util.Base64.decode(
+                    token.substringBefore('.'), android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP,
+                ), Charsets.UTF_8))
+                val summary = org.json.JSONObject().put("proposedItems", payload.getJSONArray("proposedItems"))
+                context.openFileOutput("swiggy-reviewed-lines-diagnostic.json", Context.MODE_PRIVATE).use {
+                    it.write(summary.toString().toByteArray(Charsets.UTF_8))
+                }
+            }
+        }
         val snapshotLabel = validateSnapshotLabel(arguments.getString("snapshotLabel"), context)
         val request = Request.Builder()
             .url("${AppConfig.backendBaseUrl}/swiggy/cart")

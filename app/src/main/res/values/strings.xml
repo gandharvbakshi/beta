@@ -56,6 +56,15 @@
     <string name="swiggy_connection_invalid_link">Beta received an invalid Swiggy sign-in link. Please try again later.</string>
     <string name="swiggy_connection_finishing">Finishing your secure Swiggy connection…</string>
     <string name="swiggy_connection_failed">Swiggy could not be connected. Please try again.</string>
+    <string name="swiggy_offline_demo_action">Try an offline demo</string>
+    <string name="swiggy_offline_demo_action_description">Open a local Swiggy demo that shows request, address, cart, and payment review steps without changing anything.</string>
+    <string name="swiggy_offline_demo_eyebrow">DEMO ONLY — no real order or payment</string>
+    <string name="swiggy_offline_demo_step_request_title">Request preview</string>
+    <string name="swiggy_offline_demo_step_address_title">Address preview</string>
+    <string name="swiggy_offline_demo_step_cart_title">Cart review</string>
+    <string name="swiggy_offline_demo_step_payment_title">Payment review</string>
+    <string name="swiggy_offline_demo_step_caption">This is a practice run. Your cart, saved addresses and grocery list stay unchanged. Nothing will be ordered or charged.</string>
+    <string name="swiggy_offline_demo_finish">Finish demo</string>
     <string name="swiggy_cart_update_in_progress">Swiggy is finishing the confirmed cart update. Wait for the cart check before changing apps.</string>
     <string name="swiggy_primary_note_disconnected">Connect securely in your browser. No screen access is needed.</string>
     <string name="swiggy_primary_note_ready">Swiggy is connected. Speak or type your grocery list below.</string>

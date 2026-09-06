@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var swiggySelectedAddress: TextView
     private lateinit var swiggyChangeAddressAction: Button
     private lateinit var swiggyConnectionAction: Button
+    private lateinit var swiggyOfflineDemoAction: Button
     private lateinit var microphonePermissionResult: ActivityResultLauncher<String>
     private lateinit var locationPermissionResult: ActivityResultLauncher<Array<String>>
     private lateinit var voiceInputController: OrderVoiceInputController
@@ -55,6 +56,7 @@ class MainActivity : ComponentActivity() {
     private var selectedSwiggyAddressLabel: String? = null
     private lateinit var swiggyOrderCoordinator: SwiggyVoiceOrderCoordinator
     private lateinit var swiggyCheckoutCoordinator: SwiggyCheckoutCoordinator
+    private lateinit var swiggyOfflineDemo: SwiggyOfflineDemo
     private lateinit var draftStore: SwiggyDraftStore
     private val draftHandler = Handler(Looper.getMainLooper())
     private var draftPersistenceBlocked = false
@@ -83,6 +85,7 @@ class MainActivity : ComponentActivity() {
         swiggySelectedAddress = findViewById(R.id.swiggySelectedAddress)
         swiggyChangeAddressAction = findViewById(R.id.swiggyChangeAddressAction)
         swiggyConnectionAction = findViewById(R.id.swiggyConnectionAction)
+        swiggyOfflineDemoAction = findViewById(R.id.swiggyOfflineDemoAction)
 
         draftStore = SwiggyDraftStore(applicationContext)
         draftStore.load()?.let { restored ->
@@ -120,11 +123,19 @@ class MainActivity : ComponentActivity() {
         swiggyCheckoutCoordinator = SwiggyCheckoutCoordinator(this, ::announceSwiggy) {
             swiggyOrderCoordinator.onHostResumed()
         }
+        swiggyOfflineDemo = SwiggyOfflineDemo(this)
         findViewById<android.widget.Button>(R.id.swiggyCheckoutAction).apply {
             visibility = if (BuildConfig.BETA_SWIGGY_CHECKOUT_ENABLED) android.view.View.VISIBLE else android.view.View.GONE
             setOnClickListener {
                 if (!SwiggyCartMutationGuard.isInFlight()) swiggyCheckoutCoordinator.startFromCart()
             }
+        }
+        swiggyOfflineDemoAction.setOnClickListener {
+            if (SwiggyCartMutationGuard.isInFlight() || swiggyCheckoutCoordinator.isActive() ||
+                swiggyOrderCoordinator.isActive()) return@setOnClickListener
+            voiceInputController.cancel()
+            textToSpeech.stop()
+            swiggyOfflineDemo.start()
         }
         swiggyOrderCoordinator = SwiggyVoiceOrderCoordinator(
             activity = this,
@@ -228,6 +239,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         if (::swiggyCheckoutCoordinator.isInitialized) swiggyCheckoutCoordinator.onPause()
+        if (::swiggyOfflineDemo.isInitialized) swiggyOfflineDemo.onPause()
         if (::swiggyOrderCoordinator.isInitialized) swiggyOrderCoordinator.onHostPaused()
         if (::voiceInputController.isInitialized) voiceInputController.cancel()
         if (::textToSpeech.isInitialized) textToSpeech.stop()
@@ -238,6 +250,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (::swiggyCheckoutCoordinator.isInitialized) swiggyCheckoutCoordinator.destroy()
+        if (::swiggyOfflineDemo.isInitialized) swiggyOfflineDemo.destroy()
         draftHandler.removeCallbacks(persistDraftRunnable)
         super.onDestroy()
         cancelPendingSwiggyMcpWork("activity_destroyed")

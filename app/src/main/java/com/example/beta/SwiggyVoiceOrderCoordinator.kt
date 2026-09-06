@@ -218,6 +218,20 @@ private val candidatePieceCountRegex = Regex(
     RegexOption.IGNORE_CASE,
 )
 
+private fun swiggyRetailMultipackCount(candidate: RecommendationCandidate): Int? {
+    val text = swiggyCandidateLabel(candidate)
+    val unit = "(?:kg|kgs|g|gm|gms|grams?|ml|l|ltr|litres?|liters?)"
+    val patterns = listOf(
+        Regex("\\b([1-9]\\d?)\\s*[x×]\\s*\\d+(?:\\.\\d+)?\\s*$unit\\b", RegexOption.IGNORE_CASE),
+        Regex("\\b\\d+(?:\\.\\d+)?\\s*$unit\\s*[x×]\\s*([1-9]\\d?)\\b", RegexOption.IGNORE_CASE),
+        Regex("\\bpack\\s+of\\s+([1-9]\\d?)\\b", RegexOption.IGNORE_CASE),
+    )
+    val counts = patterns.flatMap { it.findAll(text).map { match -> match.groupValues[1].toInt() }.toList() }
+        .distinct()
+    // Conflicting multipliers are unknown, not evidence of a single unit.
+    return if (counts.isEmpty()) null else counts.singleOrNull() ?: 0
+}
+
 internal fun isSwiggyCandidateCountCompatible(
     item: ParsedItem,
     candidate: RecommendationCandidate,
@@ -226,6 +240,9 @@ internal fun isSwiggyCandidateCountCompatible(
         return swiggyMeasuredPackQuantity(item, candidate) != null
     }
     val requested = item.quantity as? Quantity.Count ?: return true
+    swiggyRetailMultipackCount(candidate)?.let { pieces ->
+        return pieces > 0 && requested.n % pieces == 0 && requested.n / pieces in 1..20
+    }
     val explicitPackCount = candidatePieceCountRegex
         .find(listOfNotNull(candidate.label, candidate.variant, candidate.subtitle).joinToString(" "))
         ?.groupValues
@@ -242,6 +259,10 @@ internal fun swiggyRequestedCartQuantity(
         return requireNotNull(swiggyMeasuredPackQuantity(item, candidate)) { "Unverified pack measure" }
     }
     val requested = item.quantity as? Quantity.Count ?: return 1
+    swiggyRetailMultipackCount(candidate)?.let { pieces ->
+        require(pieces > 0 && requested.n % pieces == 0 && requested.n / pieces in 1..20) { "Unverified multipack count" }
+        return requested.n / pieces
+    }
     return if (isSwiggyCandidateCountCompatible(item, candidate) && candidatePieceCountRegex.containsMatchIn(
             listOfNotNull(candidate.label, candidate.variant, candidate.subtitle).joinToString(" ")
         )
@@ -451,6 +472,8 @@ class SwiggyVoiceOrderCoordinator(
     }
 
     fun isMutationInFlight(): Boolean = mutationInFlight
+
+    fun isActive(): Boolean = running || mutationInFlight
 
     /** Detects Beta leaving the foreground, not which other app the user opened. */
     fun onHostPaused() {

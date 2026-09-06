@@ -1,5 +1,44 @@
 # Swiggy checkout release evidence - September 6, 2026
 
+## Latest checkpoint - 14:15 IST (supersedes version 17 checkpoint below)
+
+- Android candidate 0.3.2 / version 19: trailing packet/unit quantities no longer
+  create phantom groceries; oversized counts remain explicit for validation;
+  counted retail multipacks divide exactly, with non-divisible/conflicting counts
+  rejected. A public, clearly labelled offline onboarding demo never calls Swiggy.
+- Build/debug/test APKs, unit tests, release lint and signed bundle pass.
+  **205 JVM tests, zero failures/errors; 29 disconnected emulator checkout,
+  handoff, persistence and demo tests passed. Lint: zero errors, 96 warnings.**
+- Signed version 19 bundle SHA256:
+  `23e28289e4ae9c32c94b044ff3fd84dc16bf79521885813e7b8089aad6688644`.
+- Play version 17 was published before an attempted withdrawal took effect
+  (Console notification and September 6 publishing date). Version 18 was uploaded
+  as a draft; version 19 replaces that draft via committed edit
+  `12034684431507713168`. Final version 19 readback remains to be recorded.
+  Draft is not rollout/approval. Both English listings, feature graphic and three
+  screenshot sets were updated. Play rejects `changesNotSentForReview` on this app;
+  a draft bundle can coexist with automatically reviewed listing changes.
+- Reviewer access is unresolved: the old no-sign-in declaration is inaccurate.
+  A four-screen offline preview is not full signed-in access. The full-access
+  attestation was not checked; no false credentials/declaration was submitted.
+  A reusable provider-approved reviewer account/access path is needed.
+- Backend source `4162200` accepts actual flat MCP responses while preserving
+  explicit error checks and field-level checkout validation. **259 tests plus
+  126 subtests passed.** `elderly-canary` runs
+  `beta-backend-staging-checkout-flat-4162200`, ordinary traffic still runs
+  `beta-backend-staging-checkout-607e0bd` pending live review acceptance.
+  Synthetic unconnected readiness probes passed on both URLs; no provider calls.
+- Live cart test: one owner-approved addition request, no order/payment. Readback
+  shows the intended counted multipack and second product, with the original cart
+  item preserved. The strict verifier stopped because two SKU references changed
+  although spin IDs and quantities matched. No write retry, no relaxed verifier.
+  Independent current-cart inspection followed by fresh whole-cart checkout
+  review is in progress. This is not automatic cart-verification success.
+- Final exact items/address/total/payment confirmation is still required before
+  the one authorised real order. No real transaction success is claimed here.
+
+## Earlier version 17 checkpoint
+
 Checkout is enabled following the owner's explicit release approval. The earlier
 default-off implementation decision is superseded. This does not imply that a
 live payment has succeeded: at this checkpoint all transaction tests are mocked.
@@ -52,7 +91,11 @@ an uncertain order are permitted.
 - Both English listings updated; phone/7-inch/10-inch screenshots show the actual
   renderer with synthetic demo data, not a completed real purchase.
 - Final signed AAB SHA256:
-  `c36158c196958229bacb9769165e6912cafc572de229f6bda96434e0434acee2`.
+  `b2c0272743233f155003f6310455d1307d60e629e8ee49bb9147c26813996db6`.
+- The first upload was rejected as unsigned (no release committed). Rebuilt with
+  the existing upload key and verified via `jarsigner`; the publisher now fails
+  locally on unsigned/unverified bundles before creating an edit. The earlier
+  C36158... artifact was unsigned and must not be distributed.
 - Release upload/review status must be recorded from fresh readback below.
 
 ## Feature graphic provenance

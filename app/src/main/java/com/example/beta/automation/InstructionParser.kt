@@ -34,7 +34,7 @@ fun ParsedItem.backendInputText(): String {
 }
 
 object InstructionParser {
-    const val PARSER_VERSION = "2026.09.05.2"
+    const val PARSER_VERSION = "2026.09.06.1"
 
     private val leadingCommandRegex = Regex(
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
@@ -101,7 +101,14 @@ object InstructionParser {
         RegexOption.IGNORE_CASE
     )
     private val quantityBoundaryRegex = Regex(
-        "\\s+(?=\\d+(?:\\.\\d+)?\\s*(?:g|gm|gms|gram|grams|kg|kgs|ml|l|ltr|liter|litre|liters|litres)\\b|[1-9]\\d?\\s+(?!(?:pack|packs|pk|pc|pcs|piece|pieces)\\b)\\w)",
+        "\\s+(?=\\d+(?:\\.\\d+)?\\s*(?:g|gm|gms|gram|grams|kg|kgs|ml|l|ltr|liter|litre|liters|litres)\\b|[1-9]\\d?\\s+(?!(?:pack|packs|packet|packets|unit|units|pk|pc|pcs|piece|pieces)\\b)\\w)",
+        RegexOption.IGNORE_CASE
+    )
+    // A trailing purchase count is part of this item, never a new grocery line.
+    // Keep "6 pack juice" and "tissues 2 packs" descriptors unchanged: those
+    // can name one SKU. Explicit packets/units describe purchase counts.
+    private val trailingPackCountRegex = Regex(
+        "^(.+?)\\s+([1-9]\\d?)\\s*(?:packets?|units?)\\s*$",
         RegexOption.IGNORE_CASE
     )
     private val noOpRegex = Regex("^(?:i\\s+want\\s+)?(?:nothing|none|no\\s+items?)$", RegexOption.IGNORE_CASE)
@@ -195,7 +202,7 @@ object InstructionParser {
             .forEach { spokenNormalized ->
                 val segment = spokenNormalized.text
                 val quantitySignal = spokenNormalized.quantitySignal
-                val normalizedSegment = normalizeTrailingMeasure(segment)
+                val normalizedSegment = normalizeTrailingMeasure(normalizeTrailingPackCount(segment))
                 val (withoutQuantity, quantity) = extractQuantityPrefix(normalizedSegment)
                 val (withoutModifiers, avoidPhrases) = extractPreferenceModifiers(withoutQuantity)
                 val cleaned = cleanSegment(
@@ -289,6 +296,11 @@ object InstructionParser {
         val amount = match.groupValues[2]
         val unit = match.groupValues[3]
         return "$amount $unit $product"
+    }
+
+    private fun normalizeTrailingPackCount(segment: String): String {
+        val match = trailingPackCountRegex.matchEntire(segment.trim()) ?: return segment
+        return "${match.groupValues[2]} ${match.groupValues[1].trim()}"
     }
 
     private fun normalizeFractionalMeasures(segment: String): String {
@@ -465,7 +477,9 @@ object InstructionParser {
         }
         val match = leadingCountRegex.find(normalized) ?: return segment to Quantity.Default
         val count = match.groupValues[1].toIntOrNull() ?: return segment to Quantity.Default
-        if (count <= 0 || count > 20) return segment to Quantity.Default
+        // Preserve the requested number. Provider-specific validation rejects
+        // counts above its limit; never silently turn 21 packets into one.
+        if (count <= 0) return segment to Quantity.Default
         return match.groupValues[2].trim() to Quantity.Count(count)
     }
 
