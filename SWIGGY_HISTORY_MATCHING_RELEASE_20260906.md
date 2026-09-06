@@ -2,9 +2,9 @@
 
 ## Current verdict
 
-History-first matching is implemented and the hosted backend is deployed. Play
-draft upload and GitHub Android readback are recorded below when complete; this
-is not a claim of public rollout or completed-order acceptance. No provider cart,
+History-first matching is implemented, the hosted backend is deployed, both
+GitHub main branches are updated, and signed Play version 20 is saved as a draft.
+This is not a claim of public rollout or completed-order acceptance. No provider cart,
 checkout, payment or order mutation was attempted during this matching pass.
 
 ## Verified build and test evidence
@@ -43,7 +43,7 @@ checkout, payment or order mutation was attempted during this matching pass.
   Codex rejected splitting every ampersand because that weakens the ingredient
   word safeguard. Claude did not execute the tests; the results above are Codex's.
 - 12 final-build real UI screenshots were refreshed across 3 form factors and the listing was accurate.
-- Play draft upload readback is pending; reusable Swiggy reviewer access is still
+- Play draft upload readback passed; reusable Swiggy reviewer access is still
   required for promotion. Four static offline demo screens are not full access.
 - No cart writes, payment steps, or order confirmations occurred.
 
@@ -84,3 +84,21 @@ results do not establish native-Swiggy cart persistence or live UPI/order succes
 Unavailable products remain unavailable; no different chocolate was approved.
 Future purchase validation requires fresh exact basket/address/total/method
 confirmation. Never automatically retry an uncertain mutation.
+
+## Final release readback — September 6, 2026
+
+- Android implementation commit `b3e5c13` pushed non-force to public `main` and
+  legacy `master`; the remote default branch was independently verified as main.
+- Backend `3613430a083b88dc095fa63db15179a0795414df` pushed non-force to private main.
+- Publisher edit `06366122968290908142` validated and committed successfully.
+  A separate fresh readback edit `05173779115538911483` was deleted after checks.
+- Fresh Play truth: beta has version 20 / 0.3.3 **draft** and version 17
+  **completed**. Production/alpha have no releases; internal retains draft 3.
+  Uploading version 20 did not make it available to testers or replace version 17.
+- Play's version-20 bundle SHA256 exactly matches the signed local AAB above.
+  Both en-US/en-GB descriptions exactly match repository listing files. Each
+  locale has four screenshots in each of the three device groups, with ordered
+  SHA256 values matching all local final-build files. Feature-graphic hashes match.
+- Remaining gates: reusable full Swiggy reviewer access before Play promotion;
+  a fresh approved purchase before any live order/payment acceptance claim.
+  Neither unavailable stock nor these external gates is marked resolved.

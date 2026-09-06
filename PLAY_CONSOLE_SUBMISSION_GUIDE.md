@@ -4,7 +4,7 @@ Target release: `0.3.3` / version code `20`, package
 `live.betaapp.android`, open-testing track `beta`.
 
 Current status: the history-first, enabled Swiggy checkout candidate is the
-release target. Version 20 is being prepared as a draft, not a public rollout.
+release target. Version 20 is saved as a draft, not a public rollout.
 Reusable full Swiggy reviewer access is required before promotion; the four
 static offline demo screens do not satisfy signed-in app access. See
 `SWIGGY_HISTORY_MATCHING_RELEASE_20260906.md` for the latest verified readback.
