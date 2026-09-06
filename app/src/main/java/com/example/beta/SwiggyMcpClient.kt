@@ -278,7 +278,8 @@ object SwiggyMcpClient {
     data class ApplyResult(
         val verified: Boolean,
         val message: String? = null,
-        val reconnectRequired: Boolean = false
+        val reconnectRequired: Boolean = false,
+        val persistenceVerified: Boolean = false,
     )
 
     fun fetchCapabilities(context: Context, callback: SwiggyCallback<Capabilities>) {
@@ -443,6 +444,7 @@ object SwiggyMcpClient {
     ) {
         val body = JSONObject()
             .put("confirmationToken", confirmationToken)
+            .put("persistenceCheck", true)
             .toString()
         executeJsonRequest(
             context = context,
@@ -450,7 +452,22 @@ object SwiggyMcpClient {
             path = "/swiggy/cart/apply",
             body = body,
             callback = callback,
-            parser = ::parseApplyResult
+            parser = ::parseApplyResult,
+            timeoutSeconds = 120L,
+        )
+    }
+
+    fun checkCartPlan(context: Context, confirmationToken: String, callback: SwiggyCallback<Boolean>) {
+        executeJsonRequest(
+            context = context,
+            method = "POST",
+            path = "/swiggy/cart/check",
+            body = JSONObject().put("confirmationToken", confirmationToken).toString(),
+            callback = callback,
+            parser = { body ->
+                val root = parseRoot(body) as? JsonValue.Obj
+                root?.members?.get("verified") == JsonValue.Bool(true)
+            },
         )
     }
 
@@ -601,7 +618,8 @@ object SwiggyMcpClient {
         return ApplyResult(
             verified = isTruthy(root, "verified", "applied", "success", "cartVerified", "cart_verified"),
             message = firstString(root, "message", "statusMessage", "status_message"),
-            reconnectRequired = containsReconnectRequired(root)
+            reconnectRequired = containsReconnectRequired(root),
+            persistenceVerified = (root as? JsonValue.Obj)?.members?.get("persistenceVerified") == JsonValue.Bool(true),
         )
     }
 
@@ -761,6 +779,8 @@ object SwiggyMcpClient {
             reason == "cart_update_in_progress" -> "Another Swiggy cart update is still finishing. Please wait a moment, then repeat the voice order."
             reason == "cart_update_outcome_unknown" -> "Swiggy may have changed the cart, but Beta could not verify it. Please open Swiggy and review the cart before trying again."
             reason == "cart_update_not_verified" -> "Swiggy did not match the reviewed cart change. Please open Swiggy and review the cart before trying again."
+            reason == "cart_changed_after_update" -> "The cart changed after Beta's update. Please review your Swiggy cart. Beta will not add anything again automatically."
+            reason == "cart_persistence_unknown" -> "Beta could not finish the later cart check. Please review your Swiggy cart. Beta will not repeat the update."
             reason == "cart_address_unverified" -> "Beta could not verify the current Swiggy delivery address for this cart. Please reopen Swiggy and choose the right address again."
             reason == "cart_address_mismatch" -> "Swiggy's current cart address does not match the selected delivery address. Please choose the right address again."
             reason == "cart_schema_unrecognized" -> "Beta could not safely read this Swiggy cart. Nothing was changed."

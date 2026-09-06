@@ -82,16 +82,20 @@ or make a payment.
 9. Review/cancel: generate a long cart plan, inspect all rows, cancel and prove
    the server cart did not change.
 10. Controlled mutation: after the plan is verified, apply one small confirmed
-    cart plan, read the cart back and remove only the test-added items. Stop if
-    the pre-existing cart cannot be distinguished safely.
+    cart plan, read the cart back and remove only the test-added items. If the
+    cart update cannot be verified after the follow-up wait, stop and inspect
+    Swiggy instead of retrying. Stop if the pre-existing cart cannot be
+    distinguished safely. Do not continue to checkout.
 11. Session expiry: force or observe a 401 and confirm the app requests Swiggy
     reconnection instead of silently falling back to screen automation.
 12. Feedback: exercise success, D1 and D5 prompts; submit one worked and one
     issue response, with diagnostic logs included only by explicit choice.
 13. Analytics: with consent off, confirm no Analytics/Crashlytics upload. With
-    consent on, confirm allowlisted first-open, activation, connection,
-    discovery, verified-cart, feedback and retention events contain no grocery,
-    product, address, cart, GPS or identity text.
+    consent on, confirm only coarse install-level timing, completion and
+    reliability signals are recorded, with no grocery, product, address, cart,
+    GPS or identity text. If Google Ads conversion measurement is enabled in
+    the account, only these same coarse events should be linkable; no shopping
+    payload should be present.
 
 Use Espresso for Beta UI, UI Automator only for Android/Swiggy UI that cannot be
 controlled in-app, and ADB for installation and logs. Never include user-private

@@ -11,7 +11,9 @@ Do not upload until all of these pass against the final commit:
 - Android `testDebugUnitTest`, `assembleDebug`,
   `assembleDebugAndroidTest`, `lintRelease` and signed `bundleRelease`.
 - Physical-phone Swiggy connection, voice/text, saved-address, recent-order,
-  long-list, review/cancel and one controlled verified-cart test.
+  long-list, review/cancel and one controlled verified-cart test. If a cart
+  update cannot be confirmed, Beta should ask the reviewer to inspect Swiggy
+  and stop there; it must not retry automatically or proceed to checkout.
 - Release merged-manifest/AAB inspection proving the absence of overlay,
   media-projection, AccessibilityService, Blinkit and Zepto declarations.
 - Firebase consent-off and consent-on event checks with no grocery, product,
@@ -26,7 +28,11 @@ testing or review.
 Use the checked-in `en-US` and `en-GB` listings under
 `play_store_assets/listing/`. Both describe Swiggy-only voice/text cart building,
 optional on-device address ranking, explicit cart confirmation, the checkout
-boundary and default-off analytics.
+boundary, default-off analytics and, when the Google account setup is enabled,
+coarse Google Ads conversion measurement from the same privacy-safe events.
+Keep the public copy plain: Beta may take about a minute to verify a cart
+update, and if it cannot safely distinguish the result from the existing cart
+it asks the user to inspect Swiggy instead of retrying.
 
 - Keep `app_icon_512.png`.
 - Upload `feature_graphic_1024x500.png` only after confirming it contains no
@@ -100,10 +106,10 @@ Normally mark these `No` unless the implementation changes:
 - Messages: Beta does not read SMS or email.
 - Audio files: Beta receives recognised text but does not upload/store raw audio.
 
-For advertising purpose, disclose only pseudonymous consented product events
-used for Google Ads conversion measurement. Grocery requests, item/product
-names, carts, addresses, Swiggy purchase details, feedback and raw GPS are not
-sent to Firebase Analytics or Google Ads.
+For advertising purpose, if the form asks, disclose only coarse consented
+measurement and keep it separate from shopping data. Grocery requests,
+item/product names, carts, addresses, Swiggy purchase details, feedback and
+raw GPS are not sent to Firebase Analytics or Google Ads.
 
 Do not hand-author a Data Safety API CSV from memory. Export the current Play
 template/form first, map these answers to the current schema, review it, then

@@ -9,14 +9,14 @@
   <main style="max-width:860px;margin:0 auto;padding:32px 20px 48px;">
     <article style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:28px;">
       <h1 style="margin:0 0 8px;font-size:30px;line-height:1.2;color:#111827;">Beta Privacy Policy</h1>
-      <p style="margin:0 0 20px;color:#6b7280;"><strong>Last updated:</strong> August 17, 2026</p>
+      <p style="margin:0 0 20px;color:#6b7280;"><strong>Last updated:</strong> September 5, 2026</p>
 
       <p>Beta is a cart-only assistant for Swiggy Instamart. It helps you find products, review proposed cart changes and add only the items you confirm. Beta always stops before checkout and payment.</p>
 
       <h2>Information Beta processes</h2>
       <ul>
         <li>Grocery requests you type or dictate.</li>
-        <li>A pseudonymous Beta installation identifier used to maintain your connection and protect one-time cart confirmations.</li>
+        <li>A pseudonymous Beta installation identifier used to maintain your connection, verify cart updates and protect one-time confirmations.</li>
         <li>An encrypted Swiggy connection token, saved address details, recent Instamart purchase history, address-specific product results and availability, proposed selections, current cart contents and the saved address you confirm.</li>
         <li>Basic app and device information needed for security, reliability and support.</li>
         <li>Feedback text and diagnostic logs only when you choose to submit them.</li>
@@ -28,21 +28,21 @@
       <p>Location permission is optional. If granted, your phone reverse-geocodes the current device location and uses the result only to rank nearby saved Swiggy addresses. Raw GPS coordinates stay on the phone and are not sent to Beta's backend or analytics. You always choose and confirm the delivery address.</p>
 
       <h2>Optional analytics and crash reporting</h2>
-      <p>Google Analytics for Firebase and Firebase Crashlytics are off by default. If you opt in, Beta records pseudonymous product events such as first open, app open, Swiggy connection, activation, address confirmation, product discovery, verified cart updates, feedback prompts and D1/D5/D7/D28 retention milestones. Firebase may process an app-instance identifier, device/app information and an approximate location derived from the network connection.</p>
-      <p>These events are used to improve Beta, diagnose reliability and measure which Google Ads campaigns lead to activation or a verified cart. Grocery requests, product names, cart contents, saved addresses, Swiggy order details, feedback text and raw GPS are never sent to Firebase Analytics or Google Ads. Android Advertising ID collection and personalised ads are disabled. You can change analytics consent at any time in Beta Settings.</p>
+      <p>Google Analytics for Firebase and Firebase Crashlytics are off by default. If you opt in, Beta records pseudonymous usage timing and reliability signals so we can understand whether people can connect, verify a cart, complete feedback and return to the app. Those same coarse events may also be linked to Google Ads conversion measurement when the Play/Google account setup is enabled. Firebase may process an app-instance identifier, device/app information and an approximate location derived from the network connection.</p>
+      <p>These signals are used to improve Beta, diagnose reliability and measure campaign performance at a coarse level only. They are limited to counts, timing, completion states and verified-cart / return events; they do not include grocery requests, product names, cart contents, saved addresses, Swiggy order details, feedback text, raw GPS or other shopping payloads. Android Advertising ID collection and personalised ads are disabled. You can change analytics consent at any time in Beta Settings.</p>
 
       <h2>Why information is used</h2>
       <ul>
         <li>To keep your Swiggy connection working securely.</li>
         <li>To show and rank saved addresses while keeping the final choice with you.</li>
         <li>To search the live catalogue for the confirmed address and rank relevant available products using recent choices.</li>
-        <li>To show an exact cart plan, make only the changes you confirm and verify the resulting cart.</li>
+        <li>To show an exact cart plan, make only the changes you confirm and verify the resulting cart after a short delay.</li>
         <li>To provide support, investigate failures and improve reliability.</li>
-        <li>If you opt in, to understand activation, retention and campaign performance.</li>
+        <li>If you opt in, to understand app reliability and return visits.</li>
       </ul>
 
       <h2>Sharing and storage</h2>
-      <p>Beta sends the information needed for the cart flow to its backend on Google Cloud and to Swiggy's authorised MCP service. Swiggy connection tokens are encrypted at rest. Google processes opted-in analytics and crash data as a service provider; selected pseudonymous conversion events may be linked to Google Ads for campaign measurement. Beta does not sell personal data.</p>
+      <p>Beta sends the information needed for the cart flow to its backend on Google Cloud and to Swiggy's authorised MCP service. Swiggy connection tokens are encrypted at rest. Beta also keeps a small one-byte pending marker locally when a cart update still needs verification; it contains no cart contents, credentials or other shopping data. Google processes opted-in analytics and crash data as a service provider, and the data is limited to coarse timing, counts, reliability states and, when enabled, coarse Google Ads conversion measurement. Beta does not sell personal data.</p>
 
       <h2>Older test versions</h2>
       <p>Versions distributed before 0.3.0 may have offered Blinkit and a screen-assisted mode. During a user-started flow, those older versions could use Android screen capture and AccessibilityService to process visible grocery app text, product information, cart contents, buttons and visible delivery details. The 0.3.0 Swiggy-only app does not request screen capture, overlay or AccessibilityService access. This section will remain while an older test bundle is still distributed through any Google Play track.</p>

@@ -251,7 +251,14 @@ internal fun swiggyRequestedCartQuantity(
 /** Exact, divisible measures only. An unknown or mixed multipack is not guessed. */
 internal fun swiggyMeasuredPackQuantity(item: ParsedItem, candidate: RecommendationCandidate): Int? {
     val text = listOfNotNull(candidate.label, candidate.variant, candidate.subtitle).joinToString(" ")
-    if (Regex("\\b\\d+\\s*[x×]|\\bpack\\s+of\\s+[2-9]\\d*\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)) return null
+    val trueMultipackPrefix = Regex("\\b\\d+(?:\\.\\d+)?\\s*[x×]\\s*(?=\\d)", RegexOption.IGNORE_CASE)
+    val trueMultipackSuffix = Regex(
+        "\\b\\d+(?:\\.\\d+)?\\s*(?:kg|kgs|g|gm|gms|grams?|ml|l|ltr|litres?|liters?)\\s*[x×]\\s*\\d+\\b",
+        RegexOption.IGNORE_CASE,
+    )
+    if (trueMultipackPrefix.containsMatchIn(text) || trueMultipackSuffix.containsMatchIn(text) ||
+        Regex("\\bpack\\s+of\\s+(?:[2-9]|[1-9]\\d+)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
+    ) return null
     val measureRegex = Regex("\\b(\\d+(?:\\.\\d+)?)\\s*(kg|kgs|g|gm|gms|grams?|ml|l|ltr|litres?|liters?)\\b", RegexOption.IGNORE_CASE)
     val weight = item.quantity is Quantity.Weight
     val packSizes = measureRegex.findAll(text).mapNotNull { match ->
@@ -352,6 +359,7 @@ class SwiggyVoiceOrderCoordinator(
     private var running = false
     private var operationGeneration = 0L
     private var mutationInFlight = false
+    private val pendingCartStore = SwiggyPendingCartStore(activity.applicationContext)
     private val stepDialog = SwiggyOrderStepDialog(activity)
     private val addressIntelligence = SwiggyAddressIntelligence(activity.applicationContext)
     private var addressSuggestionReasons: Map<String, String> = emptyMap()
@@ -369,6 +377,7 @@ class SwiggyVoiceOrderCoordinator(
     }
 
     fun start(instruction: String) {
+        if (restorePendingCartWarning()) return
         if (SwiggyCartMutationGuard.isInFlight()) {
             announce("Swiggy is still checking the last confirmed cart update. Please wait.")
             notifyTerminal()
@@ -428,6 +437,33 @@ class SwiggyVoiceOrderCoordinator(
     }
 
     fun isMutationInFlight(): Boolean = mutationInFlight
+
+    fun restorePendingCartWarning(): Boolean {
+        if (running || SwiggyCartMutationGuard.isInFlight() || !pendingCartStore.isPending()) return false
+        val warning = "Beta could not finish checking your last cart update. Please review your Swiggy cart. Nothing will be added again automatically."
+        stepDialog.show(SwiggyStepScreen(
+            eyebrow = "Review needed",
+            title = "Check your last cart update",
+            message = warning,
+            caption = warning,
+            safetyNote = activity.getString(R.string.swiggy_step_no_checkout),
+            primary = SwiggyStepAction("Open Swiggy to review") {
+                CommerceAppLauncher.launchPreferred(activity, "open swiggy")
+                stepDialog.dismiss()
+            },
+            secondary = SwiggyStepAction("I have reviewed the cart") {
+                if (pendingCartStore.clear()) {
+                    stepDialog.dismiss()
+                    announce("You can now start a new list. Beta has not changed the cart.")
+                    notifyTerminal()
+                } else announce("Beta could not save that confirmation. Please try again.")
+            },
+            cancel = { stepDialog.dismiss() },
+        ))
+        announce(warning)
+        notifyTerminal()
+        return true
+    }
 
     private fun rankAndChooseAddress(
         operationId: Long,
@@ -983,25 +1019,30 @@ class SwiggyVoiceOrderCoordinator(
         selected: List<RequestedItem>,
     ) {
         if (!isCurrent(operationId) || mutationInFlight) return
+        if (!pendingCartStore.markPending()) {
+            finish(operationId, "Beta could not safely save the cart-check state. Nothing was added. Please try again.")
+            return
+        }
         if (!beforeApply()) {
+            pendingCartStore.clear()
             finish(operationId, "Beta could not safely save the change of state on this phone. Nothing was added. Please try your list again.")
             return
         }
         BetaTelemetry.instance?.logEvent("cart_apply_started", mapOf("item_count" to selected.size))
         setMutationInFlight(true)
-        val caption = "Updating your Swiggy cart once, then checking it."
+        val caption = "Updating your Swiggy cart once, then checking that the changes stay. This takes about a minute."
         stepDialog.show(
             SwiggyStepScreen(
                 eyebrow = "Applying once · Do not close",
                 title = "Updating your cart once, then checking it",
-                message = "Beta sends one confirmed update, then reads the cart back to be sure it matches what you just approved.",
+                message = "Beta sends one confirmed update, checks every line, then checks again after 45 seconds before showing success.",
                 caption = caption,
                 rows = listOf(
                     SwiggyStepRow(
                         title = "Update sent",
                         detail = "Reading all ${selected.size} requested cart lines back now",
                         badge = "Checking...",
-                        tone = SwiggyStepTone.SUCCESS,
+                        tone = SwiggyStepTone.AMBER,
                     )
                 ),
                 safetyNote = "Please stay here for a moment. Changing the app or address now would leave the result unverified.",
@@ -1013,8 +1054,8 @@ class SwiggyVoiceOrderCoordinator(
             onUi(operationId) {
                 when (result) {
                     is SwiggyMcpResult.Success -> {
-                        if (result.value.verified) {
-                            showVerifiedResult(operationId, address, selected, result.value.message)
+                        if (result.value.verified && result.value.persistenceVerified && pendingCartStore.clear()) {
+                            showVerifiedResult(operationId, address, selected, result.value.message, token)
                         } else {
                             BetaTelemetry.instance?.logEvent(
                                 "cart_update_failed",
@@ -1187,6 +1228,7 @@ class SwiggyVoiceOrderCoordinator(
         address: SwiggyAddress,
         selected: List<RequestedItem>,
         providerMessage: String?,
+        confirmationToken: String,
     ) {
         if (!isCurrent(operationId)) return
         val providerNote = swiggyProviderAddedMessage(providerMessage)
@@ -1229,8 +1271,27 @@ class SwiggyVoiceOrderCoordinator(
                 },
                 safetyNote = activity.getString(R.string.swiggy_step_no_checkout),
                 primary = SwiggyStepAction("Open Swiggy to review") {
-                    CommerceAppLauncher.launchPreferred(activity, "open swiggy")
-                    stepDialog.dismiss()
+                    // Another client may have changed the cart since the delayed
+                    // check. Recheck read-only immediately before this handoff.
+                    running = true
+                    setMutationInFlight(true)
+                    announce("Checking your cart once more before opening Swiggy.")
+                    SwiggyMcpClient.checkCartPlan(activity, confirmationToken) { result ->
+                        onUi(operationId) {
+                            if (result is SwiggyMcpResult.Success && result.value) {
+                                if (!CommerceAppLauncher.launchPreferred(activity).launched) {
+                                    finish(operationId, "Beta could not open Swiggy. Please open it and review your cart. Beta has not repeated the update.")
+                                    return@onUi
+                                }
+                                running = false
+                                setMutationInFlight(false)
+                                stepDialog.dismiss()
+                                notifyTerminal()
+                            } else {
+                                finish(operationId, "The cart may have changed since Beta checked it. Please review the current Swiggy cart. Beta will not add anything again.")
+                            }
+                        }
+                    }
                 },
                 secondary = SwiggyStepAction("Done") { stepDialog.dismiss() },
                 cancel = { stepDialog.dismiss() },

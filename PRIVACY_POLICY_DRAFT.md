@@ -1,6 +1,6 @@
 # Beta Privacy Policy
 
-**Last updated: August 17, 2026**
+**Last updated: September 5, 2026**
 
 Beta is a cart-only assistant for Swiggy Instamart. It helps you find products,
 review proposed cart changes and add only the items you confirm. Beta always
@@ -9,8 +9,8 @@ stops before checkout and payment.
 ## Information Beta processes
 
 - Grocery requests you type or dictate.
-- A pseudonymous Beta installation identifier used to maintain your connection
-  and protect one-time cart confirmations.
+- A pseudonymous Beta installation identifier used to maintain your connection,
+  verify cart updates and protect one-time confirmations.
 - An encrypted Swiggy connection token, saved address details, recent Instamart
   purchase history, address-specific product results and availability, proposed
   selections, current cart contents and the saved address you confirm.
@@ -34,18 +34,20 @@ backend or analytics. You always choose and confirm the delivery address.
 ## Optional analytics and crash reporting
 
 Google Analytics for Firebase and Firebase Crashlytics are off by default. If
-you opt in, Beta records pseudonymous product events such as first open, app
-open, Swiggy connection, activation, address confirmation, product discovery,
-verified cart updates, feedback prompts and D1/D5/D7/D28 retention milestones.
+you opt in, Beta records pseudonymous usage timing and reliability signals so
+we can understand whether people can connect, verify a cart, complete feedback
+and return to the app. Those same coarse events may also be linked to Google
+Ads conversion measurement when the Play/Google account setup is enabled.
 Firebase may process an app-instance identifier, device/app information and an
 approximate location derived from the network connection.
 
-These events are used to improve Beta, diagnose reliability and measure which
-Google Ads campaigns lead to activation or a verified cart. Grocery requests,
+These signals are used to improve Beta, diagnose reliability and measure
+campaign performance at a coarse level only. They are limited to counts,
+timing, completion states and verified-cart / return events; grocery requests,
 product names, cart contents, saved addresses, Swiggy order details, feedback
-text and raw GPS are never sent to Firebase Analytics or Google Ads. Android
-Advertising ID collection and personalised ads are disabled. You can change
-analytics consent at any time in Beta Settings.
+text, raw GPS and other shopping payloads are never sent to Firebase Analytics
+or Google Ads. Android Advertising ID collection and personalised ads are
+disabled. You can change analytics consent at any time in Beta Settings.
 
 ## Why information is used
 
@@ -54,17 +56,20 @@ analytics consent at any time in Beta Settings.
 - To search the live catalogue for the confirmed address and rank relevant
   available products using recent choices.
 - To show an exact cart plan, make only the changes you confirm and verify the
-  resulting cart.
+  resulting cart after a short delay.
 - To provide support, investigate failures and improve reliability.
-- If you opt in, to understand activation, retention and campaign performance.
+- If you opt in, to understand app reliability and return visits.
 
 ## Sharing and storage
 
 Beta sends the information needed for the cart flow to its backend on Google
 Cloud and to Swiggy's authorised MCP service. Swiggy connection tokens are
-encrypted at rest. Google processes opted-in analytics and crash data as a
-service provider; selected pseudonymous conversion events may be linked to
-Google Ads for campaign measurement. Beta does not sell personal data.
+encrypted at rest. Beta also keeps a small one-byte pending marker locally
+when a cart update still needs verification; it contains no cart contents,
+credentials or other shopping data. Google processes opted-in analytics and
+crash data as a service provider, and the data is limited to coarse timing,
+counts, reliability states and, when enabled, coarse Google Ads conversion
+measurement. Beta does not sell personal data.
 
 ## Older test versions
 

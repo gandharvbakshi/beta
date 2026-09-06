@@ -71,6 +71,22 @@ class SwiggyElderlyCartSafetyTest {
     }
 
     @Test
+    fun measuredPackQuantity_accepts_branding_prefixes_but_rejects_true_multipacks() {
+        val litreCleaner = ParsedItem(rawText = "1l cleaner", query = "cleaner", quantity = Quantity.Volume(1000))
+
+        assertEquals(1, swiggyMeasuredPackQuantity(litreCleaner, candidate("Harpic 10X Advanced 1 L")))
+        assertEquals(2, swiggyMeasuredPackQuantity(litreCleaner, candidate("Harpic 10X Advanced 500 ml")))
+        assertEquals(1, swiggyMeasuredPackQuantity(litreCleaner, candidate("Harpic Original Toilet Cleaner, 5 Min Action, 10X Advanced, Disinfectant · 1 ltr")))
+        // Without a separating descriptor, 10X 1L could mean ten bottles.
+        assertNull(swiggyMeasuredPackQuantity(litreCleaner, candidate("Harpic 10X 1L")))
+        assertNull(swiggyMeasuredPackQuantity(litreCleaner, candidate("Harpic 2x500 ml")))
+        assertNull(swiggyMeasuredPackQuantity(litreCleaner, candidate("Harpic 1 Lx2")))
+        assertNull(swiggyMeasuredPackQuantity(litreCleaner, candidate("Harpic pack of 2 1 L")))
+        assertNull(swiggyMeasuredPackQuantity(litreCleaner, candidate("Harpic pack of 10 1 L")))
+        assertNull(swiggyMeasuredPackQuantity(litreCleaner, candidate("Harpic 500 ml combo 1 L")))
+    }
+
+    @Test
     fun count_quantity_stays_unchanged_when_candidate_has_weight_label() {
         val item = ParsedItem(rawText = "2 milk", query = "milk", quantity = Quantity.Count(2))
         val candidate = candidate("Milk · 500 ml")

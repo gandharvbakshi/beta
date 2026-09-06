@@ -34,13 +34,18 @@ fun ParsedItem.backendInputText(): String {
 }
 
 object InstructionParser {
-    const val PARSER_VERSION = "2026.09.05.1"
+    const val PARSER_VERSION = "2026.09.05.2"
 
     private val leadingCommandRegex = Regex(
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
         RegexOption.IGNORE_CASE
     )
     private val primarySplitterRegex = Regex("\\s*(?:[,;\\r\\n]+)\\s*")
+    // The numeral belongs to this product name, not an extra two-pack request.
+    private val maggiMinuteDescriptorRegex = Regex(
+        "\\bmaggi\\s+(?:2|two)[\\s-]+minutes?\\b",
+        RegexOption.IGNORE_CASE
+    )
     private val secondarySplitterRegex = Regex(
         "\\s*(?:\\s+&\\s+|\\s+and\\s+|\\s+plus\\s+|\\s+और\\s+|\\s+ಮತ್ತು\\s+|\\s+ಹಾಗೂ\\s+)\\s*",
         RegexOption.IGNORE_CASE
@@ -181,7 +186,8 @@ object InstructionParser {
                     .replace(Regex("\\bone\\s+plus\\b", RegexOption.IGNORE_CASE), "oneplus"))
             }
             .flatMap { segment ->
-                val spoken = normalizeSpokenQuantitySegment(stripLeadingCommands(segment))
+                val productSegment = segment.replace(maggiMinuteDescriptorRegex, "maggi 2-minute")
+                val spoken = normalizeSpokenQuantitySegment(stripLeadingCommands(productSegment))
                 val splitSegment = normalizeTrailingMeasure(spoken.text).replace(quantityBoundaryRegex, ",")
                 primarySplitterRegex.split(splitSegment).map { spoken.copy(text = it) }
             }

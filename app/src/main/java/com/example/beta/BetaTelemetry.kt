@@ -18,33 +18,35 @@ class BetaTelemetry(
         if (!preferences.contains(KEY_FIRST_OPEN_AT_MS)) {
             preferences.edit().putLong(KEY_FIRST_OPEN_AT_MS, System.currentTimeMillis()).apply()
         }
+        if (!consentManager.isAnalyticsAllowed()) {
+            maybeMarkConsentDeferred()
+        }
         if (consentManager.isAnalyticsAllowed()) configureProperties()
     }
 
     fun onAppResume(nowMs: Long = System.currentTimeMillis()) {
+        maybeMarkConsentDeferred()
         if (!consentManager.isAnalyticsAllowed()) return
         configureProperties()
         maybeLogFirstOpen(nowMs)
-        maybeLogPreviouslyCompletedActivation()
+        maybeLogPreviouslyCompletedActivation(nowMs)
 
         val lastOpenAt = preferences.getLong(KEY_LAST_APP_OPEN_AT_MS, 0L)
         if (nowMs - lastOpenAt >= APP_OPEN_DEBOUNCE_MS) {
-            logEvent("app_open")
-            preferences.edit().putLong(KEY_LAST_APP_OPEN_AT_MS, nowMs).apply()
+            if (logEvent("app_open")) preferences.edit().putLong(KEY_LAST_APP_OPEN_AT_MS, nowMs).apply()
         }
 
         val utcDay = Instant.ofEpochMilli(nowMs).atZone(ZoneOffset.UTC).toLocalDate().toString()
         if (preferences.getString(KEY_LAST_DAILY_ACTIVE_DAY, null) != utcDay) {
-            logEvent("daily_active")
-            preferences.edit().putString(KEY_LAST_DAILY_ACTIVE_DAY, utcDay).apply()
+            if (logEvent("daily_active")) preferences.edit().putString(KEY_LAST_DAILY_ACTIVE_DAY, utcDay).apply()
         }
         maybeLogRetention(nowMs)
     }
 
-    fun logEvent(name: String, params: Map<String, Any?> = emptyMap()) {
-        if (!consentManager.isAnalyticsAllowed()) return
+    fun logEvent(name: String, params: Map<String, Any?> = emptyMap()): Boolean {
+        if (!consentManager.isAnalyticsAllowed()) return false
         val validated = TelemetryPolicy.validated(name, params, BuildConfig.DEBUG)
-        if (!TelemetryPolicy.isEventAllowed(name)) return
+        if (!TelemetryPolicy.isEventAllowed(name)) return false
         val bundle = Bundle()
         validated.forEach { (key, value) ->
             when (value) {
@@ -55,6 +57,7 @@ class BetaTelemetry(
             }
         }
         analytics.logEvent(name, bundle)
+        return true
     }
 
     fun logOrderRequestSubmitted(source: String, instruction: String) {
@@ -81,23 +84,30 @@ class BetaTelemetry(
 
     fun maybeLogOnboardingCompleted() {
         if (preferences.getBoolean(KEY_ONBOARDING_COMPLETED, false)) return
-        logEvent("onboarding_completed")
-        if (consentManager.isAnalyticsAllowed()) {
+        if (logEvent("onboarding_completed")) {
             preferences.edit().putBoolean(KEY_ONBOARDING_COMPLETED, true).apply()
         }
     }
 
     fun logCartUpdateVerified(itemCount: Int) {
-        logEvent("cart_update_verified", mapOf("item_count" to itemCount.coerceAtLeast(0)))
+        val nowMs = System.currentTimeMillis()
+        rememberFirstVerifiedCart(nowMs, itemCount)
+        logEvent(
+            "cart_update_verified",
+            buildCartEventParams(nowMs, itemCount),
+        )
         val activationEventLogged = preferences.getBoolean(KEY_ACTIVATION_EVENT_LOGGED, false)
-        if (!activationEventLogged) {
-            logEvent("activation_completed", mapOf("item_count" to itemCount.coerceAtLeast(0)))
-        }
+        val emitted = if (!activationEventLogged) {
+            logEvent(
+                "activation_completed",
+                buildActivationEventParams(preferences.getLong(KEY_FIRST_VERIFIED_CART_AT_MS, nowMs), nowMs),
+            )
+        } else false
         preferences.edit()
             .putBoolean(KEY_ACTIVATION_COMPLETED, true)
             .putBoolean(
                 KEY_ACTIVATION_EVENT_LOGGED,
-                activationEventLogged || consentManager.isAnalyticsAllowed(),
+                activationEventLogged || emitted,
             )
             .apply()
     }
@@ -130,32 +140,113 @@ class BetaTelemetry(
     private fun maybeLogFirstOpen(nowMs: Long) {
         if (preferences.getBoolean(KEY_FIRST_OPEN_LOGGED, false)) return
         val firstOpenAt = preferences.getLong(KEY_FIRST_OPEN_AT_MS, nowMs)
-        logEvent(
+        val emitted = logEvent(
             "app_first_open",
-            mapOf("days_since_first_open" to RetentionMilestonePolicy.ageDays(firstOpenAt, nowMs)),
+            buildEventContext(firstOpenAt, nowMs) + mapOf(
+                "consent_delayed" to (consentDelayed() || boundedDaysSince(firstOpenAt, nowMs) > 0),
+            ),
         )
         if (!preferences.getBoolean(KEY_ONBOARDING_STARTED, false)) {
-            logEvent("onboarding_started")
-            preferences.edit().putBoolean(KEY_ONBOARDING_STARTED, true).apply()
+            if (logEvent("onboarding_started")) preferences.edit().putBoolean(KEY_ONBOARDING_STARTED, true).apply()
         }
-        preferences.edit().putBoolean(KEY_FIRST_OPEN_LOGGED, true).apply()
+        if (emitted) preferences.edit().putBoolean(KEY_FIRST_OPEN_LOGGED, true).apply()
     }
 
     private fun maybeLogRetention(nowMs: Long) {
         val firstOpenAt = preferences.getLong(KEY_FIRST_OPEN_AT_MS, nowMs)
-        val logged = RETENTION_EVENTS.filterTo(mutableSetOf()) {
-            preferences.getBoolean("logged_$it", false)
+        val logged = versionedRetentionFlags()
+        val due = RetentionMilestonePolicy.dueEventNames(firstOpenAt, nowMs, logged)
+        if (due.isEmpty()) return
+        val params = buildEventContext(firstOpenAt, nowMs)
+        val editor = preferences.edit()
+        due.forEach { eventName ->
+            if (logEvent(eventName, params)) {
+                editor.putBoolean(RetentionMilestonePolicy.retentionFlagKey(eventName), true)
+            }
         }
-        val due = RetentionMilestonePolicy.dueEventName(firstOpenAt, nowMs, logged) ?: return
-        logEvent(due, mapOf("days_since_first_open" to RetentionMilestonePolicy.ageDays(firstOpenAt, nowMs)))
-        preferences.edit().putBoolean("logged_$due", true).apply()
+        editor.apply()
     }
 
-    private fun maybeLogPreviouslyCompletedActivation() {
+    private fun maybeLogPreviouslyCompletedActivation(nowMs: Long) {
         if (!preferences.getBoolean(KEY_ACTIVATION_COMPLETED, false)) return
         if (preferences.getBoolean(KEY_ACTIVATION_EVENT_LOGGED, false)) return
-        logEvent("activation_completed")
-        preferences.edit().putBoolean(KEY_ACTIVATION_EVENT_LOGGED, true).apply()
+        val activationAtMs = preferences.getLong(
+            KEY_FIRST_VERIFIED_CART_AT_MS,
+            nowMs,
+        )
+        if (logEvent("activation_completed", buildActivationEventParams(activationAtMs, nowMs))) {
+            preferences.edit().putBoolean(KEY_ACTIVATION_EVENT_LOGGED, true).apply()
+        }
+    }
+
+    private fun buildEventContext(firstOpenAtMs: Long, referenceMs: Long): Map<String, Any?> {
+        return mapOf(
+            "days_since_first_open" to boundedDaysSince(firstOpenAtMs, referenceMs),
+            "consent_delayed" to consentDelayed(),
+        )
+    }
+
+    private fun buildCartEventParams(nowMs: Long, itemCount: Int): Map<String, Any?> {
+        val firstOpenAt = preferences.getLong(KEY_FIRST_OPEN_AT_MS, nowMs)
+        return buildEventContext(firstOpenAt, nowMs) +
+            mapOf("item_count" to itemCount.coerceAtLeast(0))
+    }
+
+    private fun buildActivationEventParams(activationAtMs: Long, referenceMs: Long): Map<String, Any?> {
+        val activationTimestampKnown = preferences.getBoolean(
+            KEY_FIRST_VERIFIED_CART_TIMESTAMP_KNOWN,
+            preferences.contains(KEY_FIRST_VERIFIED_CART_AT_MS),
+        )
+        val itemCount = preferences.getInt(KEY_FIRST_VERIFIED_CART_ITEM_COUNT, 0)
+        val activationAgeDays = if (activationTimestampKnown) {
+            boundedDaysSince(activationAtMs, referenceMs)
+        } else {
+            0L
+        }
+        return mapOf(
+            "activation_age_days" to activationAgeDays,
+            "activation_timestamp_known" to activationTimestampKnown,
+            "consent_delayed" to consentDelayed(),
+        ) +
+            mapOf("item_count" to itemCount.coerceAtLeast(0))
+    }
+
+    private fun rememberFirstVerifiedCart(nowMs: Long, itemCount: Int) {
+        // An upgrade from the older release cannot reconstruct an earlier activation date.
+        if (preferences.getBoolean(KEY_ACTIVATION_COMPLETED, false)) return
+        if (!preferences.contains(KEY_FIRST_VERIFIED_CART_AT_MS)) {
+            preferences.edit()
+                .putLong(KEY_FIRST_VERIFIED_CART_AT_MS, nowMs)
+                .putInt(KEY_FIRST_VERIFIED_CART_ITEM_COUNT, itemCount.coerceAtLeast(0))
+                .putBoolean(KEY_FIRST_VERIFIED_CART_TIMESTAMP_KNOWN, true)
+                .apply()
+        }
+    }
+
+    private fun maybeMarkConsentDeferred() {
+        if (!consentManager.hasSeenChoice()) return
+        if (consentManager.isAnalyticsAllowed()) return
+        if (preferences.getBoolean(KEY_CONSENT_DEFERRED_BY_DENIAL, false)) return
+        if (!preferences.contains(KEY_FIRST_OPEN_AT_MS)) return
+        preferences.edit().putBoolean(KEY_CONSENT_DEFERRED_BY_DENIAL, true).apply()
+    }
+
+    private fun consentDelayed(): Boolean {
+        return preferences.getBoolean(KEY_CONSENT_DEFERRED_BY_DENIAL, false)
+    }
+
+    private fun versionedRetentionFlags(): Set<String> {
+        return setOf("retention_d1", "retention_d5", "retention_d7", "retention_d28", "retention_w1")
+            .filterTo(mutableSetOf()) { eventName ->
+                preferences.getBoolean(RetentionMilestonePolicy.retentionFlagKey(eventName), false)
+            }
+            .mapTo(mutableSetOf()) { eventName ->
+                RetentionMilestonePolicy.retentionFlagKey(eventName)
+            }
+    }
+
+    private fun boundedDaysSince(firstOpenAtMs: Long, referenceMs: Long): Long {
+        return RetentionMilestonePolicy.ageDays(firstOpenAtMs, referenceMs).coerceAtMost(36_500L)
     }
 
     private fun configureProperties() {
@@ -174,12 +265,15 @@ class BetaTelemetry(
         private const val KEY_FIRST_OPEN_LOGGED = "first_open_logged"
         private const val KEY_LAST_APP_OPEN_AT_MS = "last_app_open_at_ms"
         private const val KEY_LAST_DAILY_ACTIVE_DAY = "last_daily_active_day"
+        private const val KEY_CONSENT_DEFERRED_BY_DENIAL = "consent_deferred_by_denial"
         private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
         private const val KEY_ONBOARDING_STARTED = "onboarding_started"
         private const val KEY_ACTIVATION_COMPLETED = "activation_completed"
         private const val KEY_ACTIVATION_EVENT_LOGGED = "activation_event_logged"
+        private const val KEY_FIRST_VERIFIED_CART_AT_MS = "first_verified_cart_at_ms"
+        private const val KEY_FIRST_VERIFIED_CART_ITEM_COUNT = "first_verified_cart_item_count"
+        private const val KEY_FIRST_VERIFIED_CART_TIMESTAMP_KNOWN = "first_verified_cart_timestamp_known"
         private const val APP_OPEN_DEBOUNCE_MS = 60_000L
-        private val RETENTION_EVENTS = setOf("retention_d1", "retention_d5", "retention_d7", "retention_d28")
     }
 }
 
@@ -217,6 +311,7 @@ internal object TelemetryPolicy {
         "feedback_prompt_shown",
         "feedback_submitted",
         "consent_changed",
+        "retention_w1",
         "retention_d1",
         "retention_d5",
         "retention_d7",
@@ -235,6 +330,9 @@ internal object TelemetryPolicy {
         "change_count",
         "starts_empty",
         "days_since_first_open",
+        "activation_age_days",
+        "activation_timestamp_known",
+        "consent_delayed",
         "selection_reason",
     )
     private val forbiddenText = listOf(
@@ -266,9 +364,9 @@ internal object TelemetryPolicy {
             "saved_address",
         ),
     )
-    private val allowedBooleanKeys = setOf("starts_empty", "value")
+    private val allowedBooleanKeys = setOf("starts_empty", "value", "consent_delayed", "activation_timestamp_known")
     private val allowedCountKeys = setOf("item_count", "change_count")
-    private val allowedDayKeys = setOf("days_since_first_open")
+    private val allowedDayKeys = setOf("days_since_first_open", "activation_age_days")
 
     fun validated(name: String, params: Map<String, Any?>, strict: Boolean): Map<String, Any> {
         val problems = mutableListOf<String>()

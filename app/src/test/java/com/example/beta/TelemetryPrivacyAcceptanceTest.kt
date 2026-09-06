@@ -58,8 +58,11 @@ class TelemetryPrivacyAcceptanceTest {
                 "item_count" to 200,
                 "change_count" to 0L,
                 "days_since_first_open" to 36500L,
+                "activation_age_days" to 42,
                 "starts_empty" to true,
                 "value" to false,
+                "consent_delayed" to true,
+                "activation_timestamp_known" to false,
                 "selection_reason" to 12.34,
                 "outcome" to "success",
             ),
@@ -69,10 +72,18 @@ class TelemetryPrivacyAcceptanceTest {
         assertEquals(200, validated["item_count"])
         assertEquals(0L, validated["change_count"])
         assertEquals(36500L, validated["days_since_first_open"])
+        assertEquals(42, validated["activation_age_days"])
         assertEquals(true, validated["starts_empty"])
         assertEquals(false, validated["value"])
+        assertEquals(true, validated["consent_delayed"])
+        assertEquals(false, validated["activation_timestamp_known"])
         assertFalse("String enum fields must reject numeric payloads", validated.containsKey("selection_reason"))
         assertEquals("success", validated["outcome"])
+    }
+
+    @Test
+    fun retention_week_one_is_an_allowed_analytics_event() {
+        assertTrue(TelemetryPolicy.isEventAllowed("retention_w1"))
     }
 
     @Test

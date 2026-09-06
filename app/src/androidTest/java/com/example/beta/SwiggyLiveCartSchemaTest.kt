@@ -1,7 +1,9 @@
 package com.example.beta
 
+import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.junit.Assert.assertTrue
@@ -25,6 +27,7 @@ class SwiggyLiveCartSchemaTest {
         assumeTrue(arguments.getString("liveSwiggySchema") == "true")
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val snapshotLabel = validateSnapshotLabel(arguments.getString("snapshotLabel"), context)
         val request = Request.Builder()
             .url("${AppConfig.backendBaseUrl}/swiggy/cart")
             .header("x-beta-backend-key", AppConfig.backendApiKey)
@@ -52,10 +55,31 @@ class SwiggyLiveCartSchemaTest {
             context.openFileOutput(OUTPUT_FILE, android.content.Context.MODE_PRIVATE).use { output ->
                 output.write(body.toByteArray(Charsets.UTF_8))
             }
+            snapshotLabel?.let { label ->
+                context.openFileOutput(snapshotFileName(label), Context.MODE_PRIVATE).use { output ->
+                    output.write(receipt.toString().toByteArray(Charsets.UTF_8))
+                }
+            }
         }
     }
 
+    private fun validateSnapshotLabel(rawLabel: String?, context: android.content.Context): String? {
+        val label = rawLabel?.trim().orEmpty()
+        if (label.isBlank()) return null
+        require(label.matches(SNAPSHOT_LABEL_REGEX)) {
+            "snapshotLabel must match ${SNAPSHOT_LABEL_REGEX.pattern}."
+        }
+        val snapshotFile = File(context.filesDir, snapshotFileName(label))
+        check(!snapshotFile.exists()) {
+            "snapshotLabel already exists; refusing to overwrite ${snapshotFile.name}."
+        }
+        return label
+    }
+
+    private fun snapshotFileName(label: String): String = "swiggy-cart-snapshot-$label.json"
+
     private companion object {
         const val OUTPUT_FILE = "swiggy-cart-live-schema.json"
+        val SNAPSHOT_LABEL_REGEX = Regex("[a-z0-9_-]{1,40}")
     }
 }

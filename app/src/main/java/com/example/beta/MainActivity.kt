@@ -202,7 +202,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         BetaTelemetry.instance?.onAppResume()
         refreshSwiggyConnectionStatus(resumePendingOrder = true)
-        maybeShowFeedbackPrompt()
+        if (!swiggyOrderCoordinator.restorePendingCartWarning()) maybeShowFeedbackPrompt()
     }
 
     override fun onNewIntent(intent: Intent) {

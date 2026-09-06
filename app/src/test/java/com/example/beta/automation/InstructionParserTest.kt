@@ -6,7 +6,27 @@ import org.junit.Test
 class InstructionParserTest {
     @Test
     fun parserVersion_tracksLearningContract() {
-        assertEquals("2026.09.05.1", InstructionParser.PARSER_VERSION)
+        assertEquals("2026.09.05.2", InstructionParser.PARSER_VERSION)
+    }
+
+    @Test
+    fun parse_keepsMaggiMinuteDescriptorOutOfQuantities() {
+        for (descriptor in listOf("2 Minute", "2-Minute", "two minute")) {
+            val items = InstructionParser.parse("Tata Crystal Salt 1 kg and MAGGI $descriptor Noodles 280 g")
+            assertEquals(2, items.size)
+            assertEquals(Quantity.Weight(1000), items[0].quantity)
+            assertEquals(Quantity.Weight(280), items[1].quantity)
+            assertEquals("maggi 2 minute noodles", items[1].query)
+        }
+    }
+
+    @Test
+    fun parse_preservesExplicitCountBeforeMaggiMinuteDescriptor() {
+        val items = InstructionParser.parse("2 Maggi 2 Minute noodles and 3 apples")
+        assertEquals(2, items.size)
+        assertEquals("maggi 2 minute noodles", items[0].query)
+        assertEquals(Quantity.Count(2), items[0].quantity)
+        assertEquals(Quantity.Count(3), items[1].quantity)
     }
 
     @Test

@@ -71,7 +71,7 @@
 
     <string name="analytics_settings">Usage analytics settings</string>
     <string name="analytics_consent_title">Help improve Beta?</string>
-    <string name="analytics_consent_message">Beta can share anonymous usage and crash counts, such as how often carts are built, to improve the app. No grocery items, addresses, names, GPS coordinates, OTPs, or Swiggy details are ever included. You can change this anytime in Settings.</string>
+    <string name="analytics_consent_message">Beta can share usage and crash information linked to this copy of the app, such as how often carts are built, to improve reliability. No grocery items, addresses, names, GPS coordinates, OTPs, or Swiggy details are ever included. You can change this anytime in Settings.</string>
     <string name="analytics_consent_allow">Allow</string>
     <string name="analytics_consent_not_now">Not now</string>
     <string name="analytics_consent_turn_off">Turn off</string>
