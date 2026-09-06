@@ -7,6 +7,14 @@ import org.junit.Test
 
 class SwiggyMcpClientTest {
     @Test
+    fun usualProductUnavailableWarningIsParsedWithoutChangingLegacyResponses() {
+        val missing = SwiggyMcpClient.parseRecommendations("""{"candidates":[],"suggested":null,"requiresConfirmation":true,"warnings":["usual_product_unavailable"]}""")
+        assertTrue(missing.usualProductUnavailable)
+        assertTrue(missing.candidates.isEmpty())
+        assertFalse(SwiggyMcpClient.parseRecommendations("""{"candidates":[]}""").usualProductUnavailable)
+    }
+
+    @Test
     fun onlyCartApplyUsesTheNonRetryingMutationTransport() {
         assertTrue(SwiggyMcpClient.isCartMutationPath("/swiggy/cart/apply"))
         assertFalse(SwiggyMcpClient.isCartMutationPath("/swiggy/status"))

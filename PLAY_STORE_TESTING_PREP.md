@@ -1,11 +1,13 @@
 # Beta Play and Live Testing Preparation
 
-Current target: Swiggy-only version `0.3.0` (`versionCode 17`) on the open
-testing track after all release gates pass.
+Current target: Swiggy-only version `0.3.3` (`versionCode 20`), initially a
+draft on the open-testing track. See `SWIGGY_HISTORY_MATCHING_RELEASE_20260906.md`
+for the matching tests and latest release readback.
 
-Current status: the checked-in distributed build remains cart-only. The
-checkout preview is disabled by default and must remain approval-gated until a
-separate release turns it on.
+Current status: the checked-in candidate enables checkout review and payment
+handoff, with an independent backend emergency switch. Build success is not
+proof of Play distribution or a completed transaction. Reusable Swiggy reviewer
+access is still required before promotion; the static demo is not full access.
 
 Enabled checkout candidate summary: once release approval exists, Beta should
 show the full cart, saved address, fees, total and payment method before any
@@ -173,8 +175,9 @@ order contents, addresses, tokens or authentication codes in committed output.
 
 - Package: `live.betaapp.android`
 - Open-testing API track: `beta`
-- Fresh readback on August 17, 2026 showed maximum active version code `16`, so
-  `17` is the next candidate. Read tracks again immediately before upload.
+- Version 20 is the current candidate. Re-read tracks and uploaded bundles
+  immediately before upload; never treat an older snapshot as proof a version
+  remains unused.
 - Upload the signed AAB, assign it to `beta`, commit the edit, then read the
   track and localized listing back through the API.
 - A Play edit commit proves submission, not review approval or availability.

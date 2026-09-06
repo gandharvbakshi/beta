@@ -124,12 +124,23 @@ class SwiggyElderlyCartSafetyTest {
     }
 
     @Test
-    fun default_suggestion_prefers_ordinary_milk_over_historical_flavored_milk() {
+    fun default_suggestion_respects_verified_history_without_category_override() {
         val item = ParsedItem(rawText = "milk", query = "milk")
         val ordinary = candidate("Ordinary Cow Milk")
         val chocolate = candidate("Chocolate Milk 200 ml")
 
-        assertEquals(ordinary, swiggyDefaultSuggestion(item, listOf(chocolate, ordinary), preferred = chocolate))
+        assertEquals(chocolate, swiggyDefaultSuggestion(item, listOf(chocolate, ordinary), preferred = chocolate))
+    }
+
+    @Test
+    fun history_first_default_is_consistent_across_product_categories() {
+        listOf("dark chocolate", "butter", "rice", "soap", "battery", "tea").forEach { query ->
+            val item = ParsedItem(rawText = query, query = query)
+            val usual = candidate("Usual $query")
+            val alternative = candidate("Alternative $query")
+            assertEquals(usual, swiggyDefaultSuggestion(item, listOf(alternative, usual), preferred = usual))
+            assertEquals(alternative, swiggyDefaultSuggestion(item, listOf(alternative), preferred = usual))
+        }
     }
 
     @Test

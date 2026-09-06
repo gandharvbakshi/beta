@@ -34,7 +34,7 @@ fun ParsedItem.backendInputText(): String {
 }
 
 object InstructionParser {
-    const val PARSER_VERSION = "2026.09.06.1"
+    const val PARSER_VERSION = "2026.09.06.2"
 
     private val leadingCommandRegex = Regex(
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
@@ -47,10 +47,10 @@ object InstructionParser {
         RegexOption.IGNORE_CASE
     )
     private val secondarySplitterRegex = Regex(
-        "\\s*(?:\\s+&\\s+|\\s+and\\s+|\\s+plus\\s+|\\s+और\\s+|\\s+ಮತ್ತು\\s+|\\s+ಹಾಗೂ\\s+)\\s*",
+        "\\s*(?:\\s+&\\s+|\\s+and\\s+|\\s+aur\\s+|\\s+plus\\s+|\\s+और\\s+|\\s+ಮತ್ತು\\s+|\\s+ಹಾಗೂ\\s+)\\s*",
         RegexOption.IGNORE_CASE
     )
-    private val noisySplitterRegex = Regex("\\s+(?:&|and|plus|और|ಮತ್ತು|ಹಾಗೂ)\\s+", RegexOption.IGNORE_CASE)
+    private val noisySplitterRegex = Regex("\\s+(?:&|and|aur|plus|और|ಮತ್ತು|ಹಾಗೂ)\\s+", RegexOption.IGNORE_CASE)
     private val leadingNoiseRegex = Regex(
         "^(?:(?:and|then|also|plus|with|some|a|an|the|maybe|perhaps|please|kindly|of|for\\s+me|for|me|\\d+)\\b\\s*)+",
         RegexOption.IGNORE_CASE
@@ -68,11 +68,11 @@ object InstructionParser {
         RegexOption.IGNORE_CASE
     )
     private val trailingPreferenceNoiseRegex = Regex(
-        "(?:\\s+(?:with\\s+my\\s+usual\\s+preference|with\\s+my\\s+usual|my\\s+usual\\s+preference|usual\\s+preference|usual|as\\s*-?is|normally|normal|regular|default))+$",
+        "(?:\\s+(?:with\\s+my\\s+usual\\s+preference|with\\s+my\\s+usual|my\\s+usual\\s+preference|usual\\s+preference|usual|as\\s*-?is|normally|default))+$",
         RegexOption.IGNORE_CASE
     )
     private val negativePreferenceClauseRegex = Regex(
-        "^(.*?)\\s+(?:without|no|not)\\s+(.+)$",
+        "^(.*?)\\s+(?:without|no|not|bina)\\s+(.+)$",
         RegexOption.IGNORE_CASE
     )
     private val avoidPhraseNoiseRegex = Regex(
@@ -93,6 +93,11 @@ object InstructionParser {
     private val leadingMultipackDescriptorRegex = Regex(
         "^[1-9]\\d?\\s*(?:x\\s*)?(?:pack|pk|pc|pcs|piece|pieces)\\b\\s+.+$",
         RegexOption.IGNORE_CASE
+    )
+    private val numericBrandPrefixTokens = listOf(
+        listOf("7", "up"),
+        listOf("5", "star"),
+        listOf("24", "mantra"),
     )
     private val leadingWeightRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(g|gm|gms|gram|grams|kg|kgs)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
     private val leadingVolumeRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(ml|l|ltr|liter|litre|liters|litres)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
@@ -171,10 +176,12 @@ object InstructionParser {
         "ninety",
         "hundred"
     )
-    private val spokenCountConjunctionWords = setOf("and", "plus", "&", "और", "ಮತ್ತು", "ಹಾಗೂ")
+    private val spokenCountConjunctionWords = setOf("and", "aur", "plus", "&", "और", "ಮತ್ತು", "ಹಾಗೂ")
 
     fun parse(input: String): List<ParsedItem> {
         val normalized = input.trim()
+            .replace(Regex("^mujhe\\s+", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s+(?:chahiye|chaahiye|mangao|lao|le\\s+aao)\\s*$", RegexOption.IGNORE_CASE), "")
         if (normalized.isEmpty()) return emptyList()
 
         val withoutPrefix = stripLeadingCommands(normalized)
@@ -195,7 +202,17 @@ object InstructionParser {
             .flatMap { segment ->
                 val productSegment = segment.replace(maggiMinuteDescriptorRegex, "maggi 2-minute")
                 val spoken = normalizeSpokenQuantitySegment(stripLeadingCommands(productSegment))
-                val splitSegment = normalizeTrailingMeasure(spoken.text).replace(quantityBoundaryRegex, ",")
+                val quantityText = normalizeTrailingMeasure(normalizePacketUnitCountSegment(spoken.text))
+                var segmentStart = 0
+                val splitSegment = quantityText.replace(quantityBoundaryRegex) { boundary ->
+                    val rest = quantityText.substring(boundary.range.last + 1)
+                    val prefix = quantityText.substring(segmentStart, boundary.range.first).trim()
+                    val countedPack = Regex("^[1-9]\\d?$").matches(prefix) && isMeasuredDescriptorPrefix(rest)
+                    if (isNumericBrandPrefix(rest) || countedPack) boundary.value else {
+                        segmentStart = boundary.range.last + 1
+                        ","
+                    }
+                }
                 primarySplitterRegex.split(splitSegment).map { spoken.copy(text = it) }
             }
             .filter { it.text.isNotEmpty() }
@@ -207,7 +224,7 @@ object InstructionParser {
                 val (withoutModifiers, avoidPhrases) = extractPreferenceModifiers(withoutQuantity)
                 val cleaned = cleanSegment(
                     withoutModifiers,
-                    preserveLeadingNumber = leadingMultipackDescriptorRegex.matches(withoutModifiers.trim())
+                    preserveLeadingNumber = shouldPreserveLeadingNumber(withoutModifiers)
                 )
                 if (cleaned.isEmpty() || noOpRegex.matches(cleaned.lowercase(Locale.US))) {
                     return@forEach
@@ -222,18 +239,22 @@ object InstructionParser {
                 }
 
                 expanded.forEach { item ->
-                    val query = ProductLexicon.canonicalizeProductText(item).lowercase(Locale.US)
+                    val itemQuantity = if (expanded.size == 1) quantity else Quantity.Default
+                    val exactMeasuredPack = itemQuantity is Quantity.Count && isMeasuredDescriptorPrefix(item)
+                    val productText = if (exactMeasuredPack) normalizeMeasuredPackPrefix(item) else item
+                    val query = ProductLexicon.canonicalizeProductText(productText).lowercase(Locale.US)
                     if (query.isBlank()) {
                         return@forEach
                     }
-                    val itemQuantity = if (expanded.size == 1) quantity else Quantity.Default
+                    val strictMatchPhrase = if (exactMeasuredPack) query else null
                     val candidate = ParsedItem(
                         rawText = item,
                         query = query,
                         quantity = itemQuantity,
                         quantitySignal = quantitySignal,
                         parserConfidence = if (!query.equals(item, ignoreCase = true)) minOf(confidence, 0.85f) else confidence,
-                        avoidPhrases = if (expanded.size == 1) avoidPhrases else emptyList()
+                        avoidPhrases = if (expanded.size == 1) avoidPhrases else emptyList(),
+                        strictMatchPhrase = strictMatchPhrase,
                     )
                     addParsedItem(parsedItems, candidate)
                 }
@@ -304,7 +325,9 @@ object InstructionParser {
     }
 
     private fun normalizeFractionalMeasures(segment: String): String {
-        var text = segment
+        var text = segment.replace(Regex("\\b(?:kilo|kilograms?|kilogramme)\\b", RegexOption.IGNORE_CASE), "kg")
+            .replace(Regex("\\b(?:aadha|adha|aadhaa)\\s+(kg|g|ml|l|litre|liter)\\b", RegexOption.IGNORE_CASE), "0.5 $1")
+            .replace(Regex("\\b(?:dedh|derh)\\s+(kg|g|ml|l|litre|liter)\\b", RegexOption.IGNORE_CASE), "1.5 $1")
         fractionalMeasureRegexes.forEach { (pattern, replacement) ->
             text = pattern.replace(text) { matchResult ->
                 val unit = matchResult.groupValues[1]
@@ -447,6 +470,60 @@ object InstructionParser {
         }
     }
 
+    internal fun isNumericBrandPrefix(text: String): Boolean {
+        val tokens = ProductLexicon.tokenize(text.trim())
+        return numericBrandPrefixTokens.any { prefix ->
+            tokens.size >= prefix.size && tokens.subList(0, prefix.size) == prefix
+        }
+    }
+
+    private fun isMeasuredDescriptorPrefix(text: String): Boolean {
+        val normalized = text.trim()
+        return leadingWeightRegex.matches(normalized) || leadingVolumeRegex.matches(normalized)
+    }
+
+    private fun normalizeMeasuredPackPrefix(text: String): String {
+        val match = leadingWeightRegex.find(text) ?: leadingVolumeRegex.find(text) ?: return text
+        val unit = match.groupValues[2].lowercase(Locale.US)
+        val weight = unit in setOf("kg", "kgs", "g", "gm", "gms", "gram", "grams")
+        val factor = if (unit in setOf("kg", "kgs", "l", "ltr", "liter", "litre", "liters", "litres")) 1000 else 1
+        val amount = match.groupValues[1].toBigDecimal().multiply(factor.toBigDecimal()).stripTrailingZeros().toPlainString()
+        return "$amount ${if (weight) "g" else "ml"} ${match.groupValues[3]}"
+    }
+
+    private fun shouldPreserveLeadingNumber(segment: String): Boolean {
+        val normalized = segment.trim()
+        return leadingMultipackDescriptorRegex.matches(normalized) ||
+            isNumericBrandPrefix(normalized) ||
+            isMeasuredDescriptorPrefix(normalized)
+    }
+
+    private fun normalizePacketUnitCountSegment(segment: String): String {
+        val trimmed = segment.trim().trim(',', ';', '&').trim()
+        // Keep the untouched product suffix/prefix: token reconstruction loses
+        // decimal pack measures before exact pack validation can see them.
+        Regex("^(\\S+)\\s+(?:packets?|units?)\\s+(.+)$", RegexOption.IGNORE_CASE)
+            .matchEntire(trimmed)?.let { match ->
+                normalizeCountToken(match.groupValues[1].lowercase(Locale.US))?.let { count ->
+                    return "$count ${match.groupValues[2]}"
+                }
+            }
+        Regex("^(.+?)\\s+(\\S+)\\s+(?:packets?|units?)$", RegexOption.IGNORE_CASE)
+            .matchEntire(trimmed)?.let { match ->
+                normalizeCountToken(match.groupValues[2].lowercase(Locale.US))?.let { count ->
+                    return "$count ${match.groupValues[1]}"
+                }
+            }
+        return trimmed
+    }
+
+    private fun normalizeCountToken(token: String): Int? {
+        token.toIntOrNull()?.let { count ->
+            if (count > 0) return count
+        }
+        return spokenCountWords[token]
+    }
+
     private fun extractQuantityPrefix(segment: String): Pair<String, Quantity> {
         val normalized = segment
             .trim()
@@ -472,7 +549,7 @@ object InstructionParser {
             }
             if (ml > 0) return match.groupValues[3].trim() to Quantity.Volume(ml)
         }
-        if (leadingMultipackDescriptorRegex.matches(normalized)) {
+        if (shouldPreserveLeadingNumber(normalized)) {
             return normalized to Quantity.Default
         }
         val match = leadingCountRegex.find(normalized) ?: return segment to Quantity.Default

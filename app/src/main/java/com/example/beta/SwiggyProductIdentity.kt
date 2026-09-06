@@ -35,9 +35,12 @@ private fun swiggyStrictPackMatches(request: String, label: String): Boolean {
         "$dimension:${match.groupValues[1].toBigDecimal().multiply(factor.toBigDecimal()).stripTrailingZeros().toPlainString()}"
     }.toSet()
     val required = codes(request)
-    val multipack = Regex("\\b(?:pack\\s+of\\s+(\\d+)|(\\d+)\\s*[x×](?=\\s*\\d))", RegexOption.IGNORE_CASE)
+    val multipack = Regex(
+        "\\b(?:pack\\s+of\\s+(\\d+)|(\\d+)\\s*[x×](?=\\s*\\d)|\\d+(?:\\.\\d+)?\\s*(?:kg|kgs|g|gm|gms|grams?|ml|l|ltr|lit(?:er|re)s?)\\s*[x×]\\s*(\\d+))",
+        RegexOption.IGNORE_CASE,
+    )
     fun multipliers(text: String) = multipack.findAll(text).map { match ->
-        (match.groupValues[1].ifEmpty { match.groupValues[2] }).toIntOrNull()
+        match.groupValues.drop(1).firstOrNull { it.isNotEmpty() }?.toIntOrNull()
     }.toSet()
     return (required.isEmpty() || codes(label) == required) &&
         (required.isEmpty() && multipliers(request).isEmpty() || multipliers(request) == multipliers(label))
@@ -45,6 +48,9 @@ private fun swiggyStrictPackMatches(request: String, label: String): Boolean {
 
 internal fun swiggyIdentityTokens(value: String): Set<String> {
     var text = value.lowercase(Locale.ROOT)
+        .replace(Regex("\\b7\\s*up\\b"), "7 up")
+        .replace(Regex("\\b5\\s*star\\b"), "5 star")
+        .replace(Regex("\\b24\\s*mantra\\b"), "24 mantra")
         .replace(Regex("\\bsesame\\s+paste\\b"), "tahini")
         .replace(Regex("\\bkeen\\s*waa?\\b"), "quinoa")
         .replace(Regex("\\bsugar\\s+free\\b"), "sugarfree")

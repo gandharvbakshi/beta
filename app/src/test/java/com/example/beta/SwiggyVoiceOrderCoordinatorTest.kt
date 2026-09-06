@@ -383,7 +383,7 @@ class SwiggyVoiceOrderCoordinatorTest {
             label = "Farm Fresh White Eggs · 12 Eggs · 1 Pack",
         )
 
-        assertEquals("6 eggs", swiggyRecommendationQuery(sixEggs))
+        assertEquals("eggs", swiggyRecommendationQuery(sixEggs))
         assertTrue(isSwiggyCandidateCountCompatible(sixEggs, sixPack))
         assertFalse(isSwiggyCandidateCountCompatible(sixEggs, thirtyPack))
         assertFalse(isSwiggyCandidateCountCompatible(sixEggs, twelveEggPack))

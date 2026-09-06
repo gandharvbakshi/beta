@@ -6,7 +6,7 @@ import org.junit.Test
 class InstructionParserTest {
     @Test
     fun parserVersion_tracksLearningContract() {
-        assertEquals("2026.09.06.1", InstructionParser.PARSER_VERSION)
+        assertEquals("2026.09.06.2", InstructionParser.PARSER_VERSION)
     }
 
     @Test

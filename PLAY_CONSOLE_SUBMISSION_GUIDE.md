@@ -1,9 +1,13 @@
 # Beta Play Console Submission Guide
 
-Target release: `0.3.0` / version code `17`, package
+Target release: `0.3.3` / version code `20`, package
 `live.betaapp.android`, open-testing track `beta`.
 
-Current status: the enabled Swiggy checkout candidate is the release target.
+Current status: the history-first, enabled Swiggy checkout candidate is the
+release target. Version 20 is being prepared as a draft, not a public rollout.
+Reusable full Swiggy reviewer access is required before promotion; the four
+static offline demo screens do not satisfy signed-in app access. See
+`SWIGGY_HISTORY_MATCHING_RELEASE_20260906.md` for the latest verified readback.
 Pre-approval phone checks still stop before live checkout or payment, and
 older installed builds may remain cart-only until Play readback confirms the
 new release is active.
@@ -87,8 +91,9 @@ App access instructions should tell the reviewer:
 4. Review the proposed cart, fees, total and payment method, then stop before
    completing payment.
 
-If Swiggy requires a whitelisted reviewer identity, provide a working reviewer
-path in Play Console. Do not put credentials in the public listing or repo.
+Provide a reusable working Swiggy reviewer path in Play Console before
+promotion. Do not rely on an owner OTP or attest that the static demo provides
+all signed-in functions. Do not put credentials in the public listing or repo.
 
 Set **Contains ads** to `No`. Advertising the app through Google Ads does not
 mean the app displays ads.
@@ -153,16 +158,20 @@ After Play readback proves that no legacy bundle is active on any track:
 
 ## 6. Upload and readback
 
-1. Create a temporary edit and re-read every track. Confirm `17` is unused.
+1. Create a temporary edit and re-read every track. Confirm the intended version
+   code is unused; never reuse a version already uploaded. Version 20 is the
+   current candidate, not a guarantee that it remains unused after this release.
 2. Upload the final signed AAB from
    `app/build/outputs/bundle/release/app-release.aab`.
-3. Update the open-testing `beta` track with version `17` and the release notes.
+3. Update the open-testing `beta` track with the verified version and release
+   notes. Keep status `draft` until the reviewer-access and release gates pass.
 4. Replace both locale listings and every final image set.
 5. Commit the edit without `changesNotSentForReview` unless fresh API behavior
    proves that flag is required.
 6. Read back the track, version, listing and image counts through the Publisher
    API. A committed edit proves receipt, not approval.
-7. Review Publishing overview and send the policy/release changes for review.
+7. After reusable reviewer access is verified, review Publishing overview and
+   send the policy/release changes for review. A draft upload is not a rollout.
 
 Play review may take days. Submission can be completed today, but approval and
 tester availability cannot be guaranteed by end of day.

@@ -53,19 +53,19 @@ SCREENSHOT_DIR_TO_IMAGE_TYPE = {
     "ten_inch": "tenInchScreenshots",
 }
 IMAGE_TYPES = tuple(dict.fromkeys(SCREENSHOT_DIR_TO_IMAGE_TYPE.values())) + ("featureGraphic",)
-RELEASE_NAME = "0.3.2"
+RELEASE_NAME = "0.3.3"
 RELEASE_NOTES_BY_LOCALE = {
     "en-US": (
-        "Swiggy checkout review is clearer, with the full cart, address, fees, "
-        "total, and payment method shown before the final confirmation. Voice "
-        "and text still work together, and interrupted payment recovery is safer "
-        "so you can return to the same review."
+        "Product suggestions now use your recent Swiggy purchases across categories, "
+        "while respecting your requested brand, variant and quantity. Improved "
+        "Hinglish, spoken quantities and mixed shopping lists. Review your items, "
+        "address, fees, total and payment method together before confirming."
     ),
     "en-GB": (
-        "Swiggy checkout review is clearer, with the full cart, address, fees, "
-        "total, and payment method shown before the final confirmation. Voice "
-        "and text still work together, and interrupted payment recovery is safer "
-        "so you can return to the same review."
+        "Product suggestions now use your recent Swiggy purchases across categories, "
+        "while respecting your requested brand, variant and quantity. Improved "
+        "Hinglish, spoken quantities and mixed shopping lists. Review your items, "
+        "address, fees, total and payment method together before confirming."
     ),
 }
 

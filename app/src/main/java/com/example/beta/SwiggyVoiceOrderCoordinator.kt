@@ -39,6 +39,9 @@ internal fun swiggyMcpItemValidationMessage(
     val oversizedCountQuery = Regex("\\b([1-9]\\d+)\\s+([A-Za-z][\\w-]*)", RegexOption.IGNORE_CASE)
         .findAll(instruction)
         .mapNotNull { match ->
+            if (InstructionParser.isNumericBrandPrefix(instruction.substring(match.range.first))) {
+                return@mapNotNull null
+            }
             val count = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
             val followingWord = match.groupValues[2].lowercase()
             val isMeasureOrPack = followingWord in setOf(
@@ -205,8 +208,8 @@ internal fun swiggyCandidateLabel(candidate: RecommendationCandidate): String {
 
 internal fun swiggyRecommendationQuery(item: ParsedItem): String {
     val quantityAware = when (item.quantity) {
-        is Quantity.Count, is Quantity.Weight, is Quantity.Volume -> item.backendInputText()
-        Quantity.Default -> item.query
+        is Quantity.Weight, is Quantity.Volume -> item.backendInputText()
+        is Quantity.Count, Quantity.Default -> item.query
     }
     return if (item.avoidPhrases.isEmpty()) quantityAware else {
         "$quantityAware without ${item.avoidPhrases.joinToString(" or ")}"
@@ -321,14 +324,9 @@ internal fun swiggyDefaultSuggestion(
     usable: List<RecommendationCandidate>,
     preferred: RecommendationCandidate?,
 ): RecommendationCandidate {
-    // Generic milk means ordinary drinking milk by default. Keep every compatible
-    // variant available under Change, but don't let a flavoured purchase outrank it.
-    val ordinaryMilk = if (item.query.trim().equals("milk", ignoreCase = true) && item.strictMatchPhrase.isNullOrBlank()) {
-        val specialVariant = Regex("\\b(chocolate|strawberry|vanilla|rose|badam|kesar|flavou?red|shake|powder|condensed|coconut|almond|oat|soy|soya)\\b", RegexOption.IGNORE_CASE)
-        usable.filter { !specialVariant.containsMatchIn(swiggyCandidateLabel(it)) }
-    } else emptyList()
-    val defaults = ordinaryMilk.ifEmpty { usable }
-    return defaults.firstOrNull { it.spinId == preferred?.spinId } ?: defaults.first()
+    // The backend applies the same history-first identity policy to all items.
+    // This list has already passed exact quantity and explicit-intent checks.
+    return usable.firstOrNull { it.spinId == preferred?.spinId } ?: usable.first()
 }
 
 internal fun isSwiggyCandidateAllowed(item: ParsedItem, candidate: RecommendationCandidate): Boolean {
@@ -1285,7 +1283,11 @@ class SwiggyVoiceOrderCoordinator(
                     val item = items[missingIndex]
                     SwiggyStepRow(
                         title = displayItem(item),
-                        detail = if (swiggyNeedsExactHealthProduct(item)) "Please name the exact product or brand. Beta will not guess a medicine from a symptom." else swiggyNoCandidateMessage(item, address),
+                        detail = when {
+                            swiggyNeedsExactHealthProduct(item) -> "Please name the exact product or brand. Beta will not guess a medicine from a symptom."
+                            recommendations[missingIndex].usualProductUnavailable -> "Your usual product could not be verified as available here. Beta has not substituted a different brand or variant. You can edit this item or leave it out."
+                            else -> swiggyNoCandidateMessage(item, address)
+                        },
                         badge = "Not added",
                         tone = SwiggyStepTone.AMBER,
                     )

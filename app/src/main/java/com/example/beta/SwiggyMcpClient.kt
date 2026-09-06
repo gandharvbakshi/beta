@@ -250,6 +250,7 @@ object SwiggyMcpClient {
         val suggested: RecommendationCandidate? = null,
         val requiresConfirmation: Boolean = false,
         val query: String? = null,
+        val usualProductUnavailable: Boolean = false,
     )
 
     data class CartPlanChange(
@@ -673,6 +674,9 @@ object SwiggyMcpClient {
                 "confirmationRequired",
             ),
             query = firstString(root, "query"),
+            usualProductUnavailable = firstArray(root, "warnings")?.items?.any {
+                (it as? JsonValue.Str)?.value == "usual_product_unavailable"
+            } == true,
         )
     }
 
