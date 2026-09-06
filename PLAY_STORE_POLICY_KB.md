@@ -4,26 +4,33 @@ Last updated: August 17, 2026
 
 ## Checkout implementation decision - September 6, 2026
 
-The user has now authorised implementation of Swiggy MCP checkout, UPI handoff,
-and order confirmation. This supersedes the implementation-only cart boundary
-below, not the live-testing restriction. Both app and backend checkout switches
-remain off by default. No live checkout/payment/order test or checkout-enabled
-release is authorised until the user explicitly approves it later. Existing
-distributed releases and store assets have not been changed by this decision.
-See `SWIGGY_CHECKOUT_ACCEPTANCE.md` for offline evidence and later live gates.
+The user has now authorised the enabled Swiggy checkout release path with UPI
+handoff and order confirmation. This supersedes the implementation-only cart
+boundary below, not the live-testing restriction. No live checkout/payment/order
+test is authorised without separate basket/payment approval. The owner has now
+approved one specific basket; final products/address/total confirmation is still
+required. Existing
+distributed releases and store assets may still reflect the older cart-only
+state until Play readback proves the enabled release is active. See
+`SWIGGY_CHECKOUT_ACCEPTANCE.md` for offline evidence and later live gates.
 Before enabling/releasing, review financial/purchase-history Data Safety coverage,
 the recovery-record retention policy, full-address/amount consent, and current
 provider payment-link hosts. Never claim that Beta receives PIN/card/VPA data.
+
+The enabled release candidate is Swiggy Instamart cart building plus checkout
+review, UPI handoff and order confirmation.
 
 ## Current app context
 
 - Play app: `Beta`
 - Package: `live.betaapp.android`
 - Android namespace: `com.example.beta`
-- Current product: Swiggy Instamart cart building by voice or text through the
-  authorised Swiggy MCP connection.
-- Safety boundary: stop after cart verification; never checkout, pay or place
-  an order.
+- Current product: Swiggy Instamart cart building plus checkout review,
+  UPI handoff and order confirmation through the authorised Swiggy MCP
+  connection in the enabled build.
+- Safety boundary: stop after cart verification in legacy builds; the enabled
+  candidate adds full review and payment handoff but still requires separate
+  confirmation before order placement.
 - Current runtime permissions: optional microphone and coarse/fine location,
   requested only when the related feature is used.
 - Removed from the active app: Blinkit, Zepto, overlay, media projection,
@@ -52,8 +59,9 @@ Play-facing text and imagery must match the shipped binary:
 
 - Describe Swiggy Instamart only.
 - Explain voice/text input, saved-address confirmation, live product discovery,
-  exact cart review and the no-checkout/payment boundary.
-- Explain that raw voice audio is not stored and raw GPS remains on-device.
+  exact cart review and the enabled checkout review/payment boundary.
+- Explain that Beta does not store raw voice audio or send raw GPS to its
+  backend/analytics; Android speech/location providers may process these inputs.
 - Explain default-off Firebase Analytics/Crashlytics and any consented Google
   Ads conversion measurement accurately.
 - Do not state that Beta collects no data: direct MCP still processes saved
@@ -71,7 +79,8 @@ bundle. While version 16 or another legacy build is active on any track, the
 form and privacy policy must cover both:
 
 1. legacy screen-assisted visual/accessibility behavior, and
-2. version 17 direct Swiggy plus optional Analytics/Crashlytics/Ads measurement.
+2. version 17 direct Swiggy checkout plus optional Analytics/Crashlytics/Ads
+   measurement.
 
 Only after fresh Play API/Console readback proves no legacy bundle is active may
 the developer remove legacy screen-capture, precise-location and accessibility
@@ -88,9 +97,10 @@ Before each upload:
 3. Run unit, instrumentation-build, lint and signed-bundle tasks.
 4. Inspect the merged release manifest/AAB for forbidden legacy permissions,
    components and provider package queries.
-5. Run the cart-only physical-phone suite, including long recent orders,
+5. Run the pre-approval physical-phone suite, including long recent orders,
    address confirmation, voice/text continuity, cancel/no-mutation and one
-   controlled verified-cart mutation.
+   controlled verified-cart mutation. Do not add live checkout/order tests to
+   this pre-approval gate.
 6. Verify consent-off and consent-on telemetry contains no grocery, item, cart,
    address, GPS, OTP, token or free-text payload.
 7. Capture listing screenshots only from the final build and remove stale image

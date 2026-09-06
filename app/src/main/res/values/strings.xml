@@ -1,7 +1,7 @@
 <resources>
     <string name="swiggy_keep_closed_warning">Keep Swiggy closed while Beta builds and checks your cart. Stay in Beta until the check finishes.</string>
     <string name="swiggy_handoff_warning">Opening Swiggy can reload a different cart or address. Check both before paying. Adding to cart does not place an order.</string>
-    <string name="swiggy_checkout_action">Review cart and payment</string>
+    <string name="swiggy_checkout_action">Review cart, address and payment</string>
     <string name="swiggy_preparation_interrupted">You left Beta, so the unconfirmed plan was paused. Your list is saved. Keep Swiggy closed and continue to check the products and address again.</string>
     <string name="swiggy_return_check_message">You are back in Beta. We are checking the latest cart and delivery address without adding anything.</string>
     <string name="swiggy_return_check_matches">The latest cart and address match the reviewed changes. This check has not added anything or placed an order.</string>
@@ -9,9 +9,9 @@
     <string name="swiggy_return_check_unknown">Beta cannot confirm your last cart update now. Please review both the items and delivery address in Swiggy. Nothing will be added again automatically.</string>
     <string name="app_name">Beta</string>
     <string name="main_title">Hi. Let\'s make grocery ordering easier.</string>
-    <string name="main_subtitle">Beta builds your Swiggy cart. You always review and pay yourself.</string>
+    <string name="main_subtitle">Beta builds your Swiggy cart and helps you review checkout before you pay.</string>
     <string name="reassurance_heading">You stay in control</string>
-    <string name="reassurance_body">Adding groceries only builds your cart. You stay in control of ordering and payment. When checkout in Beta is enabled, placing an order needs a separate final confirmation.</string>
+    <string name="reassurance_body">Adding groceries builds your cart. You stay in control of ordering and payment. When checkout in Beta is enabled, placing an order needs a separate final confirmation.</string>
 
     <string name="voice_listening">Listening for your grocery list</string>
     <string name="voice_processing">I heard you. Getting that ready…</string>
@@ -75,7 +75,7 @@
     <string name="swiggy_step_review_existing">Your existing cart stays. Review only the requested quantity changes before Beta updates it once.</string>
     <string name="swiggy_step_provider_added_note">Added by Swiggy, not by Beta</string>
     <string name="swiggy_step_readback_verified">Beta read the cart back and verified every requested line.</string>
-    <string name="swiggy_step_no_checkout">This step only updates your cart. It does not place an order or start payment.</string>
+    <string name="swiggy_step_no_checkout">This step updates your cart before checkout review. It does not place an order or approve payment.</string>
 
     <string name="analytics_settings">Usage analytics settings</string>
     <string name="analytics_consent_title">Help improve Beta?</string>

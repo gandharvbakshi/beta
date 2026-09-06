@@ -576,7 +576,7 @@ object SwiggyMcpClient {
 
     internal fun parseCheckoutAttempt(body: String): SwiggyCheckoutAttempt {
         val root = checkoutObject(JsonParser(body).parse())
-        val state = checkoutText(root, "state", 40).also { require(it in setOf("none", "dispatching", "pending_payment", "confirming",
+        val state = checkoutText(root, "state", 40).also { require(it in setOf("none", "not_submitted", "dispatching", "pending_payment", "confirming",
             "placed", "failed", "cancelled", "cart_changed", "refund_initiated", "partial", "unknown")) }
         if (state == "none") {
             require(root.members["attemptId"] == null && root.members["paymentUrl"] == null)

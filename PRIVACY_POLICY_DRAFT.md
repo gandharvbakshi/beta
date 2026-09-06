@@ -2,9 +2,11 @@
 
 **Last updated: September 6, 2026**
 
-Beta is a cart-only assistant for Swiggy Instamart. It helps you find products,
-review proposed cart changes and add only the items you confirm. Beta always
-stops before checkout and payment.
+Beta helps you build and review Swiggy Instamart carts by voice or text. It
+helps you find products, review proposed cart changes and add only the items
+you confirm. In the enabled checkout build, Beta also shows the full cart,
+delivery address, fees, total and payment method before you hand off to
+payment.
 
 ## Information Beta processes
 
@@ -17,30 +19,26 @@ stops before checkout and payment.
 - Basic app and device information needed for security, reliability and support.
 - Feedback text and diagnostic logs only when you choose to submit them.
 
-Beta does not receive your Swiggy OTP or payment details. It does not place an
-order, complete checkout or make a payment.
+Beta does not receive your Swiggy OTP, PIN, card number or VPA. It does not
+store raw voice audio. The enabled checkout build requires separate
+confirmation before the order is placed.
 
-## Checkout preview
+## Checkout and payment
 
-The current distributed build remains cart-only. An optional checkout preview
-exists only as a future, approval-gated release path and is disabled by
-default in the shipped app.
+When checkout is enabled, Beta presents the full cart, saved address, fees,
+total and payment method before any payment handoff. UPI approval happens in
+your UPI app. Beta never asks for your PIN, card number or VPA. If Swiggy
+returns cash on delivery, Beta can surface that option too.
 
-If a later approved build enables that preview, Beta would let you review the
-full cart, saved address, fees, total and payment method before you leave the
-app. UPI payment would hand off to a trusted payment-provider bridge that
-opens your UPI app; Beta would not collect or store your PIN, card number or
-VPA. Cash on delivery may be surfaced if Swiggy returns it.
-
-For recovery only, Beta would keep an encrypted backend record containing the
-confirmed cart, delivery address, selected payment method, provider receipt and
-transaction identifiers while an order attempt is unresolved. Resolved records
-are reduced to the attempt ID, order IDs, status and recovery timestamps; the
-basket, address and payment link are removed. Unresolved records do not expire
-automatically, because forgetting them could allow a duplicate order. The app
-stores only an opaque attempt ID and payment-handoff marker in no-backup storage.
-Grocery, order and payment IDs are not used for analytics. No new Android
-permissions are required for this preview path.
+For recovery only, Beta keeps an encrypted backend record containing the
+confirmed cart, delivery address, selected payment method, provider receipt
+and transaction identifiers while an order attempt is unresolved. Resolved
+records are reduced to the attempt ID, order IDs, status and recovery
+timestamps; the basket, address and payment link are removed. Unresolved
+records do not expire automatically, because forgetting them could allow a
+duplicate order. The app stores only an opaque attempt ID and payment-handoff
+marker in no-backup storage. Grocery, order and payment IDs are not used for
+analytics. No new Android permissions are required for this flow.
 
 ## Voice and location
 
@@ -50,8 +48,9 @@ audio.
 
 Location permission is optional. If granted, your phone reverse-geocodes the
 current device location and uses the result only to rank nearby saved Swiggy
-addresses. Raw GPS coordinates stay on the phone and are not sent to Beta's
-backend or analytics. You always choose and confirm the delivery address.
+addresses. Beta does not send raw GPS coordinates to its backend or analytics.
+Android's location and geocoding providers may process the location to return
+the nearby area. You always choose and confirm the delivery address.
 
 ## Optional analytics and crash reporting
 
@@ -84,14 +83,14 @@ disabled. You can change analytics consent at any time in Beta Settings.
 
 ## Sharing and storage
 
-Beta sends the information needed for the cart flow to its backend on Google
-Cloud and to Swiggy's authorised MCP service. Swiggy connection tokens are
-encrypted at rest. Beta also keeps a small one-byte pending marker locally
-when a cart update still needs verification; it contains no cart contents,
-credentials or other shopping data. Google processes opted-in analytics and
-crash data as a service provider, and the data is limited to coarse timing,
-counts, reliability states and, when enabled, coarse Google Ads conversion
-measurement. Beta does not sell personal data.
+Beta sends the information needed for the cart and checkout flow to its backend
+on Google Cloud and to Swiggy's authorised MCP service. Swiggy connection
+tokens are encrypted at rest. Beta also keeps a small no-backup attempt marker
+locally when checkout is waiting for external completion; it contains no cart
+contents, credentials or other shopping data. Google processes opted-in
+analytics and crash data as a service provider, and the data is limited to
+coarse timing, counts, reliability states and, when enabled, coarse Google Ads
+conversion measurement. Beta does not sell personal data.
 
 ## Older test versions
 
@@ -112,5 +111,13 @@ bundle is still distributed through any Google Play track.
 - To request deletion, email `gandharv@musicaigeneration.com` with the subject
   `Delete my Beta data`. Include any tester email address you used and say the
   request is for Beta. We review and action deletion requests within 14 days.
+
+Deletion covers Beta connection tokens, saved shopping/recovery data and
+support records that can be associated with your request. Disconnecting Beta
+does not delete your Swiggy account or Swiggy orders. If an order or payment is
+unresolved, its recovery record must first be reconciled to avoid a duplicate
+purchase. Minimal hashed attempt fences are retained for duplicate-order
+prevention; they contain no basket, address or payment credentials. We explain
+any necessary retention when responding to a deletion request.
 
 Questions and deletion requests: `gandharv@musicaigeneration.com`.

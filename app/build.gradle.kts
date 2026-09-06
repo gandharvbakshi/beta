@@ -47,9 +47,9 @@ android {
     }
 
     defaultConfig {
-        // Owner approval + live acceptance are required before enabling checkout.
+        // Owner approved checkout release; server retains an emergency kill switch.
         buildConfigField("boolean", "BETA_SWIGGY_CHECKOUT_ENABLED",
-            configValue("BETA_SWIGGY_CHECKOUT_ENABLED", "false").equals("true", ignoreCase = true).toString())
+            configValue("BETA_SWIGGY_CHECKOUT_ENABLED", "true").equals("true", ignoreCase = true).toString())
         applicationId = "live.betaapp.android"
         minSdk = 33
         targetSdk = 36

@@ -3,9 +3,17 @@
 Target release: `0.3.0` / version code `17`, package
 `live.betaapp.android`, open-testing track `beta`.
 
-Current status: the distributed build is still cart-only. The checkout preview
-described in the docs is disabled by default and must stay off until a
-separate approval-reviewed release turns it on.
+Current status: the enabled Swiggy checkout candidate is the release target.
+Pre-approval phone checks still stop before live checkout or payment, and
+older installed builds may remain cart-only until Play readback confirms the
+new release is active.
+
+Enabled checkout release candidate: when checkout is approved, Beta should
+present the full cart, saved address, fees, total and payment method before
+any handoff to payment. UPI stays user-approved in the UPI app and Beta never
+receives a PIN, card number or VPA. Cash on delivery may be surfaced when
+Swiggy returns it. Keep the legacy-track transition language until Play
+readback proves no older bundle remains active.
 
 ## 1. Release proof before upload
 
@@ -36,16 +44,16 @@ testing or review.
 ## 2. Store listing and assets
 
 Use the checked-in `en-US` and `en-GB` listings under
-`play_store_assets/listing/`. Both describe Swiggy-only voice/text cart building,
-optional on-device address ranking, explicit cart confirmation, the checkout
-boundary, default-off analytics and, when the Google account setup is enabled,
-coarse Google Ads conversion measurement from the same privacy-safe events.
-Keep the public copy plain: Beta may take about a minute to verify a cart
-update, and if it cannot safely distinguish the result from the existing cart
-it asks the user to inspect Swiggy instead of retrying.
+`play_store_assets/listing/`. Both now describe Swiggy voice/text cart building,
+full cart/address/fee/total/payment-method review, UPI approval in the UPI
+app, cash on delivery when returned by Swiggy, opaque recovery markers and the
+checkout boundary, plus default-off analytics and, when the Google account
+setup is enabled, coarse Google Ads conversion measurement from the same
+privacy-safe events. Keep the public copy plain: Beta may take about a minute
+to verify a cart update, and if it cannot safely distinguish the result from
+the existing cart it asks the user to inspect Swiggy instead of retrying.
 
-Do not edit the listing, screenshots or app strings for this docs-only preview
-change.
+Do not edit screenshots for this docs-only copy change.
 
 - Keep `app_icon_512.png`.
 - Upload `feature_graphic_1024x500.png` only after confirming it contains no
@@ -58,10 +66,12 @@ change.
 Recommended release notes:
 
 ```text
-Swiggy Instamart is now Beta's single, direct cart-building experience. This
-release simplifies setup, supports seamless voice and text, improves recent
-address and product ranking, adds clear spoken confirmations, and removes the
-old screen-access permissions. Beta still stops before checkout and payment.
+Swiggy Instamart is now Beta's single, direct cart-building and checkout
+experience. This release simplifies setup, supports seamless voice and text,
+improves recent address and product ranking, adds clear spoken confirmations,
+and removes the old screen-access permissions. Beta now shows the full cart,
+delivery address, fees, total and payment method before you approve payment in
+the UPI app or continue with cash on delivery.
 ```
 
 ## 3. Privacy policy and app access
@@ -74,7 +84,8 @@ App access instructions should tell the reviewer:
 1. Open Beta and tap **Connect Swiggy**.
 2. Complete Swiggy authentication on Swiggy's page. Beta does not see the OTP.
 3. Return to Beta, enter a grocery list, choose and confirm a saved address.
-4. Review the proposed cart and stop before checkout/payment.
+4. Review the proposed cart, fees, total and payment method, then stop before
+   completing payment.
 
 If Swiggy requires a whitelisted reviewer identity, provide a working reviewer
 path in Play Console. Do not put credentials in the public listing or repo.
@@ -158,7 +169,9 @@ tester availability cannot be guaranteed by end of day.
 
 ## 7. After approval
 
-Install from the Play testing link and repeat a cart-only smoke test. Confirm
-the Play-delivered manifest has no legacy permissions, verify analytics consent,
-submit one worked and one issue feedback response, and monitor Firebase,
-Cloud Run and Play vitals. Promote beyond open testing only after this readback.
+Install from the Play testing link and repeat the enabled-flow smoke test that
+still stops before any live payment approval unless the later live gate is
+explicitly authorized. Confirm the Play-delivered manifest has no legacy
+permissions, verify analytics consent, submit one worked and one issue feedback
+response, and monitor Firebase, Cloud Run and Play vitals. Promote beyond open
+testing only after this readback.

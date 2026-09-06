@@ -17,11 +17,16 @@ Play/privacy review.
 
 The user explicitly authorised Swiggy MCP checkout/payment/order implementation
 on 2026-09-06. This supersedes the former cart-only implementation boundary.
-Keep checkout disabled by default until separately approved for live acceptance.
-NO live checkout, payment initiation, payment confirmation or order-placement
-tests are authorised yet. Use mocked provider responses only for this work.
+The user's later 2026-09-06 instruction explicitly approves enabling checkout
+and releasing to GitHub/default branch and Play after implementation checks.
+Keep the backend kill switch, explicit final user confirmation and offline
+verification. The owner's latest September 6 instruction separately authorises
+ONE live purchase: one packet of Vicks cough tablets, two Amul dark chocolates,
+and one pack of mosquito patches. Confirm the exact products, delivery address,
+full total and payment method before that transaction. No additional purchases
+or ambiguous retry attempts are authorised. Other transaction tests remain mocked.
 Never store payment credentials, bypass Swiggy safeguards, run high-volume automation or scrape
-large amounts of data. Live tests may search, discover, plan, add to cart and
+large amounts of data. Other live tests may search, discover, plan, add to cart and
 verify the resulting cart, then must stop. Preserve the user's pre-existing cart
 and remove only clearly identified test-added items.
 
@@ -122,7 +127,7 @@ A release task is complete only when:
 - backend and Android test/build status is explicit;
 - the hosted service and physical-phone cart-only flow are verified;
 - checkout has explicit final user confirmation, durable duplicate prevention,
-  and remains disabled until separately approved for live acceptance;
+  and enabled release follows the owner's express authority with honest test limits;
 - manifest, privacy, listing and Data Safety are aligned;
 - final screenshots come from the verified build;
 - GitHub/Play/Cloud actions are read back from the live surface; and

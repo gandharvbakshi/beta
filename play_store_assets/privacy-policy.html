@@ -11,7 +11,7 @@
       <h1 style="margin:0 0 8px;font-size:30px;line-height:1.2;color:#111827;">Beta Privacy Policy</h1>
       <p style="margin:0 0 20px;color:#6b7280;"><strong>Last updated:</strong> September 6, 2026</p>
 
-      <p>Beta is a cart-only assistant for Swiggy Instamart. It helps you find products, review proposed cart changes and add only the items you confirm. Beta always stops before checkout and payment.</p>
+      <p>Beta helps you build and review Swiggy Instamart carts by voice or text. It helps you find products, review proposed cart changes and add only the items you confirm. In the enabled checkout build, Beta also shows the full cart, delivery address, fees, total and payment method before you hand off to payment.</p>
 
       <h2>Information Beta processes</h2>
       <ul>
@@ -21,16 +21,15 @@
         <li>Basic app and device information needed for security, reliability and support.</li>
         <li>Feedback text and diagnostic logs only when you choose to submit them.</li>
       </ul>
-      <p>Beta does not receive your Swiggy OTP or payment details. It does not place an order, complete checkout or make a payment.</p>
+      <p>Beta does not receive your Swiggy OTP, PIN, card number or VPA. It does not store raw voice audio. The enabled checkout build requires separate confirmation before the order is placed.</p>
 
-      <h2>Checkout preview</h2>
-      <p>The current distributed build remains cart-only. An optional checkout preview exists only as a future, approval-gated release path and is disabled by default in the shipped app.</p>
-      <p>If a later approved build enables that preview, Beta would let you review the full cart, saved address, fees, total and payment method before you leave the app. UPI payment would hand off to a trusted payment-provider bridge that opens your UPI app; Beta would not collect or store your PIN, card number or VPA. Cash on delivery may be surfaced if Swiggy returns it.</p>
-      <p>For recovery only, Beta would keep an encrypted backend record containing the confirmed cart, delivery address, selected payment method, provider receipt and transaction identifiers while an order attempt is unresolved. Resolved records are reduced to the attempt ID, order IDs, status and recovery timestamps; the basket, address and payment link are removed. Unresolved records do not expire automatically, because forgetting them could allow a duplicate order. The app stores only an opaque attempt ID and payment-handoff marker in no-backup storage. Grocery, order and payment IDs are not used for analytics. No new Android permissions are required for this preview path.</p>
+      <h2>Checkout and payment</h2>
+      <p>When checkout is enabled, Beta presents the full cart, saved address, fees, total and payment method before any payment handoff. UPI approval happens in your UPI app. Beta never asks for your PIN, card number or VPA. If Swiggy returns cash on delivery, Beta can surface that option too.</p>
+      <p>For recovery only, Beta keeps an encrypted backend record containing the confirmed cart, delivery address, selected payment method, provider receipt and transaction identifiers while an order attempt is unresolved. Resolved records are reduced to the attempt ID, order IDs, status and recovery timestamps; the basket, address and payment link are removed. Unresolved records do not expire automatically, because forgetting them could allow a duplicate order. The app stores only an opaque attempt ID and payment-handoff marker in no-backup storage. Grocery, order and payment IDs are not used for analytics. No new Android permissions are required for this flow.</p>
 
       <h2>Voice and location</h2>
       <p>When you tap the microphone, Android's speech-recognition provider may process your voice and return text to Beta. Beta does not upload or store raw voice audio.</p>
-      <p>Location permission is optional. If granted, your phone reverse-geocodes the current device location and uses the result only to rank nearby saved Swiggy addresses. Raw GPS coordinates stay on the phone and are not sent to Beta's backend or analytics. You always choose and confirm the delivery address.</p>
+      <p>Location permission is optional. If granted, your phone reverse-geocodes the current device location and uses the result only to rank nearby saved Swiggy addresses. Beta does not send raw GPS coordinates to its backend or analytics. Android's location and geocoding providers may process the location to return the nearby area. You always choose and confirm the delivery address.</p>
 
       <h2>Optional analytics and crash reporting</h2>
       <p>Google Analytics for Firebase and Firebase Crashlytics are off by default. If you opt in, Beta records pseudonymous usage timing and reliability signals so we can understand whether people can connect, verify a cart, complete feedback and return to the app. Those same coarse events may also be linked to Google Ads conversion measurement when the Play/Google account setup is enabled. Firebase may process an app-instance identifier, device/app information and an approximate location derived from the network connection.</p>
@@ -47,7 +46,7 @@
       </ul>
 
       <h2>Sharing and storage</h2>
-      <p>Beta sends the information needed for the cart flow to its backend on Google Cloud and to Swiggy's authorised MCP service. Swiggy connection tokens are encrypted at rest. Beta also keeps a small one-byte pending marker locally when a cart update still needs verification; it contains no cart contents, credentials or other shopping data. Google processes opted-in analytics and crash data as a service provider, and the data is limited to coarse timing, counts, reliability states and, when enabled, coarse Google Ads conversion measurement. Beta does not sell personal data.</p>
+      <p>Beta sends the information needed for the cart and checkout flow to its backend on Google Cloud and to Swiggy's authorised MCP service. Swiggy connection tokens are encrypted at rest. Beta also keeps a small no-backup attempt marker locally when checkout is waiting for external completion; it contains no cart contents, credentials or other shopping data. Google processes opted-in analytics and crash data as a service provider, and the data is limited to coarse timing, counts, reliability states and, when enabled, coarse Google Ads conversion measurement. Beta does not sell personal data.</p>
 
       <h2>Older test versions</h2>
       <p>Versions distributed before 0.3.0 may have offered Blinkit and a screen-assisted mode. During a user-started flow, those older versions could use Android screen capture and AccessibilityService to process visible grocery app text, product information, cart contents, buttons and visible delivery details. The 0.3.0 Swiggy-only app does not request screen capture, overlay or AccessibilityService access. This section will remain while an older test bundle is still distributed through any Google Play track.</p>
@@ -62,6 +61,7 @@
       </ul>
 
       <h2>Contact</h2>
+      <p>Deletion covers Beta connection tokens, saved shopping/recovery data and support records that can be associated with your request. Disconnecting Beta does not delete your Swiggy account or Swiggy orders. If an order or payment is unresolved, its recovery record must first be reconciled to avoid a duplicate purchase. Minimal hashed attempt fences are retained for duplicate-order prevention; they contain no basket, address or payment credentials. We explain any necessary retention when responding to a deletion request.</p>
       <p>Questions and deletion requests: <a href="mailto:gandharv@musicaigeneration.com">gandharv@musicaigeneration.com</a>.</p>
     </article>
   </main>

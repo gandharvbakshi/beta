@@ -1,14 +1,19 @@
 # Swiggy Checkout Acceptance
 
-Status: preview only.
+Status: checkout-enabled release authorised September 6, 2026; live transactions remain untested.
 
-The currently distributed Beta build remains cart-only. The checkout preview
-described here is disabled by default and must stay off until a separate,
-approval-reviewed release explicitly enables it.
+The owner explicitly requested enabling checkout and publishing after offline
+verification. The Android candidate enables checkout; the backend retains an
+independent emergency kill switch. Only fresh Play readback establishes which
+build is distributed. Release approval does not authorise agent-initiated live
+checkout, payment status/confirmation, or purchases by itself. The owner's later
+September 6 message separately approves one specified live basket. Confirm its
+exact products, address, total and payment method first; do not treat that as
+authority for repeated transaction tests or duplicate retries.
 
 ## Scope
 
-This checklist covers a future checkout-enabled Beta build that:
+This checklist covers the checkout-enabled Beta build that:
 
 - still preserves the existing cart-only flow when the feature flag is off,
 - adds a full cart, address, fees, total and payment-method review step,
@@ -27,13 +32,15 @@ Do not require live payment, live order placement or any external provider app.
 
 ### Flag and state safety
 
-- Checkout preview stays off in the shipped build.
+- Checkout is enabled in the approved release configuration.
 - A cold start with the flag off shows the existing cart-only experience.
-- App restart does not enable preview by accident.
+- App restart preserves the configured flag and the same pending attempt.
 - Process death returns to a disabled or safe recovery state.
 - Background/foreground transitions do not duplicate state.
 - Partial local storage loss does not restore stale checkout state.
-- A disabled preview never mutates backend order state.
+- The backend kill switch suppresses provider payment/order calls and payment links.
+- A missing attempt is atomically closed before allowing a fresh confirmation;
+  a delayed request with that UUID can never dispatch an order afterward.
 
 ### Review screen integrity
 

@@ -7,6 +7,12 @@ Current status: the checked-in distributed build remains cart-only. The
 checkout preview is disabled by default and must remain approval-gated until a
 separate release turns it on.
 
+Enabled checkout candidate summary: once release approval exists, Beta should
+show the full cart, saved address, fees, total and payment method before any
+payment handoff. UPI must stay user-approved in the UPI app; Beta should never
+collect or store PIN, card number or VPA. Cash on delivery may be returned by
+Swiggy. Do not run live payment/order tests in this change.
+
 ## Hosted backend
 
 - Google Cloud project: `beta-496723`
@@ -63,8 +69,9 @@ It must not request screen capture, overlay or AccessibilityService.
 
 ## Physical-phone acceptance suite
 
-All live tests stop after a verified cart. Never open checkout, place an order
-or make a payment.
+All live tests stop after a verified cart unless a separate approval-reviewed
+release explicitly authorises checkout testing. Never open checkout, place an
+order or make a payment in this change.
 
 1. Fresh install: confirm the first screen asks only for Swiggy connection and
    optional analytics consent; no Android permission is requested on launch.
@@ -101,10 +108,10 @@ or make a payment.
     the account, only these same coarse events should be linkable; no shopping
     payload should be present.
 
-## Checkout preview acceptance checklist
+## Checkout acceptance checklist
 
 This section is approval-required only. Do not run the live cases until a
-separate release explicitly enables checkout preview.
+separate release explicitly enables checkout.
 
 ### Offline checks
 
@@ -112,9 +119,9 @@ separate release explicitly enables checkout preview.
    cart-only experience and exposes no new checkout entry point.
 2. Confirm the checkout flag stays off across app restart, process death and
    background/foreground transitions.
-3. Exercise the preview state machine with mocked data only and confirm it
+3. Exercise the checkout state machine with mocked data only and confirm it
    cannot write or surface any payment credential, PIN, card or VPA data.
-4. Confirm no new Android permissions are requested for checkout preview.
+4. Confirm no new Android permissions are requested for checkout.
 5. Confirm totals, address labels and payment-method labels render correctly at
    large font scale and do not clip or overlap.
 6. Confirm timeout handling does not trigger an automatic retry loop.
@@ -123,13 +130,13 @@ separate release explicitly enables checkout preview.
 8. Confirm partial local storage loss falls back to a safe disabled state and
    does not resurrect stale checkout details.
 9. Confirm unmatched address, GPS-off and empty-location cases keep checkout
-   preview disabled or force an explicit user re-review.
-10. Confirm no grocery, order or payment-ID analytics are emitted from preview
+   disabled or force an explicit user re-review.
+10. Confirm no grocery, order or payment-ID analytics are emitted from checkout
     plumbing.
 
 ### Live tests, approval required
 
-1. Open the approved preview build and review the full cart, saved address,
+1. Open the approved checkout build and review the full cart, saved address,
    fees, total and payment-method summary before any external payment handoff.
 2. Confirm UPI handoff uses the trusted payment-provider bridge into the UPI
    app and never collects or stores PIN, card or VPA data in Beta.

@@ -43,3 +43,4 @@ google-play*.json
 
 # Raw generated emulator captures; final Play assets live in play_store_assets/.
 play_store_assets/source_captures/
+scripts/__pycache__/

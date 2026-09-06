@@ -14,6 +14,7 @@ internal class SwiggyCheckoutCoordinator(
     private val activity: Activity,
     private val announce: (String) -> Unit,
     private val store: SwiggyCheckoutStore = SwiggyCheckoutStore(activity),
+    private val gateway: SwiggyCheckoutGateway = LiveSwiggyCheckoutGateway(activity),
     private val onSettled: () -> Unit,
 ) {
     private val screen = SwiggyOrderStepDialog(activity)
@@ -51,7 +52,7 @@ internal class SwiggyCheckoutCoordinator(
         if (store.isPending()) { recover(); return }
         val generation = ++epoch
         progress("Finding your cart address", "The full delivery address will appear in the final review.")
-        SwiggyMcpClient.fetchAddresses(activity) { result -> ui(generation) {
+        gateway.addresses { result -> ui(generation) {
             busy = false
             if (result is SwiggyMcpResult.Success) {
                 val address = result.value.singleOrNull { it.hasCurrentCart }
@@ -66,7 +67,7 @@ internal class SwiggyCheckoutCoordinator(
         if (store.isPending()) { recover(); return }
         val generation = ++epoch
         progress("Checking for an earlier order", "Beta checks existing attempts before preparing a new order.")
-        SwiggyMcpClient.checkoutStatus(activity, null) { result -> ui(generation) {
+        gateway.status(null) { result -> ui(generation) {
             busy = false
             if (result is SwiggyMcpResult.Success) {
                 val attempt = result.value
@@ -81,7 +82,7 @@ internal class SwiggyCheckoutCoordinator(
     private fun review(addressId: String) {
         val generation = ++epoch
         progress("Checking your whole cart", "Checking the current items, address, fees and payment options. Nothing is ordered yet.")
-        SwiggyMcpClient.reviewCheckout(activity, addressId) { result -> ui(generation) {
+        gateway.review(addressId) { result -> ui(generation) {
             busy = false
             when (result) {
                 is SwiggyMcpResult.Success -> choosePayment(result.value)
@@ -142,7 +143,7 @@ internal class SwiggyCheckoutCoordinator(
         if (!store.save(id)) { problem("Beta could not save a safe recovery record. No order was sent."); return }
         val generation = ++epoch
         progress("Sending your confirmed order", "Please wait. If interrupted, Beta checks this attempt and never sends it again automatically.")
-        SwiggyMcpClient.placeCheckout(activity, review.quoteToken, method.id, id) { result -> ui(generation) {
+        gateway.place(review.quoteToken, method.id, id) { result -> ui(generation) {
             busy = false
             if (result is SwiggyMcpResult.Success) render(result.value)
             else if (result is SwiggyMcpResult.Failure && result.orderNotSubmitted && store.clear()) {
@@ -160,7 +161,7 @@ internal class SwiggyCheckoutCoordinator(
         if (id == null) { uncertain(); return }
         val generation = ++epoch
         progress("Checking your existing order", "Do not place or pay again while the result is unclear.")
-        SwiggyMcpClient.checkoutStatus(activity, id) { result -> ui(generation) {
+        gateway.status(id) { result -> ui(generation) {
             busy = false
             if (result is SwiggyMcpResult.Success && result.value.state != "none") render(result.value)
             else uncertain()
@@ -179,6 +180,7 @@ internal class SwiggyCheckoutCoordinator(
             (attempt.pollUntilEpochMs ?: 0) > System.currentTimeMillis()
         val title = when (attempt.state) {
             "placed" -> "Instamart order confirmed"
+            "not_submitted" -> "No order was sent"
             "pending_payment" -> if (paymentOpened) "Check existing order" else "Approve payment, then return"
             "failed" -> "Payment did not complete"
             "cancelled" -> "Swiggy reports a cancellation"
@@ -189,7 +191,11 @@ internal class SwiggyCheckoutCoordinator(
         }
         screen.show(SwiggyStepScreen(
             eyebrow = if (paid) "Confirmed by Swiggy" else "Existing order attempt", title = title,
-            message = attempt.message, caption = if (paid) "For changes or cancellation, contact Swiggy support." else "An unclear result does not mean that payment or the order failed. Do not pay twice.",
+            message = attempt.message, caption = when {
+                paid -> "For changes or cancellation, contact Swiggy support."
+                attempt.state == "not_submitted" -> "This attempt is safely closed. Review your current cart before confirming a new order."
+                else -> "An unclear result does not mean that payment or the order failed. Do not pay twice."
+            },
             rows = attempt.orderIds.map { SwiggyStepRow("Swiggy order", it, if (paid) "Confirmed" else "Check status") },
             primary = if (canPay) SwiggyStepAction("Open secure UPI payment") { openPayment(attempt) }
                 else if (terminal) SwiggyStepAction(
@@ -246,6 +252,7 @@ internal class SwiggyCheckoutCoordinator(
         if (!SwiggyCartReviewStore(activity).clear() || !SwiggyPendingCartStore(activity).clear() || !store.clear()) {
             uncertain(); return
         }
+        lastAttempt = null // A queued second Done tap cannot settle this attempt twice.
         dismiss()
         onSettled()
     }
@@ -277,7 +284,7 @@ internal class SwiggyCheckoutCoordinator(
         }
     }
 
-    private companion object { val terminalStates = setOf("placed", "failed", "cancelled", "cart_changed", "refund_initiated", "partial") }
+    private companion object { val terminalStates = setOf("placed", "failed", "cancelled", "cart_changed", "refund_initiated", "partial", "not_submitted") }
 }
 
 internal fun isSafeCheckoutPaymentUrl(url: String): Boolean = runCatching {
