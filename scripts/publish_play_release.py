@@ -52,7 +52,7 @@ SCREENSHOT_DIR_TO_IMAGE_TYPE = {
     "tablet_10in": "tenInchScreenshots",
     "ten_inch": "tenInchScreenshots",
 }
-IMAGE_TYPES = tuple(dict.fromkeys(SCREENSHOT_DIR_TO_IMAGE_TYPE.values()))
+IMAGE_TYPES = tuple(dict.fromkeys(SCREENSHOT_DIR_TO_IMAGE_TYPE.values())) + ("featureGraphic",)
 RELEASE_NAME = "0.3.2"
 RELEASE_NOTES_BY_LOCALE = {
     "en-US": (

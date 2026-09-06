@@ -14,7 +14,8 @@
 - Play version 17 was published before an attempted withdrawal took effect
   (Console notification and September 6 publishing date). Version 18 was uploaded
   as a draft; version 19 replaces that draft via committed edit
-  `12034684431507713168`. Final version 19 readback remains to be recorded.
+  `12034684431507713168`. Fresh readback confirms beta version 19 draft alongside
+  completed version 17; uploaded bundle hash matches the signed local artifact.
   Draft is not rollout/approval. Both English listings, feature graphic and three
   screenshot sets were updated. Play rejects `changesNotSentForReview` on this app;
   a draft bundle can coexist with automatically reviewed listing changes.
@@ -25,17 +26,23 @@
 - Backend source `4162200` accepts actual flat MCP responses while preserving
   explicit error checks and field-level checkout validation. **259 tests plus
   126 subtests passed.** `elderly-canary` runs
-  `beta-backend-staging-checkout-flat-4162200`, ordinary traffic still runs
-  `beta-backend-staging-checkout-607e0bd` pending live review acceptance.
-  Synthetic unconnected readiness probes passed on both URLs; no provider calls.
+  `beta-backend-staging-checkout-flat-4162200`. After successful physical-phone
+  whole-cart/payment-option review, ordinary 100% traffic and all seven tags were
+  promoted to this revision. Environment and runtime identity stayed unchanged.
+  Synthetic unconnected readiness probes passed before and after promotion.
+  Backend main `a3e9085` adds only the probe URL to runtime source `4162200`.
 - Live cart test: one owner-approved addition request, no order/payment. Readback
   shows the intended counted multipack and second product, with the original cart
   item preserved. The strict verifier stopped because two SKU references changed
   although spin IDs and quantities matched. No write retry, no relaxed verifier.
-  Independent current-cart inspection followed by fresh whole-cart checkout
-  review is in progress. This is not automatic cart-verification success.
+  Independent current-cart inspection and explicit acknowledgement were followed
+  by a successful fresh whole-cart checkout review on the phone. Only pay-on-
+  delivery was returned for this cart; UPI is implemented/offline-tested but not
+  live-proven. This is not automatic cart-verification success.
 - Final exact items/address/total/payment confirmation is still required before
   the one authorised real order. No real transaction success is claimed here.
+- Android source commit `328554b` was pushed and read back on main and master;
+  GitHub default branch is main. Drive handoffs record these gates and limits.
 
 ## Earlier version 17 checkpoint
 
