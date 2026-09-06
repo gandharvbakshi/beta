@@ -2,6 +2,16 @@
 
 ## Current verdict
 
+Update after explicit owner direction to publish to open testing: promotion edit
+`12204443968900016051` validated and committed successfully. Fresh independent
+API readback shows **beta version20 completed**, no beta draft17/20 release,
+production/alpha empty and internal3draft unchanged. Only the open-testing track
+was changed; the existing signed20 bundle/hash, listings and assets were reused.
+This supersedes the draft hold below, not the unresolved reviewer-access risk
+or live-transaction limits. App-access declarations were not changed and no
+claim of full demo access was made. API completed status does not independently
+prove Google review approval or installation availability.
+
 History-first matching is implemented, the hosted backend is deployed, both
 GitHub main branches are updated, and signed Play version 20 is saved as a draft.
 This is not a claim of public rollout or completed-order acceptance. No provider cart,

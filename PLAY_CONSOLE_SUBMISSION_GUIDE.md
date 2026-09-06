@@ -1,5 +1,11 @@
 # Beta Play Console Submission Guide
 
+September 6 promotion update: on explicit owner direction, existing signed
+version20/0.3.3 was promoted to open-testing beta and freshly read back as
+completed. Production was unchanged. This supersedes the draft hold below for
+this submission only; reviewer-access risk remains unresolved. Do not claim
+review approval or falsify app-access declarations from this API result.
+
 Target release: `0.3.3` / version code `20`, package
 `live.betaapp.android`, open-testing track `beta`.
 

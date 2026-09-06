@@ -1,5 +1,10 @@
 # Beta Play and Live Testing Preparation
 
+September 6 promotion update: version20/0.3.3 is now completed on the open-testing
+beta track following the owner's explicit publish instruction. This supersedes
+the draft status below. Google review/availability is not independently verified;
+reviewer access and live-transaction evidence remain separate unresolved risks.
+
 Current target: Swiggy-only version `0.3.3` (`versionCode 20`), initially a
 draft on the open-testing track. See `SWIGGY_HISTORY_MATCHING_RELEASE_20260906.md`
 for the matching tests and latest release readback.
