@@ -9,7 +9,7 @@
   <main style="max-width:860px;margin:0 auto;padding:32px 20px 48px;">
     <article style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:28px;">
       <h1 style="margin:0 0 8px;font-size:30px;line-height:1.2;color:#111827;">Beta Privacy Policy</h1>
-      <p style="margin:0 0 20px;color:#6b7280;"><strong>Last updated:</strong> September 5, 2026</p>
+      <p style="margin:0 0 20px;color:#6b7280;"><strong>Last updated:</strong> September 6, 2026</p>
 
       <p>Beta is a cart-only assistant for Swiggy Instamart. It helps you find products, review proposed cart changes and add only the items you confirm. Beta always stops before checkout and payment.</p>
 
@@ -22,6 +22,11 @@
         <li>Feedback text and diagnostic logs only when you choose to submit them.</li>
       </ul>
       <p>Beta does not receive your Swiggy OTP or payment details. It does not place an order, complete checkout or make a payment.</p>
+
+      <h2>Checkout preview</h2>
+      <p>The current distributed build remains cart-only. An optional checkout preview exists only as a future, approval-gated release path and is disabled by default in the shipped app.</p>
+      <p>If a later approved build enables that preview, Beta would let you review the full cart, saved address, fees, total and payment method before you leave the app. UPI payment would hand off to a trusted payment-provider bridge that opens your UPI app; Beta would not collect or store your PIN, card number or VPA. Cash on delivery may be surfaced if Swiggy returns it.</p>
+      <p>For recovery only, Beta would keep an encrypted backend record containing the confirmed cart, delivery address, selected payment method, provider receipt and transaction identifiers while an order attempt is unresolved. Resolved records are reduced to the attempt ID, order IDs, status and recovery timestamps; the basket, address and payment link are removed. Unresolved records do not expire automatically, because forgetting them could allow a duplicate order. The app stores only an opaque attempt ID and payment-handoff marker in no-backup storage. Grocery, order and payment IDs are not used for analytics. No new Android permissions are required for this preview path.</p>
 
       <h2>Voice and location</h2>
       <p>When you tap the microphone, Android's speech-recognition provider may process your voice and return text to Beta. Beta does not upload or store raw voice audio.</p>

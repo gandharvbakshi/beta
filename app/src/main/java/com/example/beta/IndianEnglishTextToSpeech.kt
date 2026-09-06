@@ -75,7 +75,10 @@ internal class IndianEnglishTextToSpeech(context: Context) {
             pendingMessage = normalized
             return
         }
-        activeEngine.speak(normalized, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE_ID)
+        splitSpeechForTts(normalized).forEachIndexed { index, chunk ->
+            activeEngine.speak(chunk, if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+                null, "$UTTERANCE_ID-$index")
+        }
     }
 
     fun stop() {
@@ -161,4 +164,20 @@ internal class IndianEnglishTextToSpeech(context: Context) {
         private const val UTTERANCE_ID = "beta_voice_prompt"
         private val INDIAN_ENGLISH = Locale.forLanguageTag("en-IN")
     }
+}
+
+/** Keep long final basket summaries under Android's per-utterance input limit. */
+internal fun splitSpeechForTts(message: String, limit: Int = 3500): List<String> {
+    require(limit >= 2)
+    val chunks = mutableListOf<String>()
+    var rest = message.trim()
+    while (rest.length > limit) {
+        val space = rest.lastIndexOf(' ', limit - 1)
+        var end = if (space > 0) space else limit
+        if (Character.isHighSurrogate(rest[end - 1])) end--
+        chunks += rest.substring(0, end)
+        rest = rest.substring(end).trimStart()
+    }
+    if (rest.isNotBlank()) chunks += rest
+    return chunks
 }

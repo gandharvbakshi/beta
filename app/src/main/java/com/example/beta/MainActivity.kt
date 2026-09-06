@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private var swiggyLocationPrompt: AlertDialog? = null
     private var selectedSwiggyAddressLabel: String? = null
     private lateinit var swiggyOrderCoordinator: SwiggyVoiceOrderCoordinator
+    private lateinit var swiggyCheckoutCoordinator: SwiggyCheckoutCoordinator
     private lateinit var draftStore: SwiggyDraftStore
     private val draftHandler = Handler(Looper.getMainLooper())
     private var draftPersistenceBlocked = false
@@ -116,6 +117,15 @@ class MainActivity : ComponentActivity() {
             },
             onRecognitionError = ::handleVoiceInputError,
         )
+        swiggyCheckoutCoordinator = SwiggyCheckoutCoordinator(this, ::announceSwiggy) {
+            swiggyOrderCoordinator.onHostResumed()
+        }
+        findViewById<android.widget.Button>(R.id.swiggyCheckoutAction).apply {
+            visibility = if (BuildConfig.BETA_SWIGGY_CHECKOUT_ENABLED) android.view.View.VISIBLE else android.view.View.GONE
+            setOnClickListener {
+                if (!SwiggyCartMutationGuard.isInFlight()) swiggyCheckoutCoordinator.startFromCart()
+            }
+        }
         swiggyOrderCoordinator = SwiggyVoiceOrderCoordinator(
             activity = this,
             announce = ::announceSwiggy,
@@ -126,6 +136,8 @@ class MainActivity : ComponentActivity() {
             onTerminal = ::resetSwiggyOrderInputStatus,
             onVerified = ::onSwiggyCartVerified,
             beforeApply = ::prepareDraftForCartApply,
+            onCheckoutRequested = { swiggyCheckoutCoordinator.start(it) },
+            isCheckoutActive = { swiggyCheckoutCoordinator.isActive() },
             onEditRequest = {
                 orderCommandInput.requestFocus()
                 orderCommandInput.setSelection(orderCommandInput.text.length)
@@ -138,6 +150,7 @@ class MainActivity : ComponentActivity() {
                 updateSwiggyMutationControls(inFlight)
                 if (!inFlight) {
                     SwiggyCartMutationGuard.consumeTerminalNotice()?.let(::announceSwiggy)
+                    orderCommandInput.post { swiggyOrderCoordinator.onSharedRequestSettled() }
                 }
             }
         }
@@ -202,7 +215,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         BetaTelemetry.instance?.onAppResume()
         refreshSwiggyConnectionStatus(resumePendingOrder = true)
-        if (!swiggyOrderCoordinator.restorePendingCartWarning()) maybeShowFeedbackPrompt()
+        val checkoutActive = swiggyCheckoutCoordinator.onResume()
+        if (!swiggyOrderCoordinator.onHostResumed(checkoutActive)) maybeShowFeedbackPrompt()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -213,6 +227,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        if (::swiggyCheckoutCoordinator.isInitialized) swiggyCheckoutCoordinator.onPause()
+        if (::swiggyOrderCoordinator.isInitialized) swiggyOrderCoordinator.onHostPaused()
         if (::voiceInputController.isInitialized) voiceInputController.cancel()
         if (::textToSpeech.isInitialized) textToSpeech.stop()
         draftHandler.removeCallbacks(persistDraftRunnable)
@@ -221,6 +237,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::swiggyCheckoutCoordinator.isInitialized) swiggyCheckoutCoordinator.destroy()
         draftHandler.removeCallbacks(persistDraftRunnable)
         super.onDestroy()
         cancelPendingSwiggyMcpWork("activity_destroyed")

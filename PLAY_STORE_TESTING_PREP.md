@@ -3,6 +3,10 @@
 Current target: Swiggy-only version `0.3.0` (`versionCode 17`) on the open
 testing track after all release gates pass.
 
+Current status: the checked-in distributed build remains cart-only. The
+checkout preview is disabled by default and must remain approval-gated until a
+separate release turns it on.
+
 ## Hosted backend
 
 - Google Cloud project: `beta-496723`
@@ -96,6 +100,53 @@ or make a payment.
     GPS or identity text. If Google Ads conversion measurement is enabled in
     the account, only these same coarse events should be linkable; no shopping
     payload should be present.
+
+## Checkout preview acceptance checklist
+
+This section is approval-required only. Do not run the live cases until a
+separate release explicitly enables checkout preview.
+
+### Offline checks
+
+1. With the checkout flag off, verify the app still launches into the existing
+   cart-only experience and exposes no new checkout entry point.
+2. Confirm the checkout flag stays off across app restart, process death and
+   background/foreground transitions.
+3. Exercise the preview state machine with mocked data only and confirm it
+   cannot write or surface any payment credential, PIN, card or VPA data.
+4. Confirm no new Android permissions are requested for checkout preview.
+5. Confirm totals, address labels and payment-method labels render correctly at
+   large font scale and do not clip or overlap.
+6. Confirm timeout handling does not trigger an automatic retry loop.
+7. Confirm a double tap does not duplicate a pending checkout or mutate the
+   cart twice.
+8. Confirm partial local storage loss falls back to a safe disabled state and
+   does not resurrect stale checkout details.
+9. Confirm unmatched address, GPS-off and empty-location cases keep checkout
+   preview disabled or force an explicit user re-review.
+10. Confirm no grocery, order or payment-ID analytics are emitted from preview
+    plumbing.
+
+### Live tests, approval required
+
+1. Open the approved preview build and review the full cart, saved address,
+   fees, total and payment-method summary before any external payment handoff.
+2. Confirm UPI handoff uses the trusted payment-provider bridge into the UPI
+   app and never collects or stores PIN, card or VPA data in Beta.
+3. Confirm cash on delivery is surfaced only when Swiggy returns it.
+4. Confirm the encrypted backend recovery record retains the reviewed cart,
+   address and provider receipt only while unresolved, then removes them when
+   resolved. Verify the reduced terminal record and no shopping analytics.
+5. Confirm backgrounding the app, killing the process, or returning later
+   resumes from the persisted recovery state without automatic retry.
+6. Confirm a timeout or readback failure stops safely and asks for review
+   instead of retrying checkout automatically.
+7. Confirm accessibility, large font and delayed-input flows still present the
+   same totals and payment-method review before any external handoff.
+8. Approval must cover the specific basket and spending limit before any live
+   checkout: even opening a UPI bridge may create a pending order, and COD can
+   place an order immediately. Do not approve a payment or complete a purchase
+   unless that specific action has also been approved by the user.
 
 Use Espresso for Beta UI, UI Automator only for Android/Swiggy UI that cannot be
 controlled in-app, and ADB for installation and logs. Never include user-private

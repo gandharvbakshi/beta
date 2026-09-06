@@ -3,6 +3,10 @@
 Target release: `0.3.0` / version code `17`, package
 `live.betaapp.android`, open-testing track `beta`.
 
+Current status: the distributed build is still cart-only. The checkout preview
+described in the docs is disabled by default and must stay off until a
+separate approval-reviewed release turns it on.
+
 ## 1. Release proof before upload
 
 Do not upload until all of these pass against the final commit:
@@ -20,6 +24,12 @@ Do not upload until all of these pass against the final commit:
   cart, address, GPS or free-text values in analytics.
 - Final Claude Opus adversarial review and resolution of release blockers.
 
+For any future checkout-enabled build, add one more gate before upload: the
+current Console owner must re-review the Data Safety mapping for **Financial
+info → Purchase history** and the surrounding order-recovery disclosures, and
+the review outcome must be verified in the live Console before anyone says the
+mapping was submitted. Do not rely on this document as proof of submission.
+
 The app must never enter checkout, place an order or make a payment during
 testing or review.
 
@@ -33,6 +43,9 @@ coarse Google Ads conversion measurement from the same privacy-safe events.
 Keep the public copy plain: Beta may take about a minute to verify a cart
 update, and if it cannot safely distinguish the result from the existing cart
 it asks the user to inspect Swiggy instead of retrying.
+
+Do not edit the listing, screenshots or app strings for this docs-only preview
+change.
 
 - Keep `app_icon_512.png`.
 - Upload `feature_graphic_1024x500.png` only after confirming it contains no

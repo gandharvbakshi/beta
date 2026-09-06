@@ -2,6 +2,19 @@
 
 Last updated: August 17, 2026
 
+## Checkout implementation decision - September 6, 2026
+
+The user has now authorised implementation of Swiggy MCP checkout, UPI handoff,
+and order confirmation. This supersedes the implementation-only cart boundary
+below, not the live-testing restriction. Both app and backend checkout switches
+remain off by default. No live checkout/payment/order test or checkout-enabled
+release is authorised until the user explicitly approves it later. Existing
+distributed releases and store assets have not been changed by this decision.
+See `SWIGGY_CHECKOUT_ACCEPTANCE.md` for offline evidence and later live gates.
+Before enabling/releasing, review financial/purchase-history Data Safety coverage,
+the recovery-record retention policy, full-address/amount consent, and current
+provider payment-link hosts. Never claim that Beta receives PIN/card/VPA data.
+
 ## Current app context
 
 - Play app: `Beta`

@@ -191,7 +191,8 @@ object SwiggyMcpClient {
             val userMessage: String,
             val httpCode: Int? = null,
             val reconnectRequired: Boolean = false,
-            val retryable: Boolean = false
+            val retryable: Boolean = false,
+            val orderNotSubmitted: Boolean = false,
         ) : SwiggyMcpResult<Nothing>()
     }
 
@@ -510,6 +511,96 @@ object SwiggyMcpClient {
         return parseAddressesResponse(body).addresses
     }
 
+    fun reviewCheckout(context: Context, addressId: String, callback: SwiggyCallback<SwiggyCheckoutReview>) {
+        executeJsonRequest(context, "POST", "/swiggy/checkout/review",
+            JSONObject().put("addressId", addressId).toString(), callback, ::parseCheckoutReview, 60)
+    }
+
+    fun placeCheckout(context: Context, quoteToken: String, methodId: String, attemptId: String,
+                      callback: SwiggyCallback<SwiggyCheckoutAttempt>) {
+        executeJsonRequest(context, "POST", "/swiggy/checkout/place",
+            JSONObject().put("quoteToken", quoteToken).put("methodId", methodId)
+                .put("attemptId", attemptId).put("confirmed", true).toString(), callback, ::parseCheckoutAttempt, 110)
+    }
+
+    fun checkoutStatus(context: Context, attemptId: String?, callback: SwiggyCallback<SwiggyCheckoutAttempt>) {
+        executeJsonRequest(context, "POST", "/swiggy/checkout/status",
+            JSONObject().apply { if (attemptId != null) put("attemptId", attemptId) }.toString(),
+            callback, ::parseCheckoutAttempt, 60)
+    }
+
+    private fun checkoutObject(value: JsonValue?): JsonValue.Obj = value as? JsonValue.Obj ?: error("Invalid checkout object")
+    private fun checkoutText(root: JsonValue.Obj, key: String, max: Int = 2000): String =
+        (root.members[key] as? JsonValue.Str)?.value?.takeIf { it.isNotBlank() && it.length <= max }
+            ?: error("Invalid checkout field")
+    private fun checkoutLong(root: JsonValue.Obj, key: String): Long =
+        (root.members[key] as? JsonValue.Num)?.raw?.toLongOrNull()?.takeIf { it > 0 }
+            ?: error("Invalid checkout number")
+    private fun checkoutMoney(root: JsonValue.Obj, key: String, signed: Boolean = false): String {
+        val amount = checkoutText(root, key, 20)
+        require(amount.matches(Regex(if (signed) "-?[0-9]+\\.[0-9]{2}" else "[0-9]+\\.[0-9]{2}")))
+        require(java.math.BigDecimal(amount).abs() <= java.math.BigDecimal("100000"))
+        return amount
+    }
+    private fun checkoutArray(root: JsonValue.Obj, key: String): List<JsonValue> =
+        (root.members[key] as? JsonValue.Arr)?.items ?: error("Missing checkout list")
+
+    internal fun parseCheckoutReview(body: String): SwiggyCheckoutReview {
+        val root = checkoutObject(JsonParser(body).parse())
+        val items = checkoutArray(root, "items").map {
+            val item = checkoutObject(it)
+            val quantity = checkoutLong(item, "quantity").also { n -> require(n <= 100) }.toInt()
+            SwiggyCheckoutLine(checkoutText(item, "name", 500), quantity,
+                (item.members["variant"] as? JsonValue.Str)?.value.orEmpty(), checkoutMoney(item, "unitPrice"))
+        }.also { require(it.size in 1..100) }
+        val charges = checkoutArray(root, "charges").map {
+            val charge = checkoutObject(it)
+            SwiggyCheckoutCharge(checkoutText(charge, "label", 200), checkoutMoney(charge, "amount", signed = true))
+        }.also { require(it.size <= 100) }
+        val methods = checkoutArray(root, "methods").map {
+            val method = checkoutObject(it)
+            val type = checkoutText(method, "paymentMethod", 10).also { t -> require(t in setOf("UPI", "Cash", "COD")) }
+            val intent = (method.members["intentApp"] as? JsonValue.Str)?.value
+            val qr = method.members["generateUPIQR"] == JsonValue.Bool(true)
+            if (type == "UPI") require(!intent.isNullOrBlank() xor qr) else require(intent == null && !qr)
+            val id = checkoutText(method, "id", 200)
+            if (intent != null) require(intent == id)
+            if (type != "UPI") require(id == type)
+            SwiggyCheckoutMethod(id, checkoutText(method, "label", 200), type, intent, qr)
+        }.also { list -> require(list.size in 1..30 && list.map { it.id }.distinct().size == list.size) }
+        val amount = checkoutMoney(root, "amount").also { require(java.math.BigDecimal(it).signum() > 0) }
+        return SwiggyCheckoutReview(checkoutText(root, "quoteToken", 4096), checkoutLong(root, "expiresAt"),
+            checkoutText(root, "addressId", 128), checkoutText(root, "addressLabel", 200),
+            checkoutText(root, "addressFull", 2500), amount, items, charges, methods)
+    }
+
+    internal fun parseCheckoutAttempt(body: String): SwiggyCheckoutAttempt {
+        val root = checkoutObject(JsonParser(body).parse())
+        val state = checkoutText(root, "state", 40).also { require(it in setOf("none", "dispatching", "pending_payment", "confirming",
+            "placed", "failed", "cancelled", "cart_changed", "refund_initiated", "partial", "unknown")) }
+        if (state == "none") {
+            require(root.members["attemptId"] == null && root.members["paymentUrl"] == null)
+            return SwiggyCheckoutAttempt(null, state, checkoutText(root, "message"))
+        }
+        val id = checkoutText(root, "attemptId", 36).also { require(java.util.UUID.fromString(it).toString() == it) }
+        val ids = checkoutArray(root, "orderIds").map { (it as? JsonValue.Str)?.value?.takeIf { s -> s.isNotBlank() && s.length <= 200 } ?: error("Invalid order id") }
+        require(ids.size <= 100 && ids.distinct().size == ids.size)
+        if (state == "placed" || state == "pending_payment") require(ids.isNotEmpty())
+        val link = (root.members["paymentUrl"] as? JsonValue.Str)?.value
+        if (link != null) require(state == "pending_payment" && isSafeCheckoutPaymentUrl(link))
+        val interval = if (root.members["pollAfterMs"] != null) checkoutLong(root, "pollAfterMs").also { require(it <= 120000) } else null
+        val deadline = if (root.members["pollUntilEpochMs"] != null) checkoutLong(root, "pollUntilEpochMs") else null
+        if (state == "pending_payment") require(interval != null && deadline != null)
+        return SwiggyCheckoutAttempt(id, state, checkoutText(root, "message", 12000), ids, link, interval, deadline)
+    }
+
+    internal fun checkoutOrderNotSubmittedFlag(path: String, code: Int, body: String): Boolean {
+        if (path != "/swiggy/checkout/place" || code !in setOf(400, 403, 409, 422)) return false
+        val root = JsonParser(body).parse() as? JsonValue.Obj ?: return false
+        val detail = root.members["detail"] as? JsonValue.Obj ?: return false
+        return detail.members["orderNotSubmitted"] == JsonValue.Bool(true)
+    }
+
     internal fun parseAddressesResponse(body: String): AddressResponse {
         val root = parseRoot(body)
         val array = firstArray(root, "addresses", "data", "items", "results")
@@ -636,6 +727,8 @@ object SwiggyMcpClient {
             .writeTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(retryOnConnectionFailure)
+            .followRedirects(false)
+            .followSslRedirects(false)
 
         return builder.build()
     }
@@ -706,12 +799,15 @@ object SwiggyMcpClient {
                 httpCode = it.code,
                 reconnectRequired = swiggyReconnectRequired(body),
                 retryable = swiggyRetryable(path, it.code),
+                orderNotSubmitted = checkoutOrderNotSubmittedFlag(path, it.code, body),
             )
         }
         val parsed = try {
             parser(body)
         } catch (_: Exception) {
-            return SwiggyMcpResult.Failure(userMessage = if (isCartMutationPath(path)) {
+            return SwiggyMcpResult.Failure(userMessage = if (path.startsWith("/swiggy/checkout/")) {
+                "Beta could not read the order result. Check the existing attempt; do not place or pay again."
+            } else if (isCartMutationPath(path)) {
                 "Swiggy may have changed the cart, but Beta could not read the result. Open Swiggy and review the cart before trying again."
             } else {
                 "Swiggy backend returned an unreadable response."
@@ -733,6 +829,8 @@ object SwiggyMcpClient {
     }
 
     internal fun swiggyNetworkFailureMessage(path: String): String {
+        if (path in setOf("/swiggy/checkout/place", "/swiggy/checkout/status"))
+            return "The order outcome is not confirmed. Check the existing attempt; do not place or pay again."
         return if (path == "/swiggy/cart/apply") {
             "Swiggy may have changed the cart, but Beta lost the connection before it could verify it. Please open Swiggy and review the cart before trying again."
         } else {
@@ -740,7 +838,8 @@ object SwiggyMcpClient {
         }
     }
 
-    internal fun isCartMutationPath(path: String): Boolean = path == "/swiggy/cart/apply"
+    internal fun isCartMutationPath(path: String): Boolean = path in setOf(
+        "/swiggy/cart/apply", "/swiggy/checkout/place", "/swiggy/checkout/status")
 
     internal fun swiggyHttpErrorReason(body: String): String? {
         val root = parseRoot(body)
@@ -764,6 +863,16 @@ object SwiggyMcpClient {
 
     internal fun swiggyUserMessageForHttpCode(path: String, code: Int, body: String): String {
         val reason = swiggyHttpErrorReason(body)
+        if (path.startsWith("/swiggy/checkout/")) {
+            if (path == "/swiggy/checkout/review") return when (reason) {
+                "checkout_disabled" -> "Checkout in Beta is not enabled yet. No order was sent."
+                "checkout_unresolved" -> "An earlier order needs checking before you can order again."
+                else -> "Beta could not verify the cart, address, total or payment options. No order was sent."
+            }
+            return if (checkoutOrderNotSubmittedFlag(path, code, body)) {
+                "The review changed or could not be verified. Please review the current cart again."
+            } else "The order outcome is not confirmed. Check the existing attempt; do not place or pay again."
+        }
         val waitMinutes = swiggyRateLimitWaitMinutes(body)
         return when {
             swiggyReconnectRequired(body) -> "Swiggy connection needs to be reconnected."

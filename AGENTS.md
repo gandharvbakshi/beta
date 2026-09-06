@@ -15,8 +15,12 @@ Play/privacy review.
 
 ## Safety boundary
 
-Never automate checkout, payment or order placement. Never store payment
-credentials, bypass Swiggy safeguards, run high-volume automation or scrape
+The user explicitly authorised Swiggy MCP checkout/payment/order implementation
+on 2026-09-06. This supersedes the former cart-only implementation boundary.
+Keep checkout disabled by default until separately approved for live acceptance.
+NO live checkout, payment initiation, payment confirmation or order-placement
+tests are authorised yet. Use mocked provider responses only for this work.
+Never store payment credentials, bypass Swiggy safeguards, run high-volume automation or scrape
 large amounts of data. Live tests may search, discover, plan, add to cart and
 verify the resulting cart, then must stop. Preserve the user's pre-existing cart
 and remove only clearly identified test-added items.
@@ -117,7 +121,8 @@ A release task is complete only when:
 
 - backend and Android test/build status is explicit;
 - the hosted service and physical-phone cart-only flow are verified;
-- no checkout/payment automation is introduced;
+- checkout has explicit final user confirmation, durable duplicate prevention,
+  and remains disabled until separately approved for live acceptance;
 - manifest, privacy, listing and Data Safety are aligned;
 - final screenshots come from the verified build;
 - GitHub/Play/Cloud actions are read back from the live surface; and

@@ -355,11 +355,21 @@ class SwiggyVoiceOrderCoordinator(
     private val onVerified: (Int) -> Unit = {},
     private val onEditRequest: () -> Unit = {},
     private val beforeApply: () -> Boolean = { true },
+    private val onCheckoutRequested: (String) -> Unit = {},
+    private val isCheckoutActive: () -> Boolean = { false },
+    private val checkReviewedCart: (String, (SwiggyMcpResult<Boolean>) -> Unit) -> Unit = { token, callback ->
+        SwiggyMcpClient.checkCartPlan(activity, token, callback)
+    },
 ) {
     private var running = false
     private var operationGeneration = 0L
     private var mutationInFlight = false
     private val pendingCartStore = SwiggyPendingCartStore(activity.applicationContext)
+    private val cartReviewStore = SwiggyCartReviewStore(activity.applicationContext)
+    private var hostResumed = false
+    private var interruptedDuringRequest = false
+    private var preparationInterrupted = false
+    private var waitingForExistingRequest = false
     private val stepDialog = SwiggyOrderStepDialog(activity)
     private val addressIntelligence = SwiggyAddressIntelligence(activity.applicationContext)
     private var addressSuggestionReasons: Map<String, String> = emptyMap()
@@ -377,6 +387,10 @@ class SwiggyVoiceOrderCoordinator(
     }
 
     fun start(instruction: String) {
+        if (isCheckoutActive()) {
+            announce("Please finish checking your existing order before starting another cart.")
+            return
+        }
         if (restorePendingCartWarning()) return
         if (SwiggyCartMutationGuard.isInFlight()) {
             announce("Swiggy is still checking the last confirmed cart update. Please wait.")
@@ -438,25 +452,123 @@ class SwiggyVoiceOrderCoordinator(
 
     fun isMutationInFlight(): Boolean = mutationInFlight
 
-    fun restorePendingCartWarning(): Boolean {
+    /** Detects Beta leaving the foreground, not which other app the user opened. */
+    fun onHostPaused() {
+        hostResumed = false
+        if (mutationInFlight) {
+            interruptedDuringRequest = true
+        } else if (running) {
+            preparationInterrupted = true
+            cancel() // Invalidate the unconfirmed plan; the composer draft is preserved.
+        }
+    }
+
+    fun onHostResumed(suppressCartReview: Boolean = false): Boolean {
+        hostResumed = true
+        if (suppressCartReview || isCheckoutActive()) return true
+        if (SwiggyCartMutationGuard.isInFlight()) {
+            waitingForExistingRequest = !mutationInFlight
+            return true
+        }
+        if (running) return true
+        if (pendingCartStore.isPending()) {
+            checkPendingCartOnReturn()
+            return true
+        }
+        if (preparationInterrupted) {
+            preparationInterrupted = false
+            announce(activity.getString(R.string.swiggy_preparation_interrupted))
+            return true
+        }
+        return false
+    }
+
+    fun onSharedRequestSettled() {
+        if (hostResumed && waitingForExistingRequest && !SwiggyCartMutationGuard.isInFlight()) {
+            waitingForExistingRequest = false
+            onHostResumed()
+        }
+    }
+
+    private fun clearPendingCartReview(): Boolean = cartReviewStore.clear() && pendingCartStore.clear()
+
+    private fun checkPendingCartOnReturn() {
+        if (!hostResumed || running || SwiggyCartMutationGuard.isInFlight()) return
+        val token = cartReviewStore.load()
+        if (token == null) {
+            restorePendingCartWarning()
+            return
+        }
+        running = true
+        interruptedDuringRequest = false
+        val operationId = ++operationGeneration
+        setMutationInFlight(true) // Block new writes while this read-only check is unresolved.
+        val message = activity.getString(R.string.swiggy_return_check_message)
+        stepDialog.show(SwiggyStepScreen(
+            eyebrow = "Read-only check",
+            title = "Checking your cart and address",
+            message = message,
+            caption = message,
+            safetyNote = activity.getString(R.string.swiggy_keep_closed_warning),
+        ))
+        announce(message)
+        checkReviewedCart(token) { result ->
+            onUi(operationId) {
+                running = false
+                setMutationInFlight(false)
+                if (!hostResumed || interruptedDuringRequest) {
+                    stepDialog.dismiss()
+                    if (hostResumed) restorePendingCartWarning()
+                    return@onUi
+                }
+                if (result is SwiggyMcpResult.Success && result.value && clearPendingCartReview()) {
+                    val checked = activity.getString(R.string.swiggy_return_check_matches)
+                    stepDialog.show(SwiggyStepScreen(
+                        eyebrow = "Checked now",
+                        title = "Your cart and address still match",
+                        message = checked,
+                        caption = checked,
+                        safetyNote = activity.getString(R.string.swiggy_handoff_warning),
+                        primary = SwiggyStepAction("Done") { stepDialog.dismiss() },
+                        cancel = { stepDialog.dismiss() },
+                    ))
+                    // This is not another addition or activation event.
+                    announce(checked)
+                    notifyTerminal()
+                } else {
+                    val failure = result as? SwiggyMcpResult.Failure
+                    if (failure?.reconnectRequired == true) onReconnectRequired()
+                    val warning = if (failure?.httpCode == 409) {
+                        activity.getString(R.string.swiggy_return_check_changed)
+                    } else activity.getString(R.string.swiggy_return_check_unknown)
+                    restorePendingCartWarning(warning)
+                }
+            }
+        }
+    }
+
+    fun restorePendingCartWarning(message: String? = null): Boolean {
         if (running || SwiggyCartMutationGuard.isInFlight() || !pendingCartStore.isPending()) return false
-        val warning = "Beta could not finish checking your last cart update. Please review your Swiggy cart. Nothing will be added again automatically."
+        val warning = message ?: activity.getString(R.string.swiggy_return_check_unknown)
         stepDialog.show(SwiggyStepScreen(
             eyebrow = "Review needed",
             title = "Check your last cart update",
             message = warning,
             caption = warning,
-            safetyNote = activity.getString(R.string.swiggy_step_no_checkout),
+            safetyNote = activity.getString(R.string.swiggy_handoff_warning),
             primary = SwiggyStepAction("Open Swiggy to review") {
                 CommerceAppLauncher.launchPreferred(activity, "open swiggy")
                 stepDialog.dismiss()
             },
             secondary = SwiggyStepAction("I have reviewed the cart") {
-                if (pendingCartStore.clear()) {
+                if (clearPendingCartReview()) {
                     stepDialog.dismiss()
                     announce("You can now start a new list. Beta has not changed the cart.")
                     notifyTerminal()
                 } else announce("Beta could not save that confirmation. Please try again.")
+            },
+            tertiary = cartReviewStore.load()?.let {
+                SwiggyStepAction("Check again without adding") { checkPendingCartOnReturn() }
             },
             cancel = { stepDialog.dismiss() },
         ))
@@ -958,7 +1070,7 @@ class SwiggyVoiceOrderCoordinator(
                 ),
                 caption = caption,
                 rows = rows,
-                safetyNote = "Check the suggested brands and packs together. Use Change only if needed. One confirmation, then Beta updates and checks the cart. ${activity.getString(R.string.swiggy_step_no_checkout)}",
+                safetyNote = "${activity.getString(R.string.swiggy_keep_closed_warning)} Check the suggested brands and packs together. Use Change only if needed. ${activity.getString(R.string.swiggy_step_no_checkout)}",
                 primary = SwiggyStepAction(
                     if (cartStartsEmpty) "Add ${plan.changes.size} lines to cart" else "Apply ${plan.changes.size} cart changes"
                 ) {
@@ -974,7 +1086,7 @@ class SwiggyVoiceOrderCoordinator(
             )
         )
         val skippedNotice = if (draftSkipped.isEmpty()) "" else " ${draftSkipped.size} items you chose to skip are not included."
-        announce("$addressConfirmation ${addressLocationNotice(address)}$skippedNotice Please review the suggested brands and pack quantities together. Nothing is added until you confirm. No order will be placed.")
+        announce("$addressConfirmation ${addressLocationNotice(address)}$skippedNotice Please review the suggested brands and pack quantities together. ${activity.getString(R.string.swiggy_keep_closed_warning)} Nothing is added until you confirm. No order will be placed.")
     }
 
     private fun restartAddressSelection(
@@ -1018,17 +1130,18 @@ class SwiggyVoiceOrderCoordinator(
         items: List<ParsedItem>,
         selected: List<RequestedItem>,
     ) {
-        if (!isCurrent(operationId) || mutationInFlight) return
-        if (!pendingCartStore.markPending()) {
+        if (!isCurrent(operationId) || mutationInFlight || !hostResumed) return
+        if (!pendingCartStore.markPending() || !cartReviewStore.save(token)) {
             finish(operationId, "Beta could not safely save the cart-check state. Nothing was added. Please try again.")
             return
         }
         if (!beforeApply()) {
-            pendingCartStore.clear()
+            clearPendingCartReview()
             finish(operationId, "Beta could not safely save the change of state on this phone. Nothing was added. Please try your list again.")
             return
         }
         BetaTelemetry.instance?.logEvent("cart_apply_started", mapOf("item_count" to selected.size))
+        interruptedDuringRequest = false
         setMutationInFlight(true)
         val caption = "Updating your Swiggy cart once, then checking that the changes stay. This takes about a minute."
         stepDialog.show(
@@ -1045,16 +1158,24 @@ class SwiggyVoiceOrderCoordinator(
                         tone = SwiggyStepTone.AMBER,
                     )
                 ),
-                safetyNote = "Please stay here for a moment. Changing the app or address now would leave the result unverified.",
+                safetyNote = activity.getString(R.string.swiggy_keep_closed_warning),
                 cancel = null,
             )
         )
         announce(caption)
         SwiggyMcpClient.applyCartPlan(activity, token) { result ->
             onUi(operationId) {
+                if (!hostResumed || interruptedDuringRequest) {
+                    // Never replay a write or trust a result that completed across an app switch.
+                    running = false
+                    setMutationInFlight(false)
+                    stepDialog.dismiss()
+                    if (hostResumed) checkPendingCartOnReturn()
+                    return@onUi
+                }
                 when (result) {
                     is SwiggyMcpResult.Success -> {
-                        if (result.value.verified && result.value.persistenceVerified && pendingCartStore.clear()) {
+                        if (result.value.verified && result.value.persistenceVerified) {
                             showVerifiedResult(operationId, address, selected, result.value.message, token)
                         } else {
                             BetaTelemetry.instance?.logEvent(
@@ -1233,9 +1354,9 @@ class SwiggyVoiceOrderCoordinator(
         if (!isCurrent(operationId)) return
         val providerNote = swiggyProviderAddedMessage(providerMessage)
         val caption = buildString {
-            append("Your Swiggy cart was updated and checked.")
+            append("Your cart was updated and checked in Beta.")
             providerNote?.let { append(" ").append(it) }
-            append(" Open Swiggy to review it. Beta has stopped before checkout.")
+            append(" ").append(activity.getString(R.string.swiggy_handoff_warning))
         }
         val completedMutation = mutationInFlight
         running = false
@@ -1243,8 +1364,8 @@ class SwiggyVoiceOrderCoordinator(
         onVerified(selected.size)
         stepDialog.show(
             SwiggyStepScreen(
-                eyebrow = "Verified · ${selected.size} of ${selected.size} lines match",
-                title = "Your cart was updated and checked",
+                eyebrow = "Checked in Beta · ${selected.size} of ${selected.size} lines match",
+                title = "Your cart is checked in Beta",
                 message = "Deliver to ${address.shortLabel}. ${activity.getString(R.string.swiggy_step_readback_verified)}",
                 caption = caption,
                 rows = buildList {
@@ -1269,16 +1390,25 @@ class SwiggyVoiceOrderCoordinator(
                         )
                     }
                 },
-                safetyNote = activity.getString(R.string.swiggy_step_no_checkout),
-                primary = SwiggyStepAction("Open Swiggy to review") {
+                safetyNote = activity.getString(R.string.swiggy_handoff_warning),
+                primary = if (BuildConfig.BETA_SWIGGY_CHECKOUT_ENABLED) SwiggyStepAction("Review and pay in Beta") {
+                    stepDialog.dismiss()
+                    onCheckoutRequested(address.id)
+                } else SwiggyStepAction("Open Swiggy to review") {
                     // Another client may have changed the cart since the delayed
                     // check. Recheck read-only immediately before this handoff.
                     running = true
+                    interruptedDuringRequest = false
                     setMutationInFlight(true)
                     announce("Checking your cart once more before opening Swiggy.")
-                    SwiggyMcpClient.checkCartPlan(activity, confirmationToken) { result ->
+                    checkReviewedCart(confirmationToken) { result ->
                         onUi(operationId) {
-                            if (result is SwiggyMcpResult.Success && result.value) {
+                            if (!hostResumed || interruptedDuringRequest) {
+                                running = false
+                                setMutationInFlight(false)
+                                stepDialog.dismiss()
+                                if (hostResumed) restorePendingCartWarning()
+                            } else if (result is SwiggyMcpResult.Success && result.value) {
                                 if (!CommerceAppLauncher.launchPreferred(activity).launched) {
                                     finish(operationId, "Beta could not open Swiggy. Please open it and review your cart. Beta has not repeated the update.")
                                     return@onUi

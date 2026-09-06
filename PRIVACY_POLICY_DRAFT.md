@@ -1,6 +1,6 @@
 # Beta Privacy Policy
 
-**Last updated: September 5, 2026**
+**Last updated: September 6, 2026**
 
 Beta is a cart-only assistant for Swiggy Instamart. It helps you find products,
 review proposed cart changes and add only the items you confirm. Beta always
@@ -19,6 +19,28 @@ stops before checkout and payment.
 
 Beta does not receive your Swiggy OTP or payment details. It does not place an
 order, complete checkout or make a payment.
+
+## Checkout preview
+
+The current distributed build remains cart-only. An optional checkout preview
+exists only as a future, approval-gated release path and is disabled by
+default in the shipped app.
+
+If a later approved build enables that preview, Beta would let you review the
+full cart, saved address, fees, total and payment method before you leave the
+app. UPI payment would hand off to a trusted payment-provider bridge that
+opens your UPI app; Beta would not collect or store your PIN, card number or
+VPA. Cash on delivery may be surfaced if Swiggy returns it.
+
+For recovery only, Beta would keep an encrypted backend record containing the
+confirmed cart, delivery address, selected payment method, provider receipt and
+transaction identifiers while an order attempt is unresolved. Resolved records
+are reduced to the attempt ID, order IDs, status and recovery timestamps; the
+basket, address and payment link are removed. Unresolved records do not expire
+automatically, because forgetting them could allow a duplicate order. The app
+stores only an opaque attempt ID and payment-handoff marker in no-backup storage.
+Grocery, order and payment IDs are not used for analytics. No new Android
+permissions are required for this preview path.
 
 ## Voice and location
 
