@@ -96,11 +96,38 @@ Post-promotion phone repeat used the normal configured backend URL: all 13
 synthetic UI tests and the six-example hosted intent test passed in 24.331s;
 the identity-export test was explicitly skipped (14 active tests, one skip).
 
-## Release record (pending)
+## Release record — submitted, Google checks/review pending
 
-Candidate: 0.3.4 / versionCode21. No GitHub default-branch push or Play v21
-publication is established by this document yet. Final signed bundle hash,
-complete test counts, Cloud revision/traffic and live Play/Git readback must be
-added after the actual actions. Public privacy is live and verified; Photos-only
-Data Safety correction was published and Console readback showed 0/2 selected.
-Precise location remains declared for possible Android Geocoder network use.
+Release: `0.3.4` / versionCode `21`, package `live.betaapp.android`, open-testing
+track `beta`. Android runtime/source commit
+`87585b191ae79c278fb383bd9885f446461cfc29` and backend commit
+`d6ea016baeb063e8b32af2fcdee68b4c1498f8d9` were pushed to their GitHub `main`
+branches and the remote hashes were read back. Later documentation-only commits
+do not change the source of this bundle.
+
+Final signed AAB SHA-256:
+`fa35799d6b4031c1939057bfbd9788e9f5b62c35fb5497f8871f49a2bbcd59dc`.
+Release lint and bundle generation passed (zero lint errors, 101 warnings).
+The upload certificate and forbidden manifest/DEX gates passed. Capture source
+and all 12 screenshot hashes are in `INTENT_STORE_CAPTURE_2026-10-04.json`.
+
+Publisher edit `07870429999914262666` uploaded bundle 21, updated en-US/en-GB
+descriptions and four screenshots for each of three form factors in each locale,
+then returned `validated=ok` and `commit=ok`. Independent Publisher readback
+confirmed bundle SHA-256, track version/status, both descriptions and all 24
+uploaded screenshot hashes. The track status `completed` is the requested full
+open-testing rollout, not evidence of Google approval or tester availability.
+
+Live Play Console on October 4 showed `Changes in review`, with quick checks
+running before automatic review submission, release `0.3.4` / `Start full
+rollout`, listing changes and Data Safety included. Managed publishing is off.
+Google approval and availability to testers are NOT yet verified. Production
+and the internal draft track were not changed. Do not resubmit this release
+merely because Google's checks are still running.
+
+Public privacy is live and verified; Photos-only Data Safety correction was
+published and Console readback showed 0/2 selected. Precise location remains
+declared for possible Android Geocoder network use. Remaining work is Google's
+review outcome plus separately qualified improvements to long-list catalogue
+latency, exact-count availability UX and real elderly-user acceptance; this
+release does not establish the broad 90-percent whole-basket target.

@@ -1,13 +1,21 @@
 # Beta Play Console Submission Guide
 
-## Current release preparation status — 4 October 2026
+## Current release submission status — 4 October 2026
 
-Version `0.3.3` (`versionCode 20`) is the latest completed Open Testing
-release. Version `0.3.4` (`versionCode 21`) is a candidate only and has not
-been uploaded to Play. The previously signed bundle predates the latest
-grounding fix and requires a final signed rebuild. The latest grounding/dish
-fix is still pending that rebuild. No Git push or Play v21 upload has
-occurred. Production was not changed.
+Version `0.3.4` (`versionCode 21`) was uploaded, validated and committed to
+Open Testing in Publisher edit `07870429999914262666`. Independent API readback
+confirmed the bundle hash, both descriptions and all 24 screenshot hashes.
+Console shows `Changes in review` with quick checks running before automatic
+review submission. Managed publishing is off. Google approval and tester
+availability are not yet confirmed; do not treat API track status `completed`
+as approval or resubmit while checks run. Production was not changed.
+
+Android runtime/source `87585b1` and backend `d6ea016` were pushed to GitHub
+`main` and read back. Final signed AAB SHA-256:
+`fa35799d6b4031c1939057bfbd9788e9f5b62c35fb5497f8871f49a2bbcd59dc`.
+Release lint/bundle, upload-certificate and retired manifest/DEX gates passed;
+lint reported zero errors and 101 warnings. See
+`docs/INTENT_RELEASE_VERIFICATION_2026-10-04.md` for full proof and limits.
 
 The public privacy policy was published at
 `sites/beta-496723/versions/a7873bd0e33e1319`; its live URL returned HTTP 200
@@ -41,9 +49,9 @@ reviewer access remains a separate requirement; static offline demos do not
 satisfy signed-in app access. Pre-approval phone checks stop before live
 checkout or payment, and this document is not proof of Play review approval.
 
-Target release: `0.3.4` / version code `21`, package
-`live.betaapp.android`, open-testing track `beta`, pending final build and
-release gates.
+Submitted release: `0.3.4` / version code `21`, package
+`live.betaapp.android`, open-testing track `beta`, pending Google checks/review
+and verified tester availability.
 
 Enabled checkout release candidate: when checkout is approved, Beta should
 present the full cart, saved address, fees, total and payment method before

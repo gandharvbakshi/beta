@@ -1,13 +1,20 @@
 # Beta Play and Live Testing Preparation
 
-## Current release preparation status — 4 October 2026
+## Current release submission status — 4 October 2026
 
-Version `0.3.3` (`versionCode 20`) is the latest completed Open Testing
-release. Version `0.3.4` (`versionCode 21`) is a candidate only: it has not
-been uploaded to Play. The previously signed bundle predates the latest
-grounding fix and must be rebuilt and re-signed before upload. The latest
-grounding/dish fix is still pending the final signed rebuild. No Git push or
-Play v21 upload has occurred.
+Version `0.3.4` (`versionCode 21`) was signed, uploaded, validated and committed
+to Play Open Testing. Independent API readback confirmed the bundle hash,
+descriptions and all screenshot hashes. Console shows `Changes in review` with
+quick checks running before automatic review submission. Google approval and
+tester availability are not yet confirmed; API track status `completed` alone
+does not establish distribution. Production was not changed.
+
+Android runtime/source `87585b1` and backend `d6ea016` are on GitHub `main` with
+remote readback. Final AAB SHA-256:
+`fa35799d6b4031c1939057bfbd9788e9f5b62c35fb5497f8871f49a2bbcd59dc`.
+Release lint/bundle passed (zero lint errors, 101 warnings); signing and retired
+manifest/DEX gates passed. Full proof and limitations are recorded in
+`docs/INTENT_RELEASE_VERIFICATION_2026-10-04.md`.
 
 The privacy policy was published at
 `sites/beta-496723/versions/a7873bd0e33e1319`; the live URL returned HTTP 200
@@ -39,11 +46,11 @@ available or generally reliable.
 These facts supersede the September 6 release snapshot below. Build success is
 not proof of Play distribution or a completed transaction.
 
-Current target: Swiggy-only version `0.3.4` (`versionCode 21`), pending final
-grounding-fix build, verification, and owner release gates. See
+Submitted target: Swiggy-only version `0.3.4` (`versionCode 21`), pending
+Google checks/review and verified tester availability. See
 `SWIGGY_HISTORY_MATCHING_RELEASE_20260906.md` for historical matching context.
 
-Current status: the candidate enables checkout review and payment handoff,
+Current status: the submitted build enables checkout review and payment handoff,
 with an independent backend emergency switch. Reusable Swiggy reviewer access
 and live-transaction evidence remain separate unresolved risks.
 
