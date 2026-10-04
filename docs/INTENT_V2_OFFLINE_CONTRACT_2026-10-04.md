@@ -153,3 +153,41 @@ further evidence that prompt additions alone are not release qualification.
 Owner cutoff is 22:30 IST October 4; the unfinished goal must pause then with a
 clean checkpoint. The scheduled restart is 09:00 IST October 5. No new cart,
 address, checkout, payment, or order mutations were performed in this work.
+
+## Morning qualification checklist
+
+Before starting calls, re-read the canonical handoff, active branches and dirty
+files in the two existing main folders. Confirm phone connectivity and hosted
+health without touching the cart. Re-check provider access and existing Play
+review status; do not submit another release merely to refresh that status.
+
+The next implementation must preserve three distinct facts: what the user said,
+what the model interpreted, and what the app proposes for combined review. An
+unstated quantity may support a labelled default-one proposal; it must not be
+backfilled into the quoted extracted intent. Per-pack contents, logical pieces
+and retail cart units stay separate. A source correction or unknown field role
+must survive as a reviewable row/note, never silently disappear. Do not treat
+`requires_review=true` alone as proof that a wrong interpretation is safe.
+
+Focused integration regressions should include: explicit pack size versus total;
+total plus per-pack size; singular containers without stated counts; non-first
+item offsets; remote corrections; generic requests with history-ranked choices;
+retained small/large/form descriptors; numeric words that are also product words;
+nutrition-like product names; ambiguous global packing notes; and repeated
+quantities. Reject unsupported math rather than round it, preserve correct
+neighbouring rows, and avoid hard-redirecting every unfamiliar phrase to editing.
+
+Only after that path is wired should a new independent set be generated and
+frozen before evaluation. Keep 15-20-item baskets as their own primary stratum;
+report shorter lists separately. Cover English, Hindi/Hinglish/transliteration,
+speech/spelling noise, brands versus generic names, fractions/distributive
+counts, corrections, and dietary/preparation constraints. Demographic personas
+may vary wording, but are not evidence of ability or a substitute for real user
+testing. Do not send gold answers to the parser or tune against the frozen set.
+
+Report schema validity, deterministic contract acceptance, independent semantic
+agreement, their whole-basket intersection, per-item results, model p50/p95 and
+actual end-to-end latency separately. Separate catalogue availability from intent
+correctness. A point estimate from a small or reused set is not 90% confidence
+for future users. Keep known unsafe quantity/diet mistakes as release blockers,
+and qualify the real Android/hosted pipeline before any broader AI rollout.
