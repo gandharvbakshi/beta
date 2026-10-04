@@ -1,0 +1,162 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "items"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "quantity",
+          "quantity_unit",
+          "pack_value",
+          "pack_unit",
+          "packaging",
+          "required",
+          "excluded",
+          "source_text",
+          "supporting_text",
+          "needs_clarification",
+          "quantity_text",
+          "pack_text"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "quantity_unit": {
+            "type": "string",
+            "enum": [
+              "count",
+              "pack",
+              "piece",
+              "g",
+              "kg",
+              "ml",
+              "l",
+              "unspecified"
+            ]
+          },
+          "pack_value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "pack_unit": {
+            "type": "string",
+            "enum": [
+              "piece",
+              "g",
+              "kg",
+              "ml",
+              "l",
+              "unspecified"
+            ]
+          },
+          "packaging": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "pack",
+              "packet",
+              "bag",
+              "bottle",
+              "carton",
+              "tetra_pack",
+              "cup",
+              "can",
+              "tin",
+              "tub",
+              "jar",
+              "box",
+              "bar",
+              "block",
+              "loaf",
+              "bunch",
+              "roll",
+              "refill",
+              "pouch",
+              "sachet",
+              "tube",
+              "spray",
+              null
+            ]
+          },
+          "required": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "excluded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_text": {
+            "type": "string",
+            "maxLength": 320
+          },
+          "supporting_text": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "text"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "header",
+                    "modifier",
+                    "correction"
+                  ]
+                },
+                "text": {
+                  "type": "string",
+                  "maxLength": 180
+                }
+              }
+            }
+          },
+          "needs_clarification": {
+            "type": "boolean"
+          },
+          "quantity_text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64
+          },
+          "pack_text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64
+          }
+        }
+      }
+    }
+  }
+}

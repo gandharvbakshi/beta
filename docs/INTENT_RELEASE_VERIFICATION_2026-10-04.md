@@ -315,3 +315,27 @@ remove the original catalogue/count gaps or prove cart writes/payment.
 Owner scheduling: stop tests at 22:30 IST on October 4 and, if unfinished,
 resume at 09:00 IST October 5. Separate one-shot thread follow-ups were created
 and read back. The goal remains incomplete and active before the stop time.
+
+### Offline evidence-v2 checkpoint — not a runtime rollout
+
+Backend main readback is now `4e1b6ec2732dc49fcc0db14a8c4e9a409795f52b`.
+This adds six isolated evidence/quantity/contract and test files; no live
+provider, route, Android or v1 contract imports them. Ordinary Cloud Run traffic
+still uses the verified v13 image/source described above. No new deployment,
+Android binary, Play submission, or live transaction was performed for this work.
+
+Full local backend verification: 867 tests and 407 subtests passed (same two
+legacy manual-demo exclusions). Focused new suite: 117 tests plus 125 subtests.
+An existing read-only, network-disabled Python 3.9.25 container also passed the
+58 quantity/v2 unittest cases. This is not an exact newly built Cloud Run image
+test, and the pytest evidence tests ran on local Python 3.12.
+
+The actual-format v11 prototype was sampled on the reused twenty-case evening
+development set: 20 schema-valid responses, median 5.102s/p95 6.250s. Current
+offline contract acceptance is 16/20; independent source-semantic audit 18/20;
+the intersection is 15/20, **not a 90-percent qualification**. Typed packaging,
+supporting evidence and exact numeric atoms are useful foundations, but numeric
+field roles, retained descriptors, Android mapping and fresh holdout remain.
+The complete limits and next integration gates are in
+`docs/INTENT_V2_OFFLINE_CONTRACT_2026-10-04.md`. Do not hot-swap v1 or widen AI
+audience using these development results. The owner deadline remains unchanged.
