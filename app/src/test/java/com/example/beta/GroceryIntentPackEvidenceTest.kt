@@ -98,4 +98,25 @@ class GroceryIntentPackEvidenceTest {
         }
         assertEquals(true, groceryIntentPackEvidenceConflict(item("1/0 kg pack", packValue = "1", packUnit = "kg")))
     }
+
+    @Test fun adjacentProductsInContextualQuotesMakeOtherwiseExactPackSizesAmbiguous() {
+        val sauceContext = "two 500 g jars of pasta sauce, one 250 ml carton of cream. Make the sauce plain, not spicy"
+        assertEquals(true, groceryIntentPackEvidenceConflict(item(
+            sauceContext, quantity = "2", quantityUnit = "count", packValue = "500", packUnit = "g",
+        )))
+        assertEquals(false, groceryIntentPackEvidenceConflict(item(
+            "two 500 g jars of pasta sauce", quantity = "2", quantityUnit = "count", packValue = "500", packUnit = "g",
+        )))
+
+        val juiceContext = "one 1 litre carton of orange juice, a 250 g jar of strawberry jam. The juice should be pulp-free"
+        assertEquals(true, groceryIntentPackEvidenceConflict(item(
+            juiceContext, quantity = "1", quantityUnit = "count", packValue = "1", packUnit = "l",
+        )))
+        assertEquals(false, groceryIntentPackEvidenceConflict(item(
+            "one 1 litre carton of orange juice", quantity = "1", quantityUnit = "count", packValue = "1", packUnit = "l",
+        )))
+        assertEquals(false, groceryIntentPackEvidenceConflict(item(
+            "one 1 litre carton of orange juice", quantity = "1", quantityUnit = "count", packValue = "1000", packUnit = "ml",
+        )))
+    }
 }

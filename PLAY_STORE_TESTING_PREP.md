@@ -4,8 +4,9 @@
 
 Version `0.3.4` (`versionCode 21`) was signed, uploaded, validated and committed
 to Play Open Testing. Independent API readback confirmed the bundle hash,
-descriptions and all screenshot hashes. Console shows `Changes in review` with
-quick checks running before automatic review submission. Google approval and
+descriptions and all screenshot hashes. Console shows `Changes in review`;
+subsequent readback confirmed quick checks finished and the changes are now in
+review. Google approval and
 tester availability are not yet confirmed; API track status `completed` alone
 does not establish distribution. Production was not changed.
 

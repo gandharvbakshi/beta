@@ -20,6 +20,7 @@ tests, not a random sample of users or live completed orders.
 | New synthetic 20 (192 items; 8 long baskets) | 19/20 | Initially 19/20, with 18/20 both semantically correct and review-ready | 3.16 s |
 | Saved new-20 replay after fixes | Same saved outputs, not a new model trial | 19/20 correct and review-ready; known lost bag-size output now blocked | unchanged saved timings |
 | History-derived confirmation 20 (239 items) | 19/20 | 18/20; incorrect certification loss blocked, one valid shared-heading basket also blocked | 4.11 s |
+| Evening unseen 20 (214 requested items; ten 15–16-item lists) | 4 fully faithful, 15 failed, 1 uncertain under explicit-form preservation | 15/20 reached review, all with acknowledgment; this is not semantic success | 3.57 s |
 
 The new set was authored/frozen before its first inference. Gold errors were
 recorded before inference and source wording remained authoritative. Later
@@ -96,7 +97,7 @@ Post-promotion phone repeat used the normal configured backend URL: all 13
 synthetic UI tests and the six-example hosted intent test passed in 24.331s;
 the identity-export test was explicitly skipped (14 active tests, one skip).
 
-## Release record — submitted, Google checks/review pending
+## Release record — submitted, Google review pending
 
 Release: `0.3.4` / versionCode `21`, package `live.betaapp.android`, open-testing
 track `beta`. Android runtime/source commit
@@ -121,9 +122,10 @@ open-testing rollout, not evidence of Google approval or tester availability.
 Live Play Console on October 4 showed `Changes in review`, with quick checks
 running before automatic review submission, release `0.3.4` / `Start full
 rollout`, listing changes and Data Safety included. Managed publishing is off.
-Google approval and availability to testers are NOT yet verified. Production
-and the internal draft track were not changed. Do not resubmit this release
-merely because Google's checks are still running.
+Subsequent Console readback confirmed quick checks completed and explicitly
+said the changes are now in review. Google approval and availability to testers
+are NOT yet verified. Production and the internal draft track were not changed.
+Do not resubmit merely because Google review is still pending.
 
 Public privacy is live and verified; Photos-only Data Safety correction was
 published and Console readback showed 0/2 selected. Precise location remains
@@ -131,3 +133,137 @@ declared for possible Android Geocoder network use. Remaining work is Google's
 review outcome plus separately qualified improvements to long-list catalogue
 latency, exact-count availability UX and real elderly-user acceptance; this
 release does not establish the broad 90-percent whole-basket target.
+
+## Post-submission investigation — no runtime promotion
+
+A prompt-only v9 experiment strengthened the requirement that the source quote
+include every supporting shared header, including containers. It was evaluated
+once on the reused 20-case confirmation set. All 20 provider/schema responses
+succeeded and 19 reached Android review, versus 18 for the saved v8 run. This
+was not an improvement in faithful interpretation: a formerly rejected grouped
+request now dropped its container description, while a certification requirement
+was still lost and correctly rejected by Android. Final source-meaning audit:
+18/20, with no fresh-holdout or population claim. The lead corrected the initial
+small-agent audit that had missed the container loss.
+
+V9 was rejected for deployment; ordinary v11 remains on prompt v8. A new
+synthetic regression proves existing grounding accepts complete contiguous
+introductory-header quotes and rejects missing-container or unrelated-sentence
+borrowing. The focused grounding suite passed 19 tests after lead review. These
+are test-only changes, not a different app bundle or relaxed validator.
+
+### Fresh evening baseline and architectural findings
+
+The evening set was independently authored and frozen before its first inference:
+20 utterances, 214 requested items, ten long lists. All 20 model responses passed
+JSON/schema checks and returned in 2.047–6.062 seconds. Source-authoritative
+audit then found only four fully faithful baskets, fifteen failed baskets and
+one uncertain basket. Most errors dropped a specified container/unit form
+(cup, jar, carton, bunch, block, etc.) while keeping its physical weight/volume.
+One ambiguous correction also omitted a whole neighbouring product: 213 total
+items returned. These results supersede any broad confidence extrapolated from
+the easier earlier sets; they do not estimate real elderly-user success.
+
+Android admitted 15/20 to combined review, all needing acknowledgment. Five
+were rejected before review. Focused synthetic characterization reproduces:
+unrelated container sizes inside broad contiguous quotes; later modifiers that
+cannot be supported by a shorter quote; Hindi negation not represented by the
+bounded lexical equivalence rules; an added lentil-category word; and the
+existing 20-count contract cap before retail-pack conversion. These are not
+fixed by making a validator more permissive. The regular Android suite now has
+380 passing tests and one explicit opt-in replay skip (381 total); 33 focused
+grounding/pack tests pass. No Android runtime or signed bundle changed.
+
+An isolated v10 model-schema experiment adds explicit packaging and separate
+exact supporting quotes. It is NOT a deployed response contract, app feature or
+new holdout. Source-authoritative audits of the same reused 20-case development
+set produced these results; none is an Android/runtime or fresh-holdout score:
+
+| v10 prototype | Schema-valid | Whole-basket source fidelity | Median / p95 model latency |
+| --- | --- | --- | --- |
+| Gemini 3.8 Flash, low | 20/20 | 18 pass, 2 fail | 4.836 / 5.703 s |
+| GPT 6 Luna, none, returned fast tier | 20/20 | 13 pass, 6 fail, 1 uncertain | 3.274 / 4.469 s |
+| DeepSeek Flash | 13/20 | Not qualified: seven schema failures | Not used as a selection gate |
+
+Gemini lost one shared container requirement and omitted a neighbouring product
+after an ambiguous correction. OpenAI returned all 214 items but changed two
+dozen eggs into two eggs, lost other explicit requirements and added an unstated
+packaging constraint. Exact quotations and complete item counts did not prevent
+these errors. DeepSeek's failures involved invalid quantity or pack units. No
+automatic retries or production model switch were made. Existing v1 clients
+cannot consume the new shape and must never receive it silently.
+
+A completed, repository-free Cursor consultation requested Grok 4.7, xhigh,
+fast; the requested model is not independently attested by the returned text.
+It recommended negotiated v2, explicit bounded evidence binding, primary-only
+quantity/pack validation, and separation of requested pieces from retail-unit
+limits. Supporting quotes must not be concatenated to manufacture a protected
+claim or borrow another item's attributes. Its review was advisory, not release
+approval; the completed agent was archived and that status was read back.
+
+### Next implementation boundary: negotiated evidence, not a prompt hot-swap
+
+This is an implementation plan, not functionality in version 21:
+
+- Keep `POST /swiggy/intent` v1 as the default. A future explicit contract-version
+  request plus a separate server kill switch must select v2; unrecognised or
+  unavailable versions fail explicitly, never silently downgrade/strip fields.
+  Provider instances/schema validation must be keyed by contract as well as
+  model. The current auth, audience, deadline and cost gates apply unchanged.
+- Make container form first-class. Preserve a short primary quote and bounded,
+  separately typed supporting fragments with field ownership. Resolve exact
+  character spans without first-occurrence guessing; reject blank, unbounded or
+  ambiguous spans. A shared header may govern several variants, but must not
+  copy another item's identity, size or restrictions. Do not concatenate
+  fragments before protected-phrase checks. Character indexing must specify
+  Unicode behavior consistently between Python and Kotlin.
+- Validate numbers from item-local evidence with exact decimal/rational
+  arithmetic and a closed numeral vocabulary. Dozen is a multiplier, nutrition
+  grams are not pack size, and a total volume is not an invented one-pack order.
+  Unsupported/corrected arithmetic remains unresolved in the combined review.
+  Keep the full original list visible so an omitted neighbour is not silently
+  treated as cancelled. A model's self-audit cannot prove item completeness.
+- Separate requested physical pieces from purchasable SKU quantity. Twenty-four
+  requested eggs can become four units only after the chosen catalogue variant
+  proves six eggs per retail unit and division is exact. The cart line cap stays
+  twenty retail units. Unknown pack count, non-divisibility or an over-cap result
+  cannot be rounded or silently substituted.
+- Update `GroceryIntentDraft`, grounding/pack checks, `SwiggyMcpClient` and the
+  coordinator together. Packaging and supporting evidence must survive into
+  strict catalogue constraints and one accessible combined confirmation, not
+  merely appear in hidden JSON. Preserve cancellation/stale-callback guards.
+- Qualification order: pure adversarial fixtures and v1 compatibility; actual
+  Android replay with meaning checks; a newly frozen independent long-list
+  holdout; read-only hosted catalogue comparison; signed build and review.
+  Reject unsupported diet/quantity changes regardless of average score. The
+  current 18/20 reused Gemini prototype cannot authorize this rollout.
+
+### Latency investigation
+
+The observed 20-item catalogue request took 51.108s while 26 provider HTTP calls
+summed to 20.948s. The sum includes concurrent calls and is not elapsed wall time.
+Credential reads, durable quota admission and queue waits were previously
+unmeasured. Backend commit `8a797361341752419aa024cfd297568468717886` adds four
+fixed-label, request-local timing aggregates: connection lookup, quota admission,
+quota wait and discovery queue. No customer text, identifier, token, address,
+query or response is included, and quota/concurrency/retry behavior is unchanged.
+All 747 local tests plus 282 subtests passed; the only exclusion remains the two
+legacy manual localhost-demo tests. The telemetry image built successfully and
+passed its exact Python 3.9 image suite. Zero-traffic v12 canary verification
+passed on the phone (one read-only diagnostic, 123.033s). The same 3/3, 11/15
+and 14/20 items had compatible catalogue suggestions; exact-pack/count and
+availability gaps remain. Catalogue times were 12.783s, 39.436s and 54.383s.
+Ordinary v11 traffic remains unchanged at this point.
+
+For the 20-item request, server wall time was 54.294s; 27 provider calls summed
+to 22.776s, connection lookups to 0.390s, quota admission to 1.476s and explicit
+quota waits to 3.002s. Queue waits summed to 103.490s because concurrent waits
+overlap: these sums are NOT a critical-path decomposition. Credential/quota
+overheads alone do not explain the wall time. Local profiling isolated repeated
+normalization in all-pairs history enrichment. An equivalent request-local index
+reduced a synthetic 20-live/150-history call from median 223.35ms to 14.98ms
+(seven runs); independent output and 288 matcher-equivalence checks passed.
+This is a microbenchmark, not yet proof of improved hosted end-to-end latency.
+
+Claude consultation attempts for this post-submission work returned
+`stop_sequence` without a substantive review. No Claude approval is claimed.

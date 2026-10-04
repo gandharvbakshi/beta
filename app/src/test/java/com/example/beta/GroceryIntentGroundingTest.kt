@@ -9,6 +9,27 @@ class GroceryIntentGroundingTest {
         name, null, "unspecified", null, "unspecified", tags, emptyList(), source, false,
     )
 
+    private fun diagnosticItem(
+        name: String,
+        source: String,
+        quantity: String? = null,
+        quantityUnit: String = "unspecified",
+        packValue: String? = null,
+        packUnit: String = "unspecified",
+        required: List<String> = emptyList(),
+        excluded: List<String> = emptyList(),
+    ) = GroceryIntentItem(
+        name = name,
+        quantity = quantity?.toBigDecimal(),
+        quantityUnit = quantityUnit,
+        packValue = packValue?.toBigDecimal(),
+        packUnit = packUnit,
+        required = required,
+        excluded = excluded,
+        sourceText = source,
+        needsClarification = false,
+    )
+
     @Test fun modelCannotInventAnUnspokenBrandOrFlavour() {
         assertEquals(listOf("milk"), groceryIntentGroundingConcerns("milk", listOf(item("chocolate milk", "milk"))))
         assertEquals(listOf("milk"), groceryIntentGroundingConcerns("milk", listOf(item("Amul milk", "milk"))))
@@ -145,6 +166,78 @@ class GroceryIntentGroundingTest {
         val diet = "sugar-free yogurt: mango one, blueberry one"
         assertEquals(listOf("blueberry one"), groceryIntentGroundingConcerns(diet,
             listOf(item("blueberry yogurt", "blueberry one", listOf("sugar_free")))))
+    }
+
+    @Test fun introductoryContainerContextRequiresContiguousQuoteButDoesNotHardRejectIt() {
+        val instruction = "For the yogurt cups, Meadow fruit yoghurt—one strawberry, one blueberry and one mango."
+        val variants = listOf(
+            "one strawberry" to "For the yogurt cups, Meadow fruit yoghurt—one strawberry",
+            "one blueberry" to "For the yogurt cups, Meadow fruit yoghurt—one strawberry, one blueberry",
+            "one mango" to "For the yogurt cups, Meadow fruit yoghurt—one strawberry, one blueberry and one mango",
+        )
+        val supported = variants.map { (variant, quote) ->
+            item("Meadow fruit yoghurt cup ${variant.substringAfter(' ')}", quote)
+        }
+        assertTrue(groceryIntentGrounding(instruction, supported).rejected.isEmpty())
+
+        val missingContainerContext = "Meadow fruit yoghurt—one strawberry"
+        assertEquals(listOf(missingContainerContext), groceryIntentGroundingConcerns(instruction,
+            listOf(item("Meadow fruit yoghurt cup strawberry", missingContainerContext))))
+
+        val laterMilk = "one milk"
+        val separateSentence = "$instruction $laterMilk."
+        assertTrue(groceryIntentGroundingConcerns(separateSentence,
+            listOf(item("milk", laterMilk))).isEmpty())
+        assertEquals(listOf(laterMilk), groceryIntentGroundingConcerns(
+            separateSentence, listOf(item("milk cup", laterMilk))))
+    }
+
+    @Test fun longSauceContextAndShortQuoteBothExposeCurrentGroundingLimits() {
+        val full = "two 500 g jars of pasta sauce, one 250 ml carton of cream. Make the sauce plain, not spicy"
+        val exactPack = diagnosticItem("plain pasta sauce", full, quantity = "2", quantityUnit = "count",
+            packValue = "500", packUnit = "g", required = listOf("plain"), excluded = listOf("spicy"))
+        // The complete quote supplies plain/not spicy, but the unrelated cream carton creates
+        // a second physical size, so the bounded pack guard currently rejects this evidence.
+        assertEquals(listOf(full), groceryIntentGroundingConcerns(full, listOf(exactPack)))
+
+        val short = "two 500 g jars of pasta sauce"
+        val shortQuote = exactPack.copy(sourceText = short)
+        // The short quote has an exact pack size but cannot support the later plain requirement.
+        assertEquals(listOf(short), groceryIntentGroundingConcerns(full, listOf(shortQuote)))
+    }
+
+    @Test fun juiceContextAndShortQuoteExposePackAndLateAttributeLimits() {
+        val full = "one 1 litre carton of orange juice, a 250 g jar of strawberry jam. The juice should be pulp-free"
+        val exactPack = diagnosticItem("orange juice pulp-free", full, quantity = "1", quantityUnit = "count",
+            packValue = "1", packUnit = "l")
+        // As with the sauce quote, an unrelated second container size makes the full quote ambiguous.
+        assertEquals(listOf(full), groceryIntentGroundingConcerns(full, listOf(exactPack)))
+
+        val short = "one 1 litre carton of orange juice"
+        assertEquals(listOf(short), groceryIntentGroundingConcerns(full, listOf(exactPack.copy(sourceText = short))))
+    }
+
+    @Test fun requiredUnsaltedAttributeIsNotGroundedBySaltedNahiPhrase() {
+        val full = "plain makhana, salted nahi"
+        val exact = diagnosticItem("plain makhana", full,
+            required = listOf("plain", "unsalted"), excluded = listOf("salted"))
+        val short = exact.copy(sourceText = "plain makhana")
+        // Current normalization does not recognize the Hindi negator as evidence for unsalted.
+        assertEquals(listOf(full), groceryIntentGroundingConcerns(full, listOf(exact)))
+        assertEquals(listOf("plain makhana"), groceryIntentGroundingConcerns(full, listOf(short)))
+    }
+
+    @Test fun excludedOnlySaltedDoesNotCurrentlyCreateAnUnsaltedRequirement() {
+        val full = "plain makhana, salted nahi"
+        val item = diagnosticItem("plain makhana", full, required = listOf("plain"), excluded = listOf("salted"))
+        // Separate characterization: excluded-only wording is not interpreted as required=unsalted.
+        assertTrue(groceryIntentGroundingConcerns(full, listOf(item)).isEmpty())
+    }
+
+    @Test fun literalMasoorIsGroundedButMasoorDalAddsAnUnspokenCategory() {
+        val source = "1 kilo masoor"
+        assertTrue(groceryIntentGroundingConcerns(source, listOf(item("masoor", source))).isEmpty())
+        assertEquals(listOf(source), groceryIntentGroundingConcerns(source, listOf(item("masoor dal", source))))
     }
 
     @Test fun commonIndianCategoryTranslationsDoNotInventProductForms() {

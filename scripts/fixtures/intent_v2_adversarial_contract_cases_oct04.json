@@ -1,0 +1,112 @@
+{
+  "schema": "beta-intent-evidence-v2-contract-fixture",
+  "synthetic_only": true,
+  "note": "Proposed contract diagnostics only. These are not current v1 pass claims or a settled production schema.",
+  "cases": [
+    {
+      "id": "shared_container_header",
+      "instruction": "For the yogurt cups, Meadow fruit yoghurt—one strawberry, one blueberry and one mango.",
+      "payload_example": {"protocol_version": 2, "scope": "item_evidence_only", "items": [{"name": "Meadow fruit yoghurt cup strawberry", "source_text": "one strawberry", "shared_context": "For the yogurt cups, Meadow fruit yoghurt"}]},
+      "expected_disposition": "accept_for_review",
+      "reason": "Explicit shared header supplies cup and product identity; the item keeps a direct variant span. Preserve the shared-context provenance for review."
+    },
+    {
+      "id": "delayed_modifier_after_other_product",
+      "instruction": "Two 500 g jars of pasta sauce, one 250 ml carton of cream. Make the sauce plain, not spicy.",
+      "payload_example": {"protocol_version": 2, "scope": "item_evidence_only", "items": [{"name": "plain pasta sauce", "quantity": 2, "quantity_unit": "count", "pack_value": 500, "pack_unit": "g", "required": ["plain"], "excluded": ["spicy"], "source_text": "Two 500 g jars of pasta sauce", "modifier_source_text": "Make the sauce plain, not spicy"}]},
+      "expected_disposition": "accept_for_review",
+      "reason": "The delayed modifier explicitly names sauce; do not transfer it to cream. Keep each evidence span and item association visible."
+    },
+    {
+      "id": "ambiguous_correction_preserves_neighbor",
+      "instruction": "One packet milk and paneer. No, only one packet.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "milk", "quantity": 1, "quantity_unit": "pack", "source_text": "One packet milk and paneer", "candidate_quantity_scope": "ambiguous"}, {"name": "paneer", "quantity": 1, "quantity_unit": "pack", "source_text": "One packet milk and paneer", "candidate_quantity_scope": "ambiguous"}]},
+      "expected_disposition": "clarification_required",
+      "reason": "The correction does not identify whether milk, paneer, or both should receive the single packet quantity. Preserve both candidates and ask which one is intended; do not drop a neighbor."
+    },
+    {
+      "id": "blank_evidence_quote",
+      "instruction": "One packet of salt.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "salt", "source_text": ""}]},
+      "expected_disposition": "reject",
+      "reason": "An empty evidence span cannot ground an item; do not fall back to model interpretation."
+    },
+    {
+      "id": "whole_utterance_quote",
+      "instruction": "One packet of salt and two lemons.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "salt", "source_text": "One packet of salt and two lemons."}]},
+      "expected_disposition": "clarification_required",
+      "reason": "A whole-utterance quote is too broad to prove item-level attribution when it contains multiple items."
+    },
+    {
+      "id": "nonunique_quote_without_occurrence",
+      "instruction": "One milk, and One milk.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "milk", "source_text": "One milk"}]},
+      "expected_disposition": "clarification_required",
+      "reason": "The quote occurs twice; require an occurrence/span identity rather than treating the first textual match as authoritative."
+    },
+    {
+      "id": "overlapping_item_spans",
+      "instruction": "One packet of salt and pepper.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "salt", "source_text": "packet of salt", "source_span": [4, 18]}, {"name": "pepper", "source_text": "salt and pepper", "source_span": [14, 29]}]},
+      "expected_disposition": "clarification_required",
+      "reason": "The two verified source spans overlap on the word salt; do not assign that overlapping text to both items without resolving the wording."
+    },
+    {
+      "id": "cross_fragment_phrase_synthesis",
+      "instruction": "No sugar in tea. Added sugar for the biscuits.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "no-added-sugar biscuits", "evidence_fragments": [{"text": "No sugar", "item_hint": "tea"}, {"text": "Added sugar", "item_hint": "biscuits"}]}]},
+      "expected_disposition": "reject",
+      "reason": "Do not combine 'no' from tea with 'added sugar' from the biscuit clause to synthesize a no-added-sugar property for biscuits."
+    },
+    {
+      "id": "two_dozen_is_24",
+      "instruction": "24 eggs.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "eggs", "quantity": 24, "quantity_unit": "piece", "source_text": "24 eggs"}], "verified_catalogue_pack": {"product": "eggs", "pack_value": 6, "pack_unit": "piece", "verified": true}, "derived_retail_quantity": {"quantity": 4, "quantity_unit": "pack", "derivation": "24 pieces / 6 verified pieces per pack"}},
+      "expected_disposition": "accept_for_review",
+      "reason": "Model-grounded spoken quantity remains 24 pieces. Only separate verified catalogue evidence may derive 4 retail packs; never let the model convert the spoken amount to 4 packs."
+    },
+    {
+      "id": "hindi_dedh_kilo",
+      "instruction": "Dedh kilo masoor dal dena.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "masoor dal", "quantity": 1.5, "quantity_unit": "kg", "source_text": "Dedh kilo masoor dal"}]},
+      "expected_disposition": "accept_for_review",
+      "reason": "Dedh means one and a half; preserve 1.5 kg without rounding."
+    },
+    {
+      "id": "hindi_dhai_litre",
+      "instruction": "Dhai litre doodh.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "milk", "quantity": 2.5, "quantity_unit": "l", "source_text": "Dhai litre doodh"}]},
+      "expected_disposition": "accept_for_review",
+      "reason": "Dhai means two and a half; known translation maps doodh to milk while quantity remains 2.5 l."
+    },
+    {
+      "id": "24_pieces_six_per_pack",
+      "instruction": "24 pieces, in packs of 6.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "pieces", "quantity": 4, "quantity_unit": "pack", "pack_value": 6, "pack_unit": "piece", "source_text": "24 pieces, in packs of 6"}]},
+      "expected_disposition": "accept_for_review",
+      "reason": "24 divided by a directly stated 6 per pack is exactly 4 packs; preserve total and per-pack basis."
+    },
+    {
+      "id": "nondivisible_or_unknown_pack_count",
+      "instruction": "25 eggs.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "eggs", "quantity": 25, "quantity_unit": "piece", "source_text": "25 eggs"}], "verified_catalogue_pack": {"product": "eggs", "pack_value": 6, "pack_unit": "piece", "verified": true}, "derived_retail_quantity": {"quantity": 4, "quantity_unit": "pack", "remainder_pieces": 1}},
+      "expected_disposition": "clarification_required",
+      "reason": "25 pieces leave one piece after four verified 6-packs; do not round, silently discard the remainder, or assume loose eggs can be sold."
+    },
+    {
+      "id": "unknown_catalogue_pack_size",
+      "instruction": "24 eggs.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "eggs", "quantity": 24, "quantity_unit": "piece", "source_text": "24 eggs"}], "verified_catalogue_pack": null},
+      "expected_disposition": "clarification_required",
+      "reason": "Without a verified pack size or loose-item availability, do not infer a retail package count from 24 pieces."
+    },
+    {
+      "id": "v1_receiver_gets_v2_payload",
+      "instruction": "one salt",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "salt", "source_text": "one salt", "evidence_spans": [{"start": 0, "end": 8}]}], "sent_to_receiver_version": 1},
+      "expected_disposition": "reject",
+      "reason": "A v1 receiver must reject an unknown v2 evidence contract explicitly; it must not silently drop evidence fields and accept the item."
+    }
+  ]
+}

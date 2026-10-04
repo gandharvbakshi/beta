@@ -5,8 +5,8 @@
 Version `0.3.4` (`versionCode 21`) was uploaded, validated and committed to
 Open Testing in Publisher edit `07870429999914262666`. Independent API readback
 confirmed the bundle hash, both descriptions and all 24 screenshot hashes.
-Console shows `Changes in review` with quick checks running before automatic
-review submission. Managed publishing is off. Google approval and tester
+Console shows `Changes in review`; subsequent readback confirmed quick checks
+finished and the changes are now in review. Managed publishing is off. Google approval and tester
 availability are not yet confirmed; do not treat API track status `completed`
 as approval or resubmit while checks run. Production was not changed.
 
