@@ -134,7 +134,7 @@ review outcome plus separately qualified improvements to long-list catalogue
 latency, exact-count availability UX and real elderly-user acceptance; this
 release does not establish the broad 90-percent whole-basket target.
 
-## Post-submission investigation — no runtime promotion
+## Post-submission investigation — interpretation changes withheld
 
 A prompt-only v9 experiment strengthened the requirement that the source quote
 include every supporting shared header, including containers. It was evaluated
@@ -267,3 +267,51 @@ This is a microbenchmark, not yet proof of improved hosted end-to-end latency.
 
 Claude consultation attempts for this post-submission work returned
 `stop_sequence` without a substantive review. No Claude approval is claimed.
+
+### Qualified history-index optimization — promoted separately
+
+Backend commit `65615f31157e18294db5da035ea05421c05ef560` keeps the standalone
+identity matcher unchanged. Only bulk history enrichment uses a request-local
+index of the same exact normalized product name, complete label and pack
+signatures. History ordering, live IDs, frequencies and recency are preserved;
+no cross-request cache or customer data retention was introduced. Differential
+tests use an independent copy of the original nested algorithm, with mutation,
+variant, numeric identity, unknown-pack and input-isolation checks.
+
+All 750 local tests plus 282 subtests passed. Cloud Build
+`5677efb2-899a-4307-93ea-47a7b7761933` built image
+`70c1cec0c1365060b6a8ac0b4d091ae142ce5aa46b4d94c989cebb0dbc66fb43`;
+exact Python 3.9 image suite `16c73feb-50d4-4dda-89a6-abab26635b3f` succeeded.
+The v13 zero-traffic phone diagnostic passed in 48.840s, versus 123.033s for
+the preceding v12 diagnostic. These are individual runs, not latency percentiles.
+
+| Read-only catalogue list | v12 elapsed | v13 elapsed | v13 compatible items |
+| --- | --- | --- | --- |
+| 3 items | 12.783 s | 3.227 s | 3/3 |
+| 15 items | 39.436 s | 11.455 s | 10/15 (previously 11/15) |
+| 20 items | 54.383 s | 17.518 s | 14/20 |
+
+The 20-item provider HTTP sum was 22.083s versus 22.776s previously, while
+server wall time fell from 54.294s to 17.418s. This supports a material backend
+CPU improvement; it does not establish product availability or full-basket
+correctness. Returned catalogue candidates varied between runs, including one
+additional unresolved item in the 15-item run. The same item resolved in the
+20-item run; no silent substitute was accepted. Catalogue and quantity gaps
+are still unresolved, and no cart/order/payment mutation was performed.
+
+GitHub backend main was read back at the commit above. Cloud Run v13 now has
+100 percent ordinary traffic, with health OK and unchanged non-image runtime
+configuration hash. V11 remains available for rollback. The model prompt, AI
+audience, consent, quota and concurrency behavior are unchanged. The signed
+Android v21 AAB remains byte-identical; no new Play bundle was required.
+
+Post-promotion verification against the normal configured URL passed all 14
+phone checks in 59.100s: thirteen synthetic UI checks and the read-only catalogue
+diagnostic. Compatible items returned to 3/3, 11/15 and 14/20; catalogue elapsed
+times were 3.283s, 11.622s and 17.609s. This repeat supports the speed improvement
+and shows the earlier additional 15-item miss was not persistent. It does not
+remove the original catalogue/count gaps or prove cart writes/payment.
+
+Owner scheduling: stop tests at 22:30 IST on October 4 and, if unfinished,
+resume at 09:00 IST October 5. Separate one-shot thread follow-ups were created
+and read back. The goal remains incomplete and active before the stop time.

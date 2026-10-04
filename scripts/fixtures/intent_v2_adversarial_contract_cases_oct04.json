@@ -61,10 +61,10 @@
     },
     {
       "id": "two_dozen_is_24",
-      "instruction": "24 eggs.",
-      "payload_example": {"protocol_version": 2, "items": [{"name": "eggs", "quantity": 24, "quantity_unit": "piece", "source_text": "24 eggs"}], "verified_catalogue_pack": {"product": "eggs", "pack_value": 6, "pack_unit": "piece", "verified": true}, "derived_retail_quantity": {"quantity": 4, "quantity_unit": "pack", "derivation": "24 pieces / 6 verified pieces per pack"}},
+      "instruction": "Two dozen eggs.",
+      "payload_example": {"protocol_version": 2, "scope": "intent_quantity_only", "items": [{"name": "eggs", "quantity": 24, "quantity_unit": "piece", "source_text": "Two dozen eggs"}]},
       "expected_disposition": "accept_for_review",
-      "reason": "Model-grounded spoken quantity remains 24 pieces. Only separate verified catalogue evidence may derive 4 retail packs; never let the model convert the spoken amount to 4 packs."
+      "reason": "Two multiplied by twelve means 24 requested eggs, never two eggs. This draft does not establish any retail pack size or cart quantity."
     },
     {
       "id": "hindi_dedh_kilo",
@@ -82,10 +82,10 @@
     },
     {
       "id": "24_pieces_six_per_pack",
-      "instruction": "24 pieces, in packs of 6.",
-      "payload_example": {"protocol_version": 2, "items": [{"name": "pieces", "quantity": 4, "quantity_unit": "pack", "pack_value": 6, "pack_unit": "piece", "source_text": "24 pieces, in packs of 6"}]},
+      "instruction": "24 eggs.",
+      "payload_example": {"protocol_version": 2, "items": [{"name": "eggs", "quantity": 24, "quantity_unit": "piece", "source_text": "24 eggs"}], "verified_catalogue_pack": {"product": "eggs", "pack_value": 6, "pack_unit": "piece", "verified": true}, "derived_retail_quantity": {"quantity": 4, "quantity_unit": "pack", "derivation": "24 pieces / 6 verified pieces per pack"}},
       "expected_disposition": "accept_for_review",
-      "reason": "24 divided by a directly stated 6 per pack is exactly 4 packs; preserve total and per-pack basis."
+      "reason": "Requested quantity remains 24 pieces. Separate verified catalogue evidence establishes six per pack and permits an exact four-unit cart plan for review; the model does not preconvert to retail units."
     },
     {
       "id": "nondivisible_or_unknown_pack_count",
