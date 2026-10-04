@@ -112,6 +112,34 @@ fixtures belong in public release notes, analytics, or the Drive handoff.
 
 ## Next gates
 
+### Final bounded v12 prompt experiment
+
+Before the cutoff, one additional 20-call Gemini 3.8 Flash / low development
+experiment added general instructions distinguishing container size from total,
+unstated counts from extracted numbers, and qualitative descriptors. It reused
+the same frozen inputs/gold and the v11 schema; no runtime prompt changed.
+All 20 responses were schema-valid (214 items). Contract acceptance fell to
+14/20; median 5.211s, p95 7.781s, maximum 7.875s. Independent semantic review,
+after checking the stated null-count policy, found 19 acceptable and one
+uncertain global packing instruction. The intersection is only **13/20**.
+
+An initial audit incorrectly treated singular-container counts left null as
+failures. Re-review confirmed those sources contained no literal numeric count.
+If the UI later proposes one retail unit by default, it must label it as a
+review suggestion, not pretend the model extracted an explicit count. The
+remaining uncertain global packing request may concern fulfillment rather than
+retail packaging; do not promise Swiggy packing behavior the app cannot control.
+
+Do not promote v12: more instructions improved some examined semantic cases but
+did not improve the strict end-to-end development score or latency. Remaining
+rejections span unsupported numeric expressions, incorrect numeric quotes,
+remote attachment, ambiguous amount roles and shared-heading scope. Preserve
+unresolved rows and their reasons in the upcoming review adapter instead of
+discarding an entire basket or weakening arithmetic/evidence checks. This is
+further evidence that prompt additions alone are not release qualification.
+
+### Resume sequence
+
 1. Resolve numeric field-role validation and retention of forms/descriptors;
    preserve unresolved rows for one combined editable review, never silent
    deletion, invented quantities, or per-item interrogation by default.
