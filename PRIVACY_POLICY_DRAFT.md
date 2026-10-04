@@ -1,6 +1,6 @@
 # Beta Privacy Policy
 
-**Last updated: September 6, 2026**
+**Last updated: October 4, 2026**
 
 Beta helps you build and review Swiggy Instamart carts by voice or text. It
 helps you find products, review proposed cart changes and add only the items
@@ -52,6 +52,36 @@ addresses. Beta does not send raw GPS coordinates to its backend or analytics.
 Android's location and geocoding providers may process the location to return
 the nearby area. You always choose and confirm the delivery address.
 
+## Optional Enhanced list understanding
+
+Enhanced list understanding is off by default. It can be enabled only after
+you affirmatively consent in Beta. In the public release, Gemini is the only
+provider choice. Development and test builds may offer automatic routing,
+DeepSeek or OpenAI under the same explicit consent. When enabled and used,
+the AI prompt contains the shopping instruction you typed or had speech
+recognition transcribe; Beta's backend forwards that instruction to Gemini in
+the public release. The app's request to Beta also uses technical service
+authentication and an installation identifier, which are not forwarded to
+Gemini. Saved addresses, GPS/location, recent-order history, Swiggy
+OAuth/connection tokens and other account data are not automatically included
+in the AI prompt. Gemini returns a structured draft for you to review; it does
+not directly update your Swiggy cart. Do not include information you do not
+want processed. If you put personal or sensitive information in the
+instruction, that text may be sent too.
+
+Saved addresses, GPS/location, recent-order history, Swiggy OAuth/connection
+tokens and other account data are not automatically included in this AI
+request. Beta's backend may record coarse operational metadata for this
+feature, such as provider, token counts and latency; it does not log grocery
+instruction text. Provider handling, retention and use of submitted content
+depend on the selected provider's current terms and policies. Beta does not
+promise zero retention or non-use for model training across all providers.
+Review the providers' official information: [Gemini API terms](https://ai.google.dev/gemini-api/terms),
+[DeepSeek Privacy Policy](https://platform.deepseek.com/downloads/DeepSeek%20Privacy%20Policy.pdf)
+and [OpenAI data-use policy](https://openai.com/policies/how-your-data-is-used-to-improve-model-performance/).
+Provider API keys are kept on the backend and are not included in the Android
+app package.
+
 ## Optional analytics and crash reporting
 
 Google Analytics for Firebase and Firebase Crashlytics are off by default. If
@@ -80,6 +110,8 @@ disabled. You can change analytics consent at any time in Beta Settings.
   resulting cart after a short delay.
 - To provide support, investigate failures and improve reliability.
 - If you opt in, to understand app reliability and return visits.
+- If you separately enable and use Enhanced list understanding, to create a
+  review-only structured draft from your shopping instruction.
 
 ## Sharing and storage
 

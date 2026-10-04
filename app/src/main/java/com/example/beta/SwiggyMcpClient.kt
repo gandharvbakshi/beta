@@ -14,7 +14,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-private sealed class JsonValue {
+internal sealed class JsonValue {
     data object Null : JsonValue()
     data class Bool(val value: Boolean) : JsonValue()
     data class Num(val raw: String) : JsonValue()
@@ -23,7 +23,7 @@ private sealed class JsonValue {
     data class Arr(val items: List<JsonValue>) : JsonValue()
 }
 
-private class JsonParser(private val text: String) {
+internal class JsonParser(private val text: String) {
     private var index = 0
 
     fun parse(): JsonValue? {
@@ -31,6 +31,13 @@ private class JsonParser(private val text: String) {
         if (index >= text.length) return null
         val value = parseValue()
         skipWhitespace()
+        return value
+    }
+
+    fun parseStrict(): JsonValue {
+        val value = parse() ?: error("Empty JSON")
+        skipWhitespace()
+        require(index == text.length) { "Trailing JSON content" }
         return value
     }
 
@@ -193,6 +200,8 @@ object SwiggyMcpClient {
             val reconnectRequired: Boolean = false,
             val retryable: Boolean = false,
             val orderNotSubmitted: Boolean = false,
+            val intentNeedsReview: Boolean = false,
+            val intentUnavailable: Boolean = false,
         ) : SwiggyMcpResult<Nothing>()
     }
 
@@ -768,7 +777,8 @@ object SwiggyMcpClient {
             else -> requestBuilder.build()
         }
 
-        val baseClient = if (isCartMutationPath(path)) cartMutationClient else safeRequestClient
+        // Intent inference is read-only but billable; never replay it automatically.
+        val baseClient = if (isCartMutationPath(path) || path == "/swiggy/intent") cartMutationClient else safeRequestClient
         val requestClient = timeoutSeconds?.let { seconds ->
             baseClient.newBuilder().readTimeout(seconds, TimeUnit.SECONDS).build()
         } ?: baseClient
@@ -804,12 +814,15 @@ object SwiggyMcpClient {
                 reconnectRequired = swiggyReconnectRequired(body),
                 retryable = swiggyRetryable(path, it.code),
                 orderNotSubmitted = checkoutOrderNotSubmittedFlag(path, it.code, body),
+                intentNeedsReview = path == "/swiggy/intent" && it.code == 422,
+                intentUnavailable = path == "/swiggy/intent" && it.code == 404 &&
+                    swiggyHttpErrorReason(body) == "intent_unavailable",
             )
         }
         val parsed = try {
             parser(body)
         } catch (_: Exception) {
-            return SwiggyMcpResult.Failure(userMessage = if (path.startsWith("/swiggy/checkout/")) {
+            return SwiggyMcpResult.Failure(intentNeedsReview = path == "/swiggy/intent", userMessage = if (path.startsWith("/swiggy/checkout/")) {
                 "Beta could not read the order result. Check the existing attempt; do not place or pay again."
             } else if (isCartMutationPath(path)) {
                 "Swiggy may have changed the cart, but Beta could not read the result. Open Swiggy and review the cart before trying again."
@@ -1063,7 +1076,28 @@ object SwiggyMcpClient {
             ?.takeIf { it.length in 2..40 && !Regex("\\b\\d{6}\\b").containsMatchIn(it) }
     }
 
-    private val INDIAN_STATE_NAMES = setOf(
+    fun fetchIntentDraft(
+        context: Context,
+        instruction: String,
+        provider: GroceryIntentProvider,
+        callback: SwiggyCallback<GroceryIntentResponse>,
+    ) {
+        require(instruction.isNotBlank()) { "Instruction must not be blank" }
+        executeJsonRequest(
+            context = context,
+            method = "POST",
+            path = "/swiggy/intent",
+            body = JSONObject()
+                .put("instruction", instruction)
+                .put("provider", provider.requestValue)
+                .toString(),
+            callback = callback,
+            parser = { body -> GroceryIntentResponse.parse(body, instruction) },
+            timeoutSeconds = 15,
+        )
+    }
+
+    internal val INDIAN_STATE_NAMES = setOf(
         "andhra pradesh", "assam", "bihar", "chhattisgarh", "delhi", "goa", "gujarat",
         "haryana", "himachal pradesh", "jharkhand", "karnataka", "kerala", "madhya pradesh",
         "maharashtra", "odisha", "punjab", "rajasthan", "tamil nadu", "telangana",

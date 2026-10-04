@@ -17,6 +17,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import android.view.View
 import com.example.beta.SwiggyMcpClient.SwiggyMcpResult
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.hamcrest.CoreMatchers.containsString
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -52,35 +57,69 @@ class SwiggyCheckoutFlowTest {
 
     @Test
     fun capture_store_previews_without_placing_any_order() {
-        val gateway = FakeGateway(
-            addressesResult = success(addresses(currentCart = true)),
-            reviewResults = arrayDequeOf(success(review(
-                quoteToken = "synthetic-preview", amount = "193.00", addressId = "example-home",
-                addressLabel = "Home", addressFull = "Flat 18, Garden Apartments, Bengaluru",
-                items = listOf(SwiggyCheckoutLine("Toned milk", 2, "500 ml", "28.00"),
-                    SwiggyCheckoutLine("Whole wheat bread", 1, "400 g", "45.00"),
-                    SwiggyCheckoutLine("Whole wheat atta", 1, "1 kg", "75.00")),
-                charges = listOf(SwiggyCheckoutCharge("Delivery fee", "15.00"),
-                    SwiggyCheckoutCharge("Platform fee", "2.00")),
-                methods = listOf(SwiggyCheckoutMethod("upi", "Google Pay", "UPI"),
-                    SwiggyCheckoutMethod("cod", "Cash on delivery", "COD")),
-            ))),
-        )
-        launchCoordinator("store-preview", gateway) { scenario, _, coordinator ->
-            storeScreenshot("01-home.png")
-            scenario.onActivity { coordinator.startFromCart() }
-            onView(withId(R.id.swiggyStepTitle)).inRoot(isDialog())
-                .check(matches(withText("How would you like to pay?")))
-            storeScreenshot("02-payment-choice.png")
-            onView(withText(containsString("Google Pay"))).inRoot(isDialog()).perform(scrollTo(), click())
-            onView(withId(R.id.swiggyStepTitle)).inRoot(isDialog())
-                .perform(scrollTo()).check(matches(withText("Place this order for ₹193.00?")))
-            storeScreenshot("03-full-review.png")
-            onView(withId(R.id.swiggyStepPrimary)).inRoot(isDialog())
-                .perform(scrollTo()).check(matches(isDisplayed()))
-            storeScreenshot("04-confirmation.png")
-            assertEquals(0, gateway.placeCalls.get())
+        val (originalClient, syntheticStatusRequests) = installSyntheticStatusClient()
+        try {
+            val gateway = FakeGateway(
+                addressesResult = success(addresses(currentCart = true)),
+                reviewResults = arrayDequeOf(success(review(
+                    quoteToken = "synthetic-preview", amount = "193.00", addressId = "example-home",
+                    addressLabel = "Home", addressFull = "Flat 18, Garden Apartments, Bengaluru",
+                    items = listOf(SwiggyCheckoutLine("Toned milk", 2, "500 ml", "28.00"),
+                        SwiggyCheckoutLine("Whole wheat bread", 1, "400 g", "45.00"),
+                        SwiggyCheckoutLine("Whole wheat atta", 1, "1 kg", "75.00")),
+                    charges = listOf(SwiggyCheckoutCharge("Delivery fee", "15.00"),
+                        SwiggyCheckoutCharge("Platform fee", "2.00")),
+                    methods = listOf(SwiggyCheckoutMethod("upi", "Google Pay", "UPI"),
+                        SwiggyCheckoutMethod("cod", "Cash on delivery", "COD")),
+                ))),
+            )
+            launchCoordinator("store-preview", gateway) { scenario, _, coordinator ->
+                dismissTelemetryConsentIfShown()
+                onView(withId(R.id.swiggyConnectionStatus))
+                    .check(matches(withText(context.getString(R.string.swiggy_connection_ready))))
+                storeScreenshot("01-home.png")
+                scenario.onActivity { coordinator.startFromCart() }
+                onView(withId(R.id.swiggyStepTitle)).inRoot(isDialog())
+                    .check(matches(withText("How would you like to pay?")))
+                storeScreenshot("02-payment-choice.png")
+                onView(withText(containsString("Google Pay"))).inRoot(isDialog()).perform(scrollTo(), click())
+                onView(withId(R.id.swiggyStepTitle)).inRoot(isDialog())
+                    .perform(scrollTo()).check(matches(withText("Place this order for ₹193.00?")))
+                storeScreenshot("03-full-review.png")
+                onView(withId(R.id.swiggyStepPrimary)).inRoot(isDialog())
+                    .perform(scrollTo()).check(matches(isDisplayed()))
+                storeScreenshot("04-confirmation.png")
+                assertEquals(0, gateway.placeCalls.get())
+                assertEquals(1, syntheticStatusRequests.get())
+            }
+        } finally {
+            SwiggyMcpClient::class.java.getDeclaredField("safeRequestClient").apply { isAccessible = true }
+                .set(SwiggyMcpClient, originalClient)
         }
+    }
+
+    private fun installSyntheticStatusClient(): Pair<OkHttpClient, AtomicInteger> {
+        val field = SwiggyMcpClient::class.java.getDeclaredField("safeRequestClient").apply { isAccessible = true }
+        val originalClient = field.get(SwiggyMcpClient) as OkHttpClient
+        val calls = AtomicInteger(0)
+        val syntheticClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val request = chain.request()
+                require(request.method == "GET" && request.url.encodedPath == "/swiggy/status") {
+                    "Screenshot test attempted a non-status MCP call"
+                }
+                calls.incrementAndGet()
+                Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("Synthetic connected status")
+                    .body("""{"connected":true}""".toResponseBody("application/json".toMediaType()))
+                    .build()
+            }
+            .build()
+        field.set(SwiggyMcpClient, syntheticClient)
+        return originalClient to calls
     }
 
     private fun storeScreenshot(name: String) {
@@ -89,6 +128,18 @@ class SwiggyCheckoutFlowTest {
         InstrumentationRegistry.getInstrumentation().uiAutomation.waitForIdle(500, 5000)
         val folder = File(context.getExternalFilesDir(null), "store-previews").apply { mkdirs() }
         assertTrue(device.takeScreenshot(File(folder, name)))
+    }
+
+    private fun dismissTelemetryConsentIfShown() {
+        val device = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        if (device.wait(
+                androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.text("Not now")),
+                2_000L,
+            )
+        ) {
+            onView(withText("Not now")).inRoot(isDialog()).perform(click())
+        }
+        waitForIdle()
     }
 
     @Test

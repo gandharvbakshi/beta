@@ -20,7 +20,7 @@ import org.junit.Test
 
 class SwiggyResponseRecoveryTest {
     @Test fun truncatedResponseReachesFailureWithoutParsingOrRetrying() {
-        for (path in listOf("/swiggy/recommendations/batch", "/swiggy/cart/apply")) {
+        for (path in listOf("/swiggy/recommendations/batch", "/swiggy/cart/apply", "/swiggy/intent")) {
             var parses = 0
             var closed = false
             val body = object : ResponseBody() {
@@ -38,6 +38,7 @@ class SwiggyResponseRecoveryTest {
             assertEquals(SwiggyMcpClient.swiggyNetworkFailureMessage(path), failure.userMessage)
             assertEquals(0, parses)
             assertFalse(failure.retryable)
+            assertFalse(failure.intentUnavailable)
             assertTrue(closed)
         }
     }
@@ -63,6 +64,41 @@ class SwiggyResponseRecoveryTest {
             "/swiggy/status", response("""{"detail":{"reason":"swiggy_reconnect_required","reconnectRequired":true}}""".toResponseBody(), 401),
         ) { it } as SwiggyMcpResult.Failure
         assertTrue(expired.reconnectRequired)
+    }
+
+    @Test fun intentUnavailableIsOnlyTheExplicitIntentEndpointNotFoundContract() {
+        val unavailable = SwiggyMcpClient.readSwiggyHttpResponse(
+            "/swiggy/intent",
+            response("""{"detail":{"accepted":false,"reason":"intent_unavailable"}}""".toResponseBody(), 404),
+        ) { it } as SwiggyMcpResult.Failure
+        assertTrue(unavailable.intentUnavailable)
+        assertFalse(unavailable.intentNeedsReview)
+        assertFalse(unavailable.reconnectRequired)
+
+        val other404 = SwiggyMcpClient.readSwiggyHttpResponse(
+            "/swiggy/recommendations/batch",
+            response("""{"detail":{"reason":"intent_unavailable"}}""".toResponseBody(), 404),
+        ) { it } as SwiggyMcpResult.Failure
+        assertFalse(other404.intentUnavailable)
+
+        val unrelated404 = SwiggyMcpClient.readSwiggyHttpResponse(
+            "/swiggy/intent",
+            response("""{"detail":{"reason":"not_found"}}""".toResponseBody(), 404),
+        ) { it } as SwiggyMcpResult.Failure
+        assertFalse(unrelated404.intentUnavailable)
+
+        val malformed404 = SwiggyMcpClient.readSwiggyHttpResponse(
+            "/swiggy/intent", response("not-json".toResponseBody(), 404),
+        ) { it } as SwiggyMcpResult.Failure
+        assertFalse(malformed404.intentUnavailable)
+
+        val rejected422 = SwiggyMcpClient.readSwiggyHttpResponse(
+            "/swiggy/intent",
+            response("""{"detail":{"reason":"intent_unavailable"}}""".toResponseBody(), 422),
+        ) { it } as SwiggyMcpResult.Failure
+        assertFalse(rejected422.intentUnavailable)
+        assertTrue(rejected422.intentNeedsReview)
+        assertFalse(rejected422.reconnectRequired)
     }
 
     @Test fun gatewayErrorOnApplyIsUncertainAndNeverMarkedRetryable() {

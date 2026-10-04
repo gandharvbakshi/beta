@@ -5,7 +5,6 @@ import android.widget.Button
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.assertion.ViewAssertions.matches
-import androidx.test.espresso.matcher.ViewMatchers.Visibility.GONE
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility
 import androidx.test.espresso.matcher.ViewMatchers.withId
@@ -36,14 +35,12 @@ class BetaAppSmokeTest {
         val disconnectText = activityRule.activity.getString(R.string.swiggy_connection_disconnect)
         assertTrue(
             "Unexpected Swiggy connection action: $actionText",
-            actionText == connectText || actionText == reconnectText || actionText == disconnectText,
+            actionText == connectText || actionText == reconnectText || actionText == disconnectText ||
+                actionText == "Try connection again",
         )
 
-        if (actionText == disconnectText) {
-            onView(withId(R.id.orderComposerCard)).check(matches(isDisplayed()))
-        } else {
-            onView(withId(R.id.orderComposerCard)).check(matches(withEffectiveVisibility(GONE)))
-        }
+        // Local draft editing must remain available even without a connection.
+        onView(withId(R.id.orderComposerCard)).check(matches(withEffectiveVisibility(androidx.test.espresso.matcher.ViewMatchers.Visibility.VISIBLE)))
 
         onView(withText(containsString("Blinkit"))).check(doesNotExist())
         onView(withText(containsString("AccessibilityService"))).check(doesNotExist())
@@ -63,7 +60,8 @@ class BetaAppSmokeTest {
             if (
                 actionText == activityRule.activity.getString(R.string.swiggy_connection_action) ||
                 actionText == activityRule.activity.getString(R.string.swiggy_connection_reconnect_action) ||
-                actionText == activityRule.activity.getString(R.string.swiggy_connection_disconnect)
+                actionText == activityRule.activity.getString(R.string.swiggy_connection_disconnect) ||
+                actionText == "Try connection again"
             ) {
                 return actionText
             }

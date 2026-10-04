@@ -2,6 +2,7 @@ package com.example.beta
 
 import android.app.Activity
 import android.os.SystemClock
+import android.util.Log
 import com.example.beta.SwiggyMcpClient.RecommendationCandidate
 import com.example.beta.SwiggyMcpClient.Recommendations
 import com.example.beta.SwiggyMcpClient.RequestedItem
@@ -75,10 +76,20 @@ internal fun swiggyNoCandidateMessage(
     address: SwiggyAddress,
 ): String {
     val strictMatchPhrase = item.strictMatchPhrase?.trim().takeIf { !it.isNullOrBlank() }
+    val identity = swiggyIdentityTokens(item.query)
+    if ("readytodrink" in identity && ("sugarfree" in identity || "sugar" in item.avoidPhrases)) {
+        return "I could not verify a ready-to-drink tea or coffee with your sugar preference. I have not swapped it for powder or sweetened tea. You can edit this item or leave it out."
+    }
+    if ("samosa" in identity && item.quantity is Quantity.Count && !item.retailPackCount) {
+        return "I could not verify the exact number of prepared samosas here. I have not substituted a frozen bag or a larger pack. You can edit this item or leave it out."
+    }
+    if ("lowfat" in identity) {
+        return "I could not verify lower-fat milk from the product label. I have not swapped it for regular or full-cream milk. You can edit this item or leave it out."
+    }
     return if (strictMatchPhrase != null) {
-        "I could not find your preferred exact product, $strictMatchPhrase, at your selected address (${address.shortLabel}). Beta did not substitute it. Nothing was added."
+        "I could not verify this exact product and pack: $strictMatchPhrase. You can edit it or leave it out."
     } else {
-        "I could not find ${item.query} on Swiggy Instamart. Nothing was added."
+        "No confirmed match for ${item.query} at ${address.shortLabel}. You can edit it or leave it out."
     }
 }
 
@@ -221,6 +232,12 @@ private val candidatePieceCountRegex = Regex(
     RegexOption.IGNORE_CASE,
 )
 
+private fun swiggyExplicitPieceCount(candidate: RecommendationCandidate): Int? {
+    val counts = candidatePieceCountRegex.findAll(swiggyCandidateLabel(candidate))
+        .map { it.groupValues[1].toInt() }.distinct().toList()
+    return if (counts.isEmpty()) null else counts.singleOrNull() ?: 0
+}
+
 private fun swiggyRetailMultipackCount(candidate: RecommendationCandidate): Int? {
     val text = swiggyCandidateLabel(candidate)
     val unit = "(?:kg|kgs|g|gm|gms|grams?|ml|l|ltr|litres?|liters?)"
@@ -235,6 +252,17 @@ private fun swiggyRetailMultipackCount(candidate: RecommendationCandidate): Int?
     return if (counts.isEmpty()) null else counts.singleOrNull() ?: 0
 }
 
+private fun swiggyCountsRetailPackages(item: ParsedItem, candidate: RecommendationCandidate): Boolean {
+    if (!item.retailPackCount) return false
+    // One tetra pack means one carton, not a bundle of six cartons. Counting
+    // entire bundles requires an explicitly requested multipack descriptor.
+    if (swiggyRetailMultipackCount(candidate) == null) return true
+    return !item.strictMatchPhrase.isNullOrBlank() && Regex(
+        "\\b(?:[1-9]\\d?\\s*[x×]\\s*\\d|pack\\s+of\\s+[1-9]\\d?|\\d+(?:\\.\\d+)?\\s*(?:ml|l|g|kg)\\s*[x×]\\s*[1-9]\\d?)",
+        RegexOption.IGNORE_CASE,
+    ).containsMatchIn(item.strictMatchPhrase.orEmpty())
+}
+
 internal fun isSwiggyCandidateCountCompatible(
     item: ParsedItem,
     candidate: RecommendationCandidate,
@@ -243,15 +271,22 @@ internal fun isSwiggyCandidateCountCompatible(
         return swiggyMeasuredPackQuantity(item, candidate) != null
     }
     val requested = item.quantity as? Quantity.Count ?: return true
+    if (swiggyCountsRetailPackages(item, candidate)) return requested.n in 1..20
+    // A count of prepared snacks is a piece count, not an unknown frozen bag.
+    // Explicit retail-pack requests are handled separately from individual food.
+    if ("samosa" in swiggyIdentityTokens(item.query)) {
+        val tokens = swiggyIdentityTokens(swiggyCandidateLabel(candidate))
+        if (tokens.any { it in setOf("frozen", "readytocook", "raw") } ||
+            "readytoeat" !in tokens ||
+            !candidatePieceCountRegex.containsMatchIn(swiggyCandidateLabel(candidate)) &&
+            swiggyRetailMultipackCount(candidate) == null) return false
+    }
     swiggyRetailMultipackCount(candidate)?.let { pieces ->
         return pieces > 0 && requested.n % pieces == 0 && requested.n / pieces in 1..20
     }
-    val explicitPackCount = candidatePieceCountRegex
-        .find(listOfNotNull(candidate.label, candidate.variant, candidate.subtitle).joinToString(" "))
-        ?.groupValues
-        ?.get(1)
-        ?.toIntOrNull()
-    return explicitPackCount == null || explicitPackCount == requested.n
+    val explicitPackCount = swiggyExplicitPieceCount(candidate)
+    return explicitPackCount == null || explicitPackCount > 0 &&
+        requested.n % explicitPackCount == 0 && requested.n / explicitPackCount in 1..20
 }
 
 internal fun swiggyRequestedCartQuantity(
@@ -262,14 +297,19 @@ internal fun swiggyRequestedCartQuantity(
         return requireNotNull(swiggyMeasuredPackQuantity(item, candidate)) { "Unverified pack measure" }
     }
     val requested = item.quantity as? Quantity.Count ?: return 1
+    if (swiggyCountsRetailPackages(item, candidate)) {
+        require(requested.n in 1..20) { "Unverified retail pack count" }
+        return requested.n
+    }
     swiggyRetailMultipackCount(candidate)?.let { pieces ->
         require(pieces > 0 && requested.n % pieces == 0 && requested.n / pieces in 1..20) { "Unverified multipack count" }
         return requested.n / pieces
     }
-    return if (isSwiggyCandidateCountCompatible(item, candidate) && candidatePieceCountRegex.containsMatchIn(
-            listOfNotNull(candidate.label, candidate.variant, candidate.subtitle).joinToString(" ")
-        )
-    ) 1 else requested.n
+    swiggyExplicitPieceCount(candidate)?.let { pieces ->
+        require(pieces > 0 && requested.n % pieces == 0 && requested.n / pieces in 1..20) { "Unverified piece count" }
+        return requested.n / pieces
+    }
+    return requested.n
 }
 
 /** Exact, divisible measures only. An unknown or mixed multipack is not guessed. */
@@ -309,7 +349,8 @@ internal fun swiggySuggestionNeedsReview(item: ParsedItem, recommendation: Recom
         (item.strictMatchPhrase.isNullOrBlank() && item.query.trim().split(Regex("\\s+")).size == 1)
 
 internal fun swiggyNeedsExactHealthProduct(item: ParsedItem): Boolean {
-    val words = item.query.lowercase().split(Regex("[^\\p{L}]+" )).toSet()
+    // A model must not erase the user's uncertainty by inventing a precise name.
+    val words = "${item.query} ${item.rawText}".lowercase().split(Regex("[^\\p{L}]+" )).toSet()
     return words.any { it in setOf("cough", "khansi", "khaansi", "fever", "headache", "pain") } &&
         words.any { it in setOf("woh", "wo", "wali", "waali", "wala", "goli", "medicine", "dawai", "dawa", "something") }
 }
@@ -334,6 +375,10 @@ internal fun isSwiggyCandidateAllowed(item: ParsedItem, candidate: Recommendatio
     val label = swiggyCandidateLabel(candidate).lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ")
     return item.avoidPhrases.none { phrase ->
         val words = phrase.lowercase().trim().replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+        if (words == "sugar") {
+            val evidence = swiggyIdentityTokens(swiggyCandidateLabel(candidate))
+            return@none evidence.none { it in setOf("unsweetened", "sugarfree") } || swiggyHasSugarContradiction(swiggyCandidateLabel(candidate))
+        }
         // Explicit "lactose free" / "sugar free" is not the excluded ingredient.
         // Do not infer ingredient safety from an otherwise silent catalog label.
         val unnegated = label.replace(Regex("\\b${Regex.escape(words)} free\\b"), " ")
@@ -398,6 +443,7 @@ class SwiggyVoiceOrderCoordinator(
     private val draftCandidates = mutableMapOf<Int, RecommendationCandidate>()
     private val draftSkipped = mutableSetOf<Int>()
     private var draftRecommendations: List<Recommendations> = emptyList()
+    private val intentReviewGate = GroceryIntentReviewGate()
 
     private fun clearDraft() {
         draftCandidates.clear()
@@ -420,6 +466,16 @@ class SwiggyVoiceOrderCoordinator(
             announce("Beta is already working on your Swiggy cart.")
             return
         }
+        val provider = GroceryIntentPreferences.getMode(activity).providerOrNull()
+        if (provider != null) {
+            startIntentPreparation(instruction, provider)
+            return
+        }
+        startStandardPreparation(instruction)
+    }
+
+    private fun startStandardPreparation(instruction: String) {
+        intentReviewGate.clear()
         val items = prepareSwiggyMcpItems(
             instruction = instruction,
             lookup = { PreferenceStore.lookup(activity, it) },
@@ -451,11 +507,114 @@ class SwiggyVoiceOrderCoordinator(
         }
     }
 
+    private fun startIntentPreparation(instruction: String, provider: GroceryIntentProvider) {
+        running = true
+        clearDraft()
+        intentReviewGate.clear()
+        val operationId = ++operationGeneration
+        val started = SystemClock.elapsedRealtime()
+        val join = GroceryPreparationJoin<List<ParsedItem>, List<SwiggyAddress>> { items, addresses ->
+            Log.i("BetaAgent", "INTENT_PREPARATION_READY provider=${provider.requestValue} items=${items.size} elapsed_ms=${SystemClock.elapsedRealtime() - started}")
+            showYourList(operationId, items, "Checking your delivery address.")
+            rankAndChooseAddress(operationId, addresses, items)
+        }
+        stepDialog.show(SwiggyStepScreen(
+            eyebrow = "Your list",
+            title = "Understanding your whole list",
+            message = "Checking your items and saved delivery addresses together. Nothing is being added.",
+            caption = "You can stop at any time. Your list will be kept.",
+            cancel = { cancelAndDismiss(operationId, "Your list is saved. Nothing was changed.") },
+        ))
+        announce("Understanding your list. Nothing is being added.")
+        // Independent reads overlap; matching still waits for BOTH results and explicit address confirmation.
+        SwiggyMcpClient.fetchAddresses(activity) { result ->
+            onUi(operationId) {
+                when (result) {
+                    is SwiggyMcpResult.Success -> join.second(result.value)
+                    is SwiggyMcpResult.Failure -> fail(operationId, result)
+                }
+            }
+        }
+        SwiggyMcpClient.fetchIntentDraft(activity, instruction, provider) { result ->
+            onUi(operationId) {
+                when (result) {
+                    is SwiggyMcpResult.Success -> {
+                        val preparation = try {
+                            result.value.draft.prepareForReview()
+                        } catch (review: IntentNeedsReviewException) {
+                            showIntentRecovery(operationId, instruction, ambiguous = true, affectedText = review.affectedSourceText)
+                            return@onUi
+                        } catch (_: IllegalArgumentException) {
+                            showIntentRecovery(operationId, instruction, ambiguous = true)
+                            return@onUi
+                        }
+                        val items = preparation.items
+                        intentReviewGate.prepare(preparation.unresolvedText)
+                        // Typed quantities already passed exact numeric validation. Raw correction text
+                        // must not be reparsed by the legacy heuristic (e.g. a cancelled quantity).
+                        val validation = swiggyMcpItemValidationMessage("", items)
+                        if (items.isEmpty() || validation != null) {
+                            showIntentRecovery(operationId, instruction, ambiguous = true)
+                        } else {
+                            Log.i("BetaAgent", "INTENT_DRAFT_VALIDATED provider=${provider.requestValue} items=${items.size} elapsed_ms=${SystemClock.elapsedRealtime() - started}")
+                            join.first(items)
+                        }
+                    }
+                    is SwiggyMcpResult.Failure -> {
+                        if (result.reconnectRequired) fail(operationId, result)
+                        else {
+                            if (result.intentUnavailable) GroceryIntentPreferences.setMode(activity, GroceryIntentPreferences.Mode.OFF)
+                            showIntentRecovery(operationId, instruction, ambiguous = result.intentNeedsReview, unavailableForInstallation = result.intentUnavailable)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showIntentRecovery(operationId: Long, instruction: String, ambiguous: Boolean, affectedText: List<String> = emptyList(), unavailableForInstallation: Boolean = false) {
+        // Invalidate outstanding preparation callbacks before showing a recovery choice.
+        if (!isCurrent(operationId)) return
+        operationGeneration += 1
+        val recoveryId = operationGeneration
+        val message = if (ambiguous) {
+            "I could not safely understand the whole list. Please check the item names and amounts together. Your list is saved; nothing was added."
+        } else if (unavailableForInstallation) {
+            "Enhanced understanding is not available for this connection yet, so it has been turned off. Your list is saved. You can choose standard matching below."
+        } else {
+            "Enhanced understanding is unavailable right now. Your list is saved. You can try standard matching and review its suggestions before anything is added."
+        }
+        stepDialog.show(SwiggyStepScreen(
+            eyebrow = "Your list is safe",
+            title = if (ambiguous) "Please check your list" else "Try standard matching?",
+            message = message,
+            caption = "Nothing was changed in your Swiggy cart.",
+            rows = affectedText.distinct().map { text ->
+                SwiggyStepRow(title = text, detail = "Please check this part of your list", badge = "Needs review")
+            },
+            primary = SwiggyStepAction("Edit your list") {
+                if (isCurrent(recoveryId)) {
+                    cancelAndDismiss(recoveryId, "Your list is ready to edit.")
+                    onEditRequest()
+                }
+            },
+            secondary = if (ambiguous) null else SwiggyStepAction("Try standard matching") {
+                if (isCurrent(recoveryId)) {
+                    cancelAndDismiss(recoveryId, "Using standard matching. Please check every suggestion.")
+                    startStandardPreparation(instruction)
+                }
+            },
+            cancel = { cancelAndDismiss(recoveryId, "Your list is saved. Nothing was changed.") },
+        ))
+        announce(message)
+    }
+
     fun cancel(): Boolean {
         if (mutationInFlight) return false
         operationGeneration += 1
         running = false
         clearDraft()
+        intentReviewGate.clear()
         dismissActiveDialog()
         notifyTerminal()
         return true
@@ -646,6 +805,7 @@ class SwiggyVoiceOrderCoordinator(
         items: List<ParsedItem>,
         pageIndex: Int = 0,
         allowRememberedAddress: Boolean = true,
+        showAllAddresses: Boolean = false,
     ) {
         val usable = addresses.filter { it.id.isNotBlank() }.distinctBy { it.id }.take(MAX_ADDRESSES)
         if (usable.isEmpty()) {
@@ -663,29 +823,27 @@ class SwiggyVoiceOrderCoordinator(
                 onAddressChanged(remembered.shortLabel)
                 val ageMinutes = ((SystemClock.elapsedRealtime() - selectedAddressAtElapsedRealtime) / 60_000L)
                     .coerceAtLeast(0L)
-                val caption = "Using ${remembered.shortLabel}, the Swiggy address you confirmed earlier in this session."
+                val presentation = swiggyAddressPresentation(remembered)
+                val caption = "${presentation.title} was confirmed ${ageMinutes} min ago. Check the address before continuing."
                 stepDialog.show(
                     SwiggyStepScreen(
                         eyebrow = "Step 1 of 4 · Delivery address",
-                        title = activity.getString(
-                            R.string.swiggy_step_address_reassure_title,
-                            remembered.shortLabel,
-                        ),
-                        message = "All ${items.size} items will be searched at this saved address. ${addressLocationNotice(remembered)}",
-                        caption = caption,
+                        title = "Use this delivery address?",
+                        message = swiggyAddressSuggestionPrompt(addressLocationAssessments[remembered.id]),
+                        caption = "",
                         rows = listOf(
                             SwiggyStepRow(
-                                title = "${remembered.shortLabel} - saved address",
-                                detail = remembered.label,
+                                title = presentation.title,
+                                detail = presentation.detail,
                                 badge = "Confirmed ${ageMinutes} min ago",
                                 tone = SwiggyStepTone.SUCCESS,
                             )
                         ),
-                        primary = SwiggyStepAction("Yes, use this address") {
+                        primary = SwiggyStepAction("Deliver here") {
                             if (isCurrent(operationId)) collectRecommendations(operationId, remembered, items)
                         },
-                        secondary = SwiggyStepAction("Choose a different address") {
-                            if (isCurrent(operationId)) restartAddressSelection(operationId, items)
+                        secondary = SwiggyStepAction("Change address") {
+                            if (isCurrent(operationId)) chooseAddress(operationId, usable, items, allowRememberedAddress = false, showAllAddresses = true)
                         },
                         tertiary = SwiggyStepAction(activity.getString(R.string.swiggy_step_cancel_list)) {
                             cancelAndDismiss(operationId, "Swiggy cart changes cancelled.")
@@ -693,11 +851,64 @@ class SwiggyVoiceOrderCoordinator(
                         cancel = { cancelAndDismiss(operationId, "Swiggy cart changes cancelled.") },
                     )
                 )
-                announce(caption)
+                announce("${swiggySpokenAddressSuggestion(remembered)} $caption")
                 return
             }
         }
         clearRememberedAddress()
+
+        // Make the safe default a single, readable recommendation.  Elderly
+        // users should be able to accept the address we ranked from current
+        // cart/recent use/location without first scanning a long provider list.
+        // The full list remains one explicit action away and keeps the same
+        // paging and exact provider-ID selection path.
+        val suggestedAddress = usable.firstOrNull()
+        if (!showAllAddresses && suggestedAddress != null) {
+            val presentation = swiggyAddressPresentation(suggestedAddress)
+            val suggestionReason = addressSuggestionReasons[suggestedAddress.id]
+            val locationNotice = swiggyAddressSuggestionPrompt(addressLocationAssessments[suggestedAddress.id])
+            stepDialog.show(
+                SwiggyStepScreen(
+                    eyebrow = "Step 1 of 4 · Delivery address",
+                    title = "Use this delivery address?",
+                    message = locationNotice,
+                    caption = "",
+                    rows = listOf(
+                        SwiggyStepRow(
+                            title = presentation.title,
+                            detail = presentation.detail,
+                            badge = if (suggestionReason == null) "Suggested" else "Suggested · $suggestionReason",
+                            tone = SwiggyStepTone.SUCCESS,
+                        )
+                    ),
+                    primary = SwiggyStepAction("Deliver here") {
+                        if (isCurrent(operationId)) {
+                            rememberAddress(suggestedAddress)
+                            collectRecommendations(operationId, suggestedAddress, items)
+                        }
+                    },
+                    secondary = SwiggyStepAction("Change address") {
+                        if (isCurrent(operationId)) {
+                            chooseAddress(
+                                operationId,
+                                usable,
+                                items,
+                                pageIndex = 0,
+                                allowRememberedAddress = false,
+                                showAllAddresses = true,
+                            )
+                        }
+                    },
+                    tertiary = SwiggyStepAction(activity.getString(R.string.swiggy_step_cancel_list)) {
+                        cancelAndDismiss(operationId, "Swiggy cart changes cancelled.")
+                    },
+                    cancel = { cancelAndDismiss(operationId, "Swiggy cart changes cancelled.") },
+                )
+            )
+            announce("${swiggySpokenAddressSuggestion(suggestedAddress)} $locationNotice")
+            return
+        }
+
         val pageCount = (usable.size + SWIGGY_ADDRESS_PAGE_SIZE - 1) / SWIGGY_ADDRESS_PAGE_SIZE
         val safePageIndex = pageIndex.coerceIn(0, pageCount - 1)
         val pageStart = safePageIndex * SWIGGY_ADDRESS_PAGE_SIZE
@@ -715,9 +926,11 @@ class SwiggyVoiceOrderCoordinator(
                     if (addressLocationAssessments.values.all { it == SwiggyLocationAssessment.UNKNOWN }) "Location is unavailable. Check the house or flat and area." else "Check the house or flat and area before choosing.",
                 caption = caption,
                 choices = (pageStart until pageEnd).map { index ->
+                    val presentation = swiggyAddressPresentation(usable[index])
                     SwiggyStepChoice(
                         title = labels[index],
-                        detail = swiggyAddressSuggestionDetail(usable[index], index, addressSuggestionReasons) +
+                        detail = presentation.detail + " · " +
+                            swiggyAddressSuggestionDetail(usable[index], index, addressSuggestionReasons) +
                             if (addressLocationAssessments[usable[index].id] == SwiggyLocationAssessment.NOT_MATCHED) " · Not matched to your current area" else "",
                         onClick = {
                             if (isCurrent(operationId)) {
@@ -736,6 +949,7 @@ class SwiggyVoiceOrderCoordinator(
                                 items,
                                 pageIndex = safePageIndex + 1,
                                 allowRememberedAddress = false,
+                                showAllAddresses = true,
                             )
                         }
                     }
@@ -749,6 +963,7 @@ class SwiggyVoiceOrderCoordinator(
                                 items,
                                 pageIndex = safePageIndex - 1,
                                 allowRememberedAddress = false,
+                                showAllAddresses = true,
                             )
                         }
                     }
@@ -1021,6 +1236,8 @@ class SwiggyVoiceOrderCoordinator(
             return
         }
         val cartStartsEmpty = swiggyCartStartsEmpty(plan)
+        intentReviewGate.beginReview()
+        val unmatchedText = intentReviewGate.unresolvedText
         BetaTelemetry.instance?.logEvent(
             "cart_review_viewed",
             mapOf(
@@ -1035,7 +1252,20 @@ class SwiggyVoiceOrderCoordinator(
                 badge = "Please check",
                 tone = SwiggyStepTone.AMBER,
             )
-        ) + draftSkipped.sorted().map { skipped ->
+        ) + unmatchedText.map { text ->
+            SwiggyStepRow(
+                title = text,
+                detail = "Beta could not verify how these words were used. Check them against the items below. If anything is missing or wrong, edit your list.",
+                badge = "Please check this wording",
+                tone = SwiggyStepTone.AMBER,
+                action = SwiggyStepAction("Edit your list") {
+                    if (isCurrent(operationId) && !mutationInFlight) {
+                        cancelAndDismiss(operationId, "Your list is ready to edit. Nothing was changed.")
+                        onEditRequest()
+                    }
+                },
+            )
+        } + draftSkipped.sorted().map { skipped ->
             SwiggyStepRow(title = displayItem(items[skipped]), detail = "You chose to leave this item out.", badge = "Not added", tone = SwiggyStepTone.AMBER)
         } + plan.changes.map { change ->
             val from = change.fromQuantity ?: 0
@@ -1046,7 +1276,8 @@ class SwiggyVoiceOrderCoordinator(
             }.orEmpty()
             SwiggyStepRow(
                 title = change.displayName,
-                detail = suggestedNote + if (from == 0) "Add $to pack(s) of this exact product" else "Keep the existing line and change only this quantity",
+                detail = suggestedNote + (if (from == 0) "Add $to pack(s) of this exact product" else "Keep the existing line and change only this quantity") +
+                    draftIndex?.let { "\nYou asked: ${items[it].rawText}" }.orEmpty(),
                 badge = "$from → $to packs",
                 action = draftIndex?.let { index ->
                     SwiggyStepAction("Change ${items[index].query}") {
@@ -1092,6 +1323,12 @@ class SwiggyVoiceOrderCoordinator(
                 caption = caption,
                 rows = rows,
                 safetyNote = "${activity.getString(R.string.swiggy_keep_closed_warning)} Check the suggested brands and packs together. Use Change only if needed. ${activity.getString(R.string.swiggy_step_no_checkout)}",
+                acknowledgement = if (unmatchedText.isEmpty()) null else SwiggyStepAcknowledgement(
+                    label = "I checked the wording above against my basket. Add only the items shown below.",
+                    onCheckedChange = { checked ->
+                        if (isCurrent(operationId) && !mutationInFlight) intentReviewGate.acknowledge(checked)
+                    },
+                ),
                 primary = SwiggyStepAction(
                     if (cartStartsEmpty) "Add ${plan.changes.size} lines to cart" else "Apply ${plan.changes.size} cart changes"
                 ) {
@@ -1107,7 +1344,8 @@ class SwiggyVoiceOrderCoordinator(
             )
         )
         val skippedNotice = if (draftSkipped.isEmpty()) "" else " ${draftSkipped.size} items you chose to skip are not included."
-        announce("$addressConfirmation ${addressLocationNotice(address)}$skippedNotice Please review the suggested brands and pack quantities together. ${activity.getString(R.string.swiggy_keep_closed_warning)} Nothing is added until you confirm. No order will be placed.")
+        val unmatchedNotice = if (unmatchedText.isEmpty()) "" else " Some wording needs your review. Check it against the basket, then edit your list if anything is missing or wrong. Check the box only when the items shown are the ones you want."
+        announce("$addressConfirmation ${addressLocationNotice(address)}$skippedNotice$unmatchedNotice Please review the suggested brands and pack quantities together. ${activity.getString(R.string.swiggy_keep_closed_warning)} Nothing is added until you confirm. No order will be placed.")
     }
 
     private fun restartAddressSelection(
@@ -1151,7 +1389,17 @@ class SwiggyVoiceOrderCoordinator(
         items: List<ParsedItem>,
         selected: List<RequestedItem>,
     ) {
-        if (!isCurrent(operationId) || mutationInFlight || !hostResumed) return
+        if (!isCurrent(operationId) || mutationInFlight) return
+        if (!hostResumed) {
+            cancelAndDismiss(operationId, "Your list is saved. Please review it again when you return. Nothing was added.")
+            return
+        }
+        if (!intentReviewGate.canApply()) {
+            // The dialog already consumed its one-shot action. Close that screen and
+            // release running state instead of leaving all its controls inert.
+            cancelAndDismiss(operationId, "Your list is saved. Please review the highlighted wording again. Nothing was added.")
+            return
+        }
         if (!pendingCartStore.markPending() || !cartReviewStore.save(token)) {
             finish(operationId, "Beta could not safely save the cart-check state. Nothing was added. Please try again.")
             return
@@ -1272,13 +1520,13 @@ class SwiggyVoiceOrderCoordinator(
         if (!isCurrent(operationId)) return
         val unresolved = items.indices.filter { it !in draftSkipped && usableCandidates(items[it], recommendations[it]).isEmpty() }
         val otherItemCount = items.size - draftSkipped.size - unresolved.size
-        val message = "Beta could not safely choose ${unresolved.size} item(s). Check the names or pack sizes, or leave these items out. Nothing has been added."
+        val message = "Check these ${if (unresolved.size == 1) "item details" else "items"}, or continue without them. Nothing has been added."
         stepDialog.show(
             SwiggyStepScreen(
                 eyebrow = "No substitution",
                 title = if (unresolved.size == 1) "One item needs your help" else "${unresolved.size} items need your help",
                 message = message,
-                caption = message,
+                caption = "",
                 rows = unresolved.map { missingIndex ->
                     val item = items[missingIndex]
                     SwiggyStepRow(
@@ -1293,12 +1541,12 @@ class SwiggyVoiceOrderCoordinator(
                     )
                 },
                 safetyNote = if (otherItemCount > 0) {
-                    "Beta will not swap the product or pack. Your other $otherItemCount items are still matched or waiting."
+                    "Your other ${if (otherItemCount == 1) "item is" else "$otherItemCount items are"} ready for review. Beta will not swap these missing products or packs."
                 } else {
                     "Beta will not swap the product or pack, and your cart was not changed."
                 },
                 primary = if (otherItemCount > 0) {
-                    SwiggyStepAction("Continue with $otherItemCount matched items") {
+                    SwiggyStepAction("Review $otherItemCount matched ${if (otherItemCount == 1) "item" else "items"}") {
                         if (isCurrent(operationId)) {
                             draftSkipped.addAll(unresolved)
                             chooseCandidate(++operationGeneration, address, items, recommendations, 0, mutableListOf())
@@ -1461,6 +1709,7 @@ class SwiggyVoiceOrderCoordinator(
         val completedMutation = mutationInFlight
         running = false
         clearDraft()
+        intentReviewGate.clear()
         stepDialog.dismiss()
         announce(message)
         if (completedMutation) setMutationInFlight(false)

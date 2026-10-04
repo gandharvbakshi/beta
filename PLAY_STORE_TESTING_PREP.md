@@ -1,18 +1,51 @@
 # Beta Play and Live Testing Preparation
 
-September 6 promotion update: version20/0.3.3 is now completed on the open-testing
-beta track following the owner's explicit publish instruction. This supersedes
-the draft status below. Google review/availability is not independently verified;
-reviewer access and live-transaction evidence remain separate unresolved risks.
+## Current release preparation status — 4 October 2026
 
-Current target: Swiggy-only version `0.3.3` (`versionCode 20`), initially a
-draft on the open-testing track. See `SWIGGY_HISTORY_MATCHING_RELEASE_20260906.md`
-for the matching tests and latest release readback.
+Version `0.3.3` (`versionCode 20`) is the latest completed Open Testing
+release. Version `0.3.4` (`versionCode 21`) is a candidate only: it has not
+been uploaded to Play. The previously signed bundle predates the latest
+grounding fix and must be rebuilt and re-signed before upload. The latest
+grounding/dish fix is still pending the final signed rebuild. No Git push or
+Play v21 upload has occurred.
 
-Current status: the checked-in candidate enables checkout review and payment
-handoff, with an independent backend emergency switch. Build success is not
-proof of Play distribution or a completed transaction. Reusable Swiggy reviewer
-access is still required before promotion; the static demo is not full access.
+The privacy policy was published at
+`sites/beta-496723/versions/a7873bd0e33e1319`; the live URL returned HTTP 200
+and the Gemini consent wording was verified. The reviewed Photos-only Data
+Safety CSV was published under owner authority and the API returned `publish=ok`;
+fresh Play Console readback showed Photos/videos 0 of 2 selected. Precise location remains declared
+because the Android Geocoder implementation may use the network.
+
+Final source checks: 373 Android unit tests passed with one opt-in private replay
+skipped; 739 backend tests plus 282 subtests passed. The exact Python 3.9 v11
+image passed its Cloud Build test. Normal service traffic is now 100% on
+`intent-oct04-v11`; AI remains owner-allowlisted and OFF by default. Physical
+synthetic UI checks passed 13/13; six hosted intent examples passed after fixing
+the literal tetra-pack spelling guard. Read-only catalogue matches were 3/3,
+11/15 and 14/20; this is not full-basket/cart-write success. No cart, address,
+checkout, payment or order was mutated during these tests.
+
+Intent quality remains a limited-preview gate, not a general accuracy claim.
+The old 20-case confirmation set was source-audited at 19/20 semantically
+correct, with only 18/20 review-ready (C05's safe shared-context request was
+rejected and C17's dropped certification qualifier was blocked). A separate
+v8 20-case source audit was also 19/20 semantically correct; its corrected
+saved replay was 19/20 review-ready after the pack guard. These are small,
+curated sets and do not establish the 90% target or live-cart accuracy. Keep
+the feature off by default and restricted
+to owner-approved installation allowlisting. Do not present it as broadly
+available or generally reliable.
+
+These facts supersede the September 6 release snapshot below. Build success is
+not proof of Play distribution or a completed transaction.
+
+Current target: Swiggy-only version `0.3.4` (`versionCode 21`), pending final
+grounding-fix build, verification, and owner release gates. See
+`SWIGGY_HISTORY_MATCHING_RELEASE_20260906.md` for historical matching context.
+
+Current status: the candidate enables checkout review and payment handoff,
+with an independent backend emergency switch. Reusable Swiggy reviewer access
+and live-transaction evidence remain separate unresolved risks.
 
 Enabled checkout candidate summary: once release approval exists, Beta should
 show the full cart, saved address, fees, total and payment method before any
@@ -166,6 +199,32 @@ Use Espresso for Beta UI, UI Automator only for Android/Swiggy UI that cannot be
 controlled in-app, and ADB for installation and logs. Never include user-private
 order contents, addresses, tokens or authentication codes in committed output.
 
+## Enhanced list understanding privacy and release checks
+
+This optional feature is off by default and requires affirmative in-app
+consent. Verify the consent choice persists correctly and that disabled or
+failed consent blocks provider requests. With the feature enabled, confirm
+only the user-entered typed/transcribed instruction is sent through Beta's
+backend to the selected provider and returned as a review-only structured
+draft. Confirm saved addresses, GPS, recent-order history and OAuth/connection
+tokens are not automatically added. Test adversarially with personal data in
+the instruction: explain that users may include such data and it may reach the
+provider. Confirm provider keys are backend-only (not in the APK) and
+operational logs contain provider, token counts and latency only, never
+instruction text. Review all provider disclosures and the Data Safety mapping
+before a release; do not assume a legal classification from this checklist.
+
+Measure structured-draft quality against a documented evaluation set and
+record the result. The 90% quality target is a measured release criterion,
+not a user-facing guarantee. Current v8 evidence is limited to curated cases:
+19/20 semantic on the old and separate v8 confirmation sets, with 18/20
+review-ready on the old set and 19/20 on the corrected saved replay after the
+pack guard. It does not establish general accuracy
+or live-cart accuracy. Keep the feature off by default and allowlisted to
+owner-approved connections; do not enable a broad connected rollout. Keep
+purchase/order tests mocked; no purchases were tested for this documentation
+change.
+
 ## Store assets
 
 - Keep `play_store_assets/app_icon_512.png`.
@@ -180,9 +239,9 @@ order contents, addresses, tokens or authentication codes in committed output.
 
 - Package: `live.betaapp.android`
 - Open-testing API track: `beta`
-- Version 20 is the current candidate. Re-read tracks and uploaded bundles
-  immediately before upload; never treat an older snapshot as proof a version
-  remains unused.
+- Version 21 is the intended candidate, not yet uploaded. Re-read tracks and
+  uploaded bundles immediately before upload; never treat an older snapshot as
+  proof a version remains unused.
 - Upload the signed AAB, assign it to `beta`, commit the edit, then read the
   track and localized listing back through the API.
 - A Play edit commit proves submission, not review approval or availability.

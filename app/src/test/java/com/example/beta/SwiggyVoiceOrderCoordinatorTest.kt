@@ -264,7 +264,7 @@ class SwiggyVoiceOrderCoordinatorTest {
         )
 
         assertEquals(
-            "I could not find your preferred exact product, organic whole milk, at your selected address (Home). Beta did not substitute it. Nothing was added.",
+            "I could not verify this exact product and pack: organic whole milk. You can edit it or leave it out.",
             swiggyNoCandidateMessage(item, address),
         )
     }
@@ -283,7 +283,7 @@ class SwiggyVoiceOrderCoordinatorTest {
         )
 
         assertEquals(
-            "I could not find milk on Swiggy Instamart. Nothing was added.",
+            "No confirmed match for milk at Home. You can edit it or leave it out.",
             swiggyNoCandidateMessage(item, address),
         )
     }
@@ -447,6 +447,16 @@ class SwiggyVoiceOrderCoordinatorTest {
 
     private fun promptSlice(size: Int): String {
         return promptItems.take(size).joinToString(", ") { it.raw }
+    }
+
+    @Test
+    fun modelCannotEraseVagueMedicineSource() {
+        val item = com.example.beta.automation.ParsedItem(
+            rawText = "woh khansi wali goli",
+            query = "cough tablets",
+        )
+        assertTrue(swiggyNeedsExactHealthProduct(item))
+        assertFalse(swiggyNeedsExactHealthProduct(item.copy(rawText = "one Vicks cough drops", query = "Vicks cough drops")))
     }
 
     private data class PromptItem(val raw: String)

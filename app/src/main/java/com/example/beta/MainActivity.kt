@@ -44,9 +44,11 @@ class MainActivity : ComponentActivity() {
     private lateinit var locationPermissionResult: ActivityResultLauncher<Array<String>>
     private lateinit var voiceInputController: OrderVoiceInputController
     private lateinit var textToSpeech: IndianEnglishTextToSpeech
-    private var swiggyConnectionState = SwiggyMcpClient.ConnectionState.DISCONNECTED
-    private var swiggyMcpRequestGeneration = 0L
-    private var swiggyStatusRequestGeneration: Long? = null
+    private val connectionSession = SwiggyConnectionSession()
+    private val swiggyConnectionState get() = connectionSession.state
+    private val swiggyMcpRequestGeneration get() = connectionSession.generation
+    private var swiggyConnectionOperationInFlight = false
+    private var connectionDetailOverride: String? = null
     private var resumeSwiggyOrderAfterStatus = false
     private var pendingSwiggyInstruction: String? = null
     private var swiggyConnectPromptShowing = false
@@ -96,6 +98,9 @@ class MainActivity : ComponentActivity() {
             Log.i("BetaAgent", "GROCERY_DRAFT_RESTORED")
         }
         orderCommandInput.doAfterTextChanged {
+            // A retry must never submit an earlier version after the user edits it.
+            pendingSwiggyInstruction = null
+            resumeSwiggyOrderAfterStatus = false
             if (!applyingSpeechText && ::voiceInputController.isInitialized && voiceInputController.isActive) {
                 voiceInputController.cancel()
             }
@@ -141,6 +146,7 @@ class MainActivity : ComponentActivity() {
             activity = this,
             announce = ::announceSwiggy,
             onReconnectRequired = {
+                connectionSession.invalidate()
                 updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED)
             },
             onAddressChanged = ::renderSwiggySelectedAddress,
@@ -201,6 +207,11 @@ class MainActivity : ComponentActivity() {
         }
 
         swiggyConnectionAction.setOnClickListener {
+            if (connectionSession.presentation == SwiggyConnectionSession.Presentation.RETRY) {
+                refreshSwiggyConnectionStatus(resumePendingOrder = true)
+                return@setOnClickListener
+            }
+            if (connectionSession.presentation == SwiggyConnectionSession.Presentation.CHECKING) return@setOnClickListener
             when (swiggyConnectionState) {
                 SwiggyMcpClient.ConnectionState.READY -> confirmSwiggyDisconnect()
                 SwiggyMcpClient.ConnectionState.DISCONNECTED,
@@ -215,7 +226,7 @@ class MainActivity : ComponentActivity() {
                 announceSwiggy(getString(R.string.swiggy_cart_update_in_progress))
             }
         }
-        analyticsSettingsButton.setOnClickListener { showAnalyticsConsentDialog(force = true) }
+        analyticsSettingsButton.setOnClickListener { showAppSettings() }
         configurePrimaryExperience()
         BetaTelemetry.instance?.onAppResume()
         handleSwiggyOAuthIntent(intent)
@@ -397,10 +408,15 @@ class MainActivity : ComponentActivity() {
     private fun configurePrimaryExperience() {
         if (!::swiggyConnectionPanel.isInitialized) return
         swiggyConnectionPanel.visibility = View.VISIBLE
-        orderComposerCard.visibility = if (swiggyConnectionState == SwiggyMcpClient.ConnectionState.READY) {
-            View.VISIBLE
-        } else {
-            View.GONE
+        // Draft editing is local and remains available even when a status read fails.
+        orderComposerCard.visibility = View.VISIBLE
+        if (connectionSession.presentation != SwiggyConnectionSession.Presentation.CONFIRMED) {
+            agentStatusText.text = if (connectionSession.presentation == SwiggyConnectionSession.Presentation.RETRY) {
+                "Connection check interrupted"
+            } else getString(R.string.swiggy_connection_checking)
+            primaryNoteText.text = "You can edit your list. Beta will check the connection before continuing."
+            renderSwiggyConnectionPanel()
+            return
         }
 
         when (swiggyConnectionState) {
@@ -422,29 +438,43 @@ class MainActivity : ComponentActivity() {
 
     private fun renderSwiggyConnectionPanel(detailOverride: String? = null) {
         if (!::swiggyConnectionPanel.isInitialized) return
+        if (detailOverride != null) connectionDetailOverride = detailOverride
         swiggyConnectionAction.visibility = View.VISIBLE
         renderSwiggySelectedAddress(selectedSwiggyAddressLabel)
+        findViewById<Button>(R.id.swiggyCheckoutAction).isEnabled =
+            connectionSession.canUseConnection && !isSwiggyMutationInFlight() && !swiggyConnectionOperationInFlight
+        if (connectionSession.presentation != SwiggyConnectionSession.Presentation.CONFIRMED) {
+            val retry = connectionSession.presentation == SwiggyConnectionSession.Presentation.RETRY
+            swiggyConnectionStatus.text = if (retry) "Connection check interrupted" else getString(R.string.swiggy_connection_checking)
+            swiggyConnectionDetail.text = connectionDetailOverride ?: if (retry) {
+                "Beta could not check Swiggy just now. Your list and saved address are unchanged. Try again."
+            } else "Checking your connection. You can still edit your list."
+            swiggyConnectionAction.text = if (retry) "Try connection again" else "Checking…"
+            swiggyConnectionAction.isEnabled = retry && !isSwiggyMutationInFlight() && !swiggyConnectionOperationInFlight
+            swiggyConnectionAction.contentDescription = swiggyConnectionAction.text
+            return
+        }
         when (swiggyConnectionState) {
             SwiggyMcpClient.ConnectionState.READY -> {
                 swiggyConnectionStatus.setText(R.string.swiggy_connection_ready)
-                swiggyConnectionDetail.text = detailOverride
+                swiggyConnectionDetail.text = connectionDetailOverride
                     ?: getString(R.string.swiggy_connection_ready_detail)
                 swiggyConnectionAction.setText(R.string.swiggy_connection_disconnect)
             }
             SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED -> {
                 swiggyConnectionStatus.setText(R.string.swiggy_connection_reconnect)
-                swiggyConnectionDetail.text = detailOverride
+                swiggyConnectionDetail.text = connectionDetailOverride
                     ?: getString(R.string.swiggy_connection_reconnect_detail)
                 swiggyConnectionAction.setText(R.string.swiggy_connection_reconnect_action)
             }
             SwiggyMcpClient.ConnectionState.DISCONNECTED -> {
                 swiggyConnectionStatus.setText(R.string.swiggy_connection_status)
-                swiggyConnectionDetail.text = detailOverride
+                swiggyConnectionDetail.text = connectionDetailOverride
                     ?: getString(R.string.swiggy_connection_detail)
                 swiggyConnectionAction.setText(R.string.swiggy_connection_action)
             }
         }
-        swiggyConnectionAction.isEnabled = !isSwiggyMutationInFlight()
+        swiggyConnectionAction.isEnabled = !isSwiggyMutationInFlight() && !swiggyConnectionOperationInFlight
         swiggyConnectionAction.contentDescription = swiggyConnectionAction.text
     }
 
@@ -461,22 +491,19 @@ class MainActivity : ComponentActivity() {
     private fun refreshSwiggyConnectionStatus(resumePendingOrder: Boolean = false) {
         if (!::swiggyConnectionStatus.isInitialized) return
         if (resumePendingOrder) resumeSwiggyOrderAfterStatus = true
-        if (swiggyStatusRequestGeneration != null) return
+        if (swiggyConnectionOperationInFlight) return
+        val statusRequest = connectionSession.beginStatus() ?: return
         val requestGeneration = swiggyMcpRequestGeneration
-        swiggyStatusRequestGeneration = requestGeneration
+        connectionDetailOverride = null
         Log.i(
             "BetaAgent",
             "SWIGGY_MCP_STATUS_REQUEST_STARTED generation=$requestGeneration resumePending=$resumePendingOrder",
         )
-        swiggyConnectionStatus.setText(R.string.swiggy_connection_checking)
-        swiggyConnectionAction.isEnabled = false
+        configurePrimaryExperience()
         SwiggyMcpClient.fetchStatus(this) { result ->
             runOnUiThread {
-                if (swiggyStatusRequestGeneration == requestGeneration) {
-                    swiggyStatusRequestGeneration = null
-                }
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                if (requestGeneration != swiggyMcpRequestGeneration) {
+                if (!connectionSession.settleStatus(statusRequest)) {
                     Log.i("BetaAgent", "SWIGGY_MCP_STATUS_IGNORED_STALE")
                     return@runOnUiThread
                 }
@@ -500,13 +527,8 @@ class MainActivity : ComponentActivity() {
                             "BetaAgent",
                             "SWIGGY_MCP_STATUS_REQUEST_FAILED httpCode=${result.httpCode} reconnect=${result.reconnectRequired} resumePending=$shouldResumePendingOrder",
                         )
-                        val state = if (result.reconnectRequired) {
-                            SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED
-                        } else {
-                            SwiggyMcpClient.ConnectionState.DISCONNECTED
-                        }
-                        updateSwiggyConnectionUi(state, result.userMessage)
-                        if (shouldResumePendingOrder) promptToConnectSwiggy()
+                        showSwiggyConnectionFailure(result)
+                        if (shouldResumePendingOrder && result.reconnectRequired) promptToConnectSwiggy()
                     }
                 }
             }
@@ -521,11 +543,10 @@ class MainActivity : ComponentActivity() {
         if (state != SwiggyMcpClient.ConnectionState.READY && ::swiggyOrderCoordinator.isInitialized) {
             swiggyOrderCoordinator.clearRememberedAddress()
         }
-        swiggyConnectionState = state
-        renderSwiggyConnectionPanel(detailOverride)
-        swiggyConnectionAction.isEnabled = !isSwiggyMutationInFlight()
-        swiggyConnectionStatus.announceForAccessibility(swiggyConnectionStatus.text)
+        connectionSession.confirm(state)
+        connectionDetailOverride = detailOverride
         configurePrimaryExperience()
+        swiggyConnectionStatus.announceForAccessibility(swiggyConnectionStatus.text)
         if (state == SwiggyMcpClient.ConnectionState.READY && previousState != state) {
             val connectionPreferences = getSharedPreferences(CONNECTION_PREFERENCES, MODE_PRIVATE)
             if (connectionPreferences.getBoolean(CONNECTION_ATTEMPT_PENDING, false)) {
@@ -538,6 +559,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startSwiggyConnection() {
+        if (swiggyConnectionOperationInFlight || isSwiggyMutationInFlight()) return
+        connectionSession.invalidate()
+        swiggyConnectionOperationInFlight = true
         BetaTelemetry.instance?.logEvent("swiggy_connect_started")
         getSharedPreferences(CONNECTION_PREFERENCES, MODE_PRIVATE)
             .edit()
@@ -554,6 +578,7 @@ class MainActivity : ComponentActivity() {
                     Log.i("BetaAgent", "SWIGGY_MCP_CONNECT_IGNORED_STALE")
                     return@runOnUiThread
                 }
+                swiggyConnectionOperationInFlight = false
                 when (result) {
                     is SwiggyMcpResult.Success -> {
                         val authUrl = result.value.authorizationUrl
@@ -575,11 +600,7 @@ class MainActivity : ComponentActivity() {
                             mapOf("reason" to if (result.reconnectRequired) "reconnect_required" else "backend_failure"),
                         )
                         clearPendingConnectionAttempt()
-                        updateSwiggyConnectionUi(
-                            if (result.reconnectRequired) SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED
-                            else SwiggyMcpClient.ConnectionState.DISCONNECTED,
-                            result.userMessage,
-                        )
+                        showSwiggyConnectionFailure(result)
                     }
                 }
             }
@@ -607,6 +628,9 @@ class MainActivity : ComponentActivity() {
         val data = sourceIntent?.data ?: return
         if (data.scheme != "beta" || data.host != "swiggy" || data.path != "/oauth") return
         sourceIntent.data = null
+        // A browser callback requests a fresh server check; it is not proof of login.
+        connectionSession.invalidate()
+        swiggyConnectionOperationInFlight = false
         if (data.getQueryParameter("status") == "connected") {
             swiggyOrderCoordinator.clearRememberedAddress()
             swiggyConnectionStatus.setText(R.string.swiggy_connection_checking)
@@ -668,6 +692,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startPendingSwiggyOrder() {
+        if (!connectionSession.canUseConnection) return
         val instruction = pendingSwiggyInstruction?.takeIf { it.isNotBlank() } ?: return
         pendingSwiggyInstruction = null
         startSwiggyOrderWithOptionalLocation(instruction)
@@ -737,6 +762,10 @@ class MainActivity : ComponentActivity() {
                     return@setPositiveButton
                 }
                 draftPersistenceBlocked = false
+                connectionSession.invalidate()
+                swiggyConnectionOperationInFlight = true
+                pendingSwiggyInstruction = null
+                resumeSwiggyOrderAfterStatus = false
                 val requestGeneration = swiggyMcpRequestGeneration
                 swiggyConnectionAction.isEnabled = false
                 SwiggyMcpClient.disconnect(this) { result ->
@@ -746,13 +775,10 @@ class MainActivity : ComponentActivity() {
                             Log.i("BetaAgent", "SWIGGY_MCP_DISCONNECT_IGNORED_STALE")
                             return@runOnUiThread
                         }
+                        swiggyConnectionOperationInFlight = false
                         when (result) {
                             is SwiggyMcpResult.Success -> updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.DISCONNECTED)
-                            is SwiggyMcpResult.Failure -> updateSwiggyConnectionUi(
-                                if (result.reconnectRequired) SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED
-                                else SwiggyMcpClient.ConnectionState.DISCONNECTED,
-                                result.userMessage,
-                            )
+                            is SwiggyMcpResult.Failure -> showSwiggyConnectionFailure(result)
                         }
                     }
                 }
@@ -766,8 +792,8 @@ class MainActivity : ComponentActivity() {
             Log.w("BetaAgent", "SWIGGY_MCP_CANCEL_DEFERRED_MUTATION_IN_FLIGHT reason=$reason")
             return
         }
-        swiggyMcpRequestGeneration += 1
-        swiggyStatusRequestGeneration = null
+        connectionSession.invalidate()
+        swiggyConnectionOperationInFlight = false
         resumeSwiggyOrderAfterStatus = false
         pendingSwiggyInstruction = null
         pendingLocationSwiggyInstruction = null
@@ -785,7 +811,7 @@ class MainActivity : ComponentActivity() {
 
     private fun updateSwiggyMutationControls(inFlight: Boolean) {
         if (::swiggyConnectionAction.isInitialized) {
-            swiggyConnectionAction.isEnabled = !inFlight
+            renderSwiggyConnectionPanel()
         }
         if (::swiggyChangeAddressAction.isInitialized) {
             swiggyChangeAddressAction.isEnabled = !inFlight
@@ -801,9 +827,21 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun announceSwiggy(message: String) {
-        if (::swiggyConnectionDetail.isInitialized) swiggyConnectionDetail.text = message
+        // Shopping feedback must not overwrite authentication instructions or cover
+        // the basket/address actions with a second, long toast.
+        if (::orderInputStatus.isInitialized) orderInputStatus.text = message
         speak(message)
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun showSwiggyConnectionFailure(result: SwiggyMcpResult.Failure) {
+        if (result.reconnectRequired) {
+            updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED, result.userMessage)
+        } else {
+            connectionSession.fail(reconnectRequired = false)
+            connectionDetailOverride = null
+            configurePrimaryExperience()
+            swiggyConnectionStatus.announceForAccessibility(swiggyConnectionStatus.text)
+        }
     }
 
     private fun renderSwiggySelectedAddress(label: String?) {
@@ -820,6 +858,49 @@ class MainActivity : ComponentActivity() {
             )
             swiggySelectedAddress.contentDescription = swiggySelectedAddress.text
         }
+    }
+
+    private fun showAppSettings() {
+        if (swiggyOrderCoordinator.isActive() || swiggyCheckoutCoordinator.isActive()) return
+        AlertDialog.Builder(this)
+            .setTitle("Beta settings")
+            .setItems(arrayOf("Usage analytics", "Enhanced list understanding")) { _, which ->
+                if (which == 0) showAnalyticsConsentDialog(force = true) else showIntentSettings()
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun showIntentSettings() {
+        val modes = GroceryIntentPreferences.availableModes()
+        val labels = modes.map { mode ->
+            when (mode) {
+                GroceryIntentPreferences.Mode.OFF -> "Off — standard matching"
+                GroceryIntentPreferences.Mode.GEMINI -> "Gemini — limited preview"
+                GroceryIntentPreferences.Mode.AUTO -> "Automatic — development"
+                GroceryIntentPreferences.Mode.DEEPSEEK -> "DeepSeek — development"
+                GroceryIntentPreferences.Mode.OPENAI -> "OpenAI — development"
+            }
+        }.toTypedArray()
+        var selected = modes.indexOf(GroceryIntentPreferences.getMode(this))
+        AlertDialog.Builder(this)
+            .setTitle("Enhanced list understanding")
+            .setSingleChoiceItems(labels, selected) { _, which -> selected = which }
+            .setPositiveButton("Continue") { _, _ ->
+                val chosen = modes[selected]
+                if (chosen == GroceryIntentPreferences.Mode.OFF) {
+                    GroceryIntentPreferences.setMode(this, chosen)
+                    return@setPositiveButton
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("Use enhanced understanding?")
+                    .setMessage("This optional preview is currently limited to approved connections. Your typed or transcribed shopping request will be sent securely through Beta to the selected AI provider. Beta does not automatically include saved addresses, GPS or Swiggy credentials. Anything you include in your request will be sent, so leave out personal details. You will still review the basket before adding anything. You can turn this off here at any time.")
+                    .setPositiveButton("Enable") { _, _ -> GroceryIntentPreferences.setMode(this, chosen) }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showAnalyticsConsentDialog(force: Boolean) {

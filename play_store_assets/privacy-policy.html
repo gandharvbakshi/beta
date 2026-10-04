@@ -9,7 +9,7 @@
   <main style="max-width:860px;margin:0 auto;padding:32px 20px 48px;">
     <article style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:28px;">
       <h1 style="margin:0 0 8px;font-size:30px;line-height:1.2;color:#111827;">Beta Privacy Policy</h1>
-      <p style="margin:0 0 20px;color:#6b7280;"><strong>Last updated:</strong> September 6, 2026</p>
+      <p style="margin:0 0 20px;color:#6b7280;"><strong>Last updated:</strong> October 4, 2026</p>
 
       <p>Beta helps you build and review Swiggy Instamart carts by voice or text. It helps you find products, review proposed cart changes and add only the items you confirm. In the enabled checkout build, Beta also shows the full cart, delivery address, fees, total and payment method before you hand off to payment.</p>
 
@@ -31,6 +31,10 @@
       <p>When you tap the microphone, Android's speech-recognition provider may process your voice and return text to Beta. Beta does not upload or store raw voice audio.</p>
       <p>Location permission is optional. If granted, your phone reverse-geocodes the current device location and uses the result only to rank nearby saved Swiggy addresses. Beta does not send raw GPS coordinates to its backend or analytics. Android's location and geocoding providers may process the location to return the nearby area. You always choose and confirm the delivery address.</p>
 
+      <h2>Optional Enhanced list understanding</h2>
+      <p>Enhanced list understanding is off by default. It can be enabled only after you affirmatively consent in Beta. In the public release, Gemini is the only provider choice. Development and test builds may offer automatic routing, DeepSeek or OpenAI under the same explicit consent. When enabled and used, the AI prompt contains the shopping instruction you typed or had speech recognition transcribe; Beta's backend forwards that instruction to Gemini in the public release. The app's request to Beta also uses technical service authentication and an installation identifier, which are not forwarded to Gemini. Saved addresses, GPS/location, recent-order history, Swiggy OAuth/connection tokens and other account data are not automatically included in the AI prompt. Gemini returns a structured draft for you to review; it does not directly update your Swiggy cart. Do not include information you do not want processed. If you put personal or sensitive information in the instruction, that text may be sent too.</p>
+      <p>Saved addresses, GPS/location, recent-order history, Swiggy OAuth/connection tokens and other account data are not automatically included in this AI request. Beta's backend may record coarse operational metadata for this feature, such as provider, token counts and latency; it does not log grocery instruction text. Provider handling, retention and use of submitted content depend on the selected provider's current terms and policies. Beta does not promise zero retention or non-use for model training across all providers. Review the providers' official information: <a href="https://ai.google.dev/gemini-api/terms">Gemini API terms</a>, <a href="https://platform.deepseek.com/downloads/DeepSeek%20Privacy%20Policy.pdf">DeepSeek Privacy Policy</a> and <a href="https://openai.com/policies/how-your-data-is-used-to-improve-model-performance/">OpenAI data-use policy</a>. Provider API keys are kept on the backend and are not included in the Android app package.</p>
+
       <h2>Optional analytics and crash reporting</h2>
       <p>Google Analytics for Firebase and Firebase Crashlytics are off by default. If you opt in, Beta records pseudonymous usage timing and reliability signals so we can understand whether people can connect, verify a cart, complete feedback and return to the app. Those same coarse events may also be linked to Google Ads conversion measurement when the Play/Google account setup is enabled. Firebase may process an app-instance identifier, device/app information and an approximate location derived from the network connection.</p>
       <p>These signals are used to improve Beta, diagnose reliability and measure campaign performance at a coarse level only. They are limited to counts, timing, completion states and verified-cart / return events; they do not include grocery requests, product names, cart contents, saved addresses, Swiggy order details, feedback text, raw GPS or other shopping payloads. Android Advertising ID collection and personalised ads are disabled. You can change analytics consent at any time in Beta Settings.</p>
@@ -43,6 +47,7 @@
         <li>To show an exact cart plan, make only the changes you confirm and verify the resulting cart after a short delay.</li>
         <li>To provide support, investigate failures and improve reliability.</li>
         <li>If you opt in, to understand app reliability and return visits.</li>
+        <li>If you separately enable and use Enhanced list understanding, to create a review-only structured draft from your shopping instruction.</li>
       </ul>
 
       <h2>Sharing and storage</h2>

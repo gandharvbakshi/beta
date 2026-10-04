@@ -86,7 +86,7 @@
     <string name="swiggy_step_readback_verified">Beta read the cart back and verified every requested line.</string>
     <string name="swiggy_step_no_checkout">This step updates your cart before checkout review. It does not place an order or approve payment.</string>
 
-    <string name="analytics_settings">Usage analytics settings</string>
+    <string name="analytics_settings">Beta settings</string>
     <string name="analytics_consent_title">Help improve Beta?</string>
     <string name="analytics_consent_message">Beta can share usage and crash information linked to this copy of the app, such as how often carts are built, to improve reliability. No grocery items, addresses, names, GPS coordinates, OTPs, or Swiggy details are ever included. You can change this anytime in Settings.</string>
     <string name="analytics_consent_allow">Allow</string>

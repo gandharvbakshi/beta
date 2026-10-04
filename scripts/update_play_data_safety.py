@@ -191,6 +191,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also disclose Email address for developer communications if a feedback email exists.",
     )
+    parser.add_argument(
+        "--remove-retired-photos-only",
+        action="store_true",
+        help="Only clear the retired Photos declaration from a verified current export; never publish this mode.",
+    )
     return parser.parse_args()
 
 
@@ -200,6 +205,26 @@ def main() -> None:
         raise SystemExit(f"--package must be exactly {DEFAULT_PACKAGE}")
 
     rows, fieldnames = read_csv(args.input_csv)
+    if args.remove_retired_photos_only:
+        if args.publish:
+            raise SystemExit("--remove-retired-photos-only is a local CSV transformation and refuses --publish.")
+        original_values = [row.get("Response value", "") for row in rows]
+        normalized_rows = remove_retired_photos_only(rows)
+        changed_values = sum(
+            before != row.get("Response value", "")
+            for before, row in zip(original_values, rows)
+        )
+        print(
+            "mode=remove_retired_photos_only\n"
+            f"photos_rows_normalized={normalized_rows}\n"
+            f"photos_response_values_changed={changed_values}\n"
+            "all_non_photos_rows_preserved=true"
+        )
+        output_csv = write_csv(rows, fieldnames)
+        if args.output_csv:
+            Path(args.output_csv).write_text(output_csv, encoding="utf-8")
+        return
+
     index = build_index(rows)
 
     required_refs = list(TOP_LEVEL_REFS)
@@ -357,6 +382,64 @@ def ensure_exactly_once(rows: list[dict[str, str]], refs: Iterable[RowRef]) -> N
         key = normalize_key(ref.question_id, ref.response_id)
         if key not in index:
             raise SystemExit(f"Missing required Data Safety row: {ref.question_id} / {ref.response_id or '<question>'}")
+
+
+def remove_retired_photos_only(rows: list[dict[str, str]]) -> int:
+    """Clear only the retired Photos answer after strict current-template validation."""
+    photo_question = "PSL_DATA_TYPES_PHOTOS_AND_VIDEOS"
+    usage_prefix = "PSL_DATA_USAGE_RESPONSES:PSL_PHOTOS:"
+    usage_rows = [
+        normalize_key(row.get("Question ID (machine readable)"), row.get("Response ID (machine readable)"))
+        for row in rows
+        if canonical(row.get("Question ID (machine readable)")).startswith(usage_prefix)
+    ]
+    purposes = (
+        "PSL_APP_FUNCTIONALITY",
+        "PSL_ANALYTICS",
+        "PSL_DEVELOPER_COMMUNICATIONS",
+        "PSL_FRAUD_PREVENTION_SECURITY",
+        "PSL_ADVERTISING",
+        "PSL_PERSONALIZATION",
+        "PSL_ACCOUNT_MANAGEMENT",
+    )
+    expected_usage_rows = {
+        normalize_key(f"{usage_prefix}PSL_DATA_USAGE_COLLECTION_AND_SHARING", choice)
+        for choice in ("PSL_DATA_USAGE_ONLY_COLLECTED", "PSL_DATA_USAGE_ONLY_SHARED")
+    }
+    expected_usage_rows.add(normalize_key(f"{usage_prefix}PSL_DATA_USAGE_EPHEMERAL", None))
+    expected_usage_rows.update(
+        normalize_key(f"{usage_prefix}DATA_USAGE_USER_CONTROL", choice)
+        for choice in ("PSL_DATA_USAGE_USER_CONTROL_OPTIONAL", "PSL_DATA_USAGE_USER_CONTROL_REQUIRED")
+    )
+    expected_usage_rows.update(
+        normalize_key(f"{usage_prefix}DATA_USAGE_COLLECTION_PURPOSE", purpose)
+        for purpose in purposes
+    )
+    expected_usage_rows.update(
+        normalize_key(f"{usage_prefix}DATA_USAGE_SHARING_PURPOSE", purpose)
+        for purpose in purposes
+    )
+    if len(usage_rows) != len(set(usage_rows)) or set(usage_rows) != expected_usage_rows:
+        raise SystemExit("Photos Data Safety rows do not match the expected current export template; no changes made.")
+
+    type_rows = [
+        row for row in rows
+        if normalize_key(row.get("Question ID (machine readable)"), row.get("Response ID (machine readable)"))
+        == normalize_key(photo_question, "PSL_PHOTOS")
+    ]
+    if len(type_rows) != 1:
+        raise SystemExit("Expected exactly one Photos data-type row; no changes made.")
+    if canonical(type_rows[0].get("Response value")) != "true":
+        raise SystemExit("Photos data-type row is not selected in the supplied export; no changes made.")
+
+    index = build_index(rows)
+    refs = [RowRef(photo_question, "PSL_PHOTOS")]
+    refs.extend(RowRef(question_id, response_id) for question_id, response_id in expected_usage_rows)
+    ensure_exactly_once(rows, refs)
+    set_false(rows, index, photo_question, "PSL_PHOTOS")
+    for question_id, response_id in expected_usage_rows:
+        set_value(rows, index, question_id, response_id, "")
+    return len(expected_usage_rows) + 1
 
 
 def set_value(

@@ -1,0 +1,73 @@
+{
+  "debugApkSha256": "29ef26d64e88c08d41937d253263447480ec8b2f54d7276ccb9fd5b55eeea521",
+  "captureTest": "com.example.beta.SwiggyCheckoutFlowTest#capture_store_previews_without_placing_any_order",
+  "captureDate": "2026-10-04",
+  "data": "Synthetic status, address, cart and gateway; zero order placement calls",
+  "profiles": [
+    {
+      "directory": "phone",
+      "size": "1080x1920",
+      "density": 420
+    },
+    {
+      "directory": "tablet_7in",
+      "size": "1200x1920",
+      "density": 320
+    },
+    {
+      "directory": "tablet_10in",
+      "size": "1600x2560",
+      "density": 320
+    }
+  ],
+  "images": [
+    {
+      "path": "play_store_assets/phone/01_home.png",
+      "sha256": "38eb34d4bb18cc1cdc81e244234e64531052feb68ab40e9ccf0c552f9c057933"
+    },
+    {
+      "path": "play_store_assets/phone/02_payment_choice.png",
+      "sha256": "cfb4eaf6c1ef11d3bddadc413bbe6faddf1473bf31e36d0db7d20e0df388dcaf"
+    },
+    {
+      "path": "play_store_assets/phone/03_full_review.png",
+      "sha256": "1daf4dfae20329f8e522a8b6c211b0a50cde194958cf6a5196f7344565575a30"
+    },
+    {
+      "path": "play_store_assets/phone/04_final_confirmation.png",
+      "sha256": "496707601b13b0cb02986d51bc35ff912c58086ef92151f238f1b4f474059944"
+    },
+    {
+      "path": "play_store_assets/tablet_7in/01_home.png",
+      "sha256": "2da2f2b0e18037152e9a10fc069177247365dc6fe7f55d734479744dafe274ae"
+    },
+    {
+      "path": "play_store_assets/tablet_7in/02_payment_choice.png",
+      "sha256": "9c44bbb1e0e4e79fb3fba77d1d57d5a53d5608db7a7e6aeea5673c6f3a3a53af"
+    },
+    {
+      "path": "play_store_assets/tablet_7in/03_full_review.png",
+      "sha256": "552d05d626b109776604b4df56e080619ccee1f3aa17458285edcbdf06f7ff9b"
+    },
+    {
+      "path": "play_store_assets/tablet_7in/04_final_confirmation.png",
+      "sha256": "f355657247b12511373650d0e4fe8ec7ed3ed1cdce2d0ec218cbfda7dd55dc6e"
+    },
+    {
+      "path": "play_store_assets/tablet_10in/01_home.png",
+      "sha256": "87a95cb56fa30f667ad4aa108256fad3fee78e03bc4f976aada90e5f34e710ae"
+    },
+    {
+      "path": "play_store_assets/tablet_10in/02_payment_choice.png",
+      "sha256": "fd9538dc826b9363908bedb2fa4c8545a383f469dec49760e21e9c93e6332c71"
+    },
+    {
+      "path": "play_store_assets/tablet_10in/03_full_review.png",
+      "sha256": "98610db2e5c8259517a0d727343d52088f9890892cd999b27508806ecbd39668"
+    },
+    {
+      "path": "play_store_assets/tablet_10in/04_final_confirmation.png",
+      "sha256": "54a97d6983d3bd18d7d8d8d372537139e4c7a675cdb50638ecea34e00eb019b5"
+    }
+  ]
+}

@@ -17,6 +17,7 @@ data class ParsedItem(
     val parserConfidence: Float = 1.0f,
     val avoidPhrases: List<String> = emptyList(),
     val strictMatchPhrase: String? = null,
+    val retailPackCount: Boolean = false,
 )
 
 fun Quantity.requestedCount(): Int = when (this) {
@@ -34,11 +35,15 @@ fun ParsedItem.backendInputText(): String {
 }
 
 object InstructionParser {
-    const val PARSER_VERSION = "2026.09.06.2"
+    const val PARSER_VERSION = "2026.09.16.1"
 
     private val leadingCommandRegex = Regex(
         "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
         RegexOption.IGNORE_CASE
+    )
+    private val leadingConversationWrapperRegex = Regex(
+        "^(?:\\s*(?:i\\s+(?:want|need)|i\\s+would\\s+like|can\\s+you\\s+please|could\\s+you\\s+please)\\b\\s*)+",
+        RegexOption.IGNORE_CASE,
     )
     private val primarySplitterRegex = Regex("\\s*(?:[,;\\r\\n]+)\\s*")
     // The numeral belongs to this product name, not an extra two-pack request.
@@ -75,6 +80,15 @@ object InstructionParser {
         "^(.*?)\\s+(?:without|no|not|bina)\\s+(.+)$",
         RegexOption.IGNORE_CASE
     )
+    private val leadingBinaPreferenceRegex = Regex(
+        "^bina\\s+(.+?)\\s+(chai|tea|coffee|doodh|milk)$",
+        RegexOption.IGNORE_CASE,
+    )
+    private val positiveAddedSugarPhraseRegex = Regex(
+        "(?:\\bwith\\s+)?\\b(?:without|no)\\s+added\\s+sugar\\b",
+        RegexOption.IGNORE_CASE,
+    )
+    private const val positiveAddedSugarMarker = "__positive_added_sugar__"
     private val avoidPhraseNoiseRegex = Regex(
         "^(?:(?:the|a|an)\\b\\s*)+|(?:\\s*\\b(?:one|ones|type|types|variant|variants|flavor|flavors|flavour|flavours)\\b)+$",
         RegexOption.IGNORE_CASE
@@ -93,6 +107,10 @@ object InstructionParser {
     private val leadingMultipackDescriptorRegex = Regex(
         "^[1-9]\\d?\\s*(?:x\\s*)?(?:pack|pk|pc|pcs|piece|pieces)\\b\\s+.+$",
         RegexOption.IGNORE_CASE
+    )
+    private val leadingMeasuredMultipackRegex = Regex(
+        "^[1-9]\\d?\\s*[x×]\\s*\\d+(?:\\.\\d+)?\\s*(?:kg|kgs|g|gm|gms|grams?|ml|l|ltr|liters?|litres?)\\b\\s+.+$",
+        RegexOption.IGNORE_CASE,
     )
     private val numericBrandPrefixTokens = listOf(
         listOf("7", "up"),
@@ -115,6 +133,14 @@ object InstructionParser {
     private val trailingPackCountRegex = Regex(
         "^(.+?)\\s+([1-9]\\d?)\\s*(?:packets?|units?)\\s*$",
         RegexOption.IGNORE_CASE
+    )
+    private val standaloneMeasureRegex = Regex(
+        "^(?:ml|l|ltr|liter|litre|liters|litres|g|gm|gms|gram|grams|kg|kgs)$",
+        RegexOption.IGNORE_CASE,
+    )
+    private val standaloneMeasuredValueRegex = Regex(
+        "^\\d+(?:\\.\\d+)?\\s*(?:ml|l|ltr|liter|litre|liters|litres|g|gm|gms|gram|grams|kg|kgs)$",
+        RegexOption.IGNORE_CASE,
     )
     private val noOpRegex = Regex("^(?:i\\s+want\\s+)?(?:nothing|none|no\\s+items?)$", RegexOption.IGNORE_CASE)
     private val spokenCountWords = mapOf(
@@ -201,32 +227,82 @@ object InstructionParser {
             }
             .flatMap { segment ->
                 val productSegment = segment.replace(maggiMinuteDescriptorRegex, "maggi 2-minute")
-                val spoken = normalizeSpokenQuantitySegment(stripLeadingCommands(productSegment))
-                val quantityText = normalizeTrailingMeasure(normalizePacketUnitCountSegment(spoken.text))
+                val packInput = stripLeadingCommands(productSegment)
+                val retailPackCount = hasExplicitRetailPackCount(packInput)
+                val spoken = normalizeSpokenQuantitySegment(normalizeTrailingSpokenPackCount(packInput))
+                    .copy(ambiguousPackQuantities = hasConflictingPackCounts(packInput))
+                    .copy(retailPackCount = retailPackCount)
+                val quantityInput = normalizeTrailingMeasure(normalizePacketUnitCountSegment(spoken.text))
+                val milkTetraNormalization = normalizeMilkTetraPackSegment(quantityInput)
+                val quantityText = milkTetraNormalization.normalized ?: quantityInput
+                val ambiguousPackQuantities = spoken.ambiguousPackQuantities || milkTetraNormalization.ambiguous
                 var segmentStart = 0
-                val splitSegment = quantityText.replace(quantityBoundaryRegex) { boundary ->
-                    val rest = quantityText.substring(boundary.range.last + 1)
-                    val prefix = quantityText.substring(segmentStart, boundary.range.first).trim()
-                    val countedPack = Regex("^[1-9]\\d?$").matches(prefix) && isMeasuredDescriptorPrefix(rest)
-                    if (isNumericBrandPrefix(rest) || countedPack) boundary.value else {
-                        segmentStart = boundary.range.last + 1
-                        ","
+                val splitSegment = if (ambiguousPackQuantities) {
+                    quantityText
+                } else {
+                    quantityText.replace(quantityBoundaryRegex) { boundary ->
+                        val rest = quantityText.substring(boundary.range.last + 1)
+                        val prefix = quantityText.substring(segmentStart, boundary.range.first).trim()
+                        val countedPack = Regex("^[1-9]\\d?$").matches(prefix) &&
+                            (isMeasuredDescriptorPrefix(rest) || leadingMeasuredMultipackRegex.matches(rest))
+                        val descriptorPrefix = prefix.replaceFirst(Regex("^[1-9]\\d?\\s+"), "")
+                        val measuredMultipack = (
+                            Regex("^[1-9]\\d?\\s*[x×]$", RegexOption.IGNORE_CASE).matches(prefix) ||
+                                Regex("^[1-9]\\d?\\s+[1-9]\\d?\\s*[x×]$", RegexOption.IGNORE_CASE).matches(prefix) ||
+                                Regex("^[1-9]\\d?\\s*[x×]$", RegexOption.IGNORE_CASE).matches(descriptorPrefix)
+                            ) &&
+                            isMeasuredDescriptorPrefix(rest)
+                        if (isNumericBrandPrefix(rest) || countedPack || measuredMultipack) boundary.value else {
+                            segmentStart = boundary.range.last + 1
+                            ","
+                        }
                     }
                 }
-                primarySplitterRegex.split(splitSegment).map { spoken.copy(text = it) }
+                val mixedRetailPackSource = retailPackCount && splitSegment.contains(",")
+                primarySplitterRegex.split(splitSegment).map {
+                    spoken.copy(
+                        text = it,
+                        ambiguousMilkTetraPack = milkTetraNormalization.ambiguous,
+                        ambiguousPackQuantities = ambiguousPackQuantities,
+                        // An implicit quantity boundary can otherwise copy a
+                        // pack flag onto a later plain item (for example
+                        // "1 milk pack 2 samosa"). Fail closed for the whole
+                        // mixed source so no later item is treated as packed.
+                        quantitySignal = if (mixedRetailPackSource) {
+                            "ambiguous mixed retail-pack source"
+                        } else {
+                            spoken.quantitySignal
+                        },
+                        retailPackCount = if (mixedRetailPackSource) false else retailPackCount,
+                    )
+                }
             }
             .filter { it.text.isNotEmpty() }
             .forEach { spokenNormalized ->
                 val segment = spokenNormalized.text
-                val quantitySignal = spokenNormalized.quantitySignal
+                val quantitySignal = if (spokenNormalized.ambiguousPackQuantities) "conflicting pack quantities" else spokenNormalized.quantitySignal
+                val ambiguousPackQuantities = spokenNormalized.ambiguousPackQuantities
                 val normalizedSegment = normalizeTrailingMeasure(normalizeTrailingPackCount(segment))
-                val (withoutQuantity, quantity) = extractQuantityPrefix(normalizedSegment)
+                val (withoutQuantity, quantity) = if (ambiguousPackQuantities) {
+                    normalizedSegment to Quantity.Default
+                } else {
+                    extractQuantityPrefix(normalizedSegment)
+                }
                 val (withoutModifiers, avoidPhrases) = extractPreferenceModifiers(withoutQuantity)
-                val cleaned = cleanSegment(
-                    withoutModifiers,
-                    preserveLeadingNumber = shouldPreserveLeadingNumber(withoutModifiers)
-                )
-                if (cleaned.isEmpty() || noOpRegex.matches(cleaned.lowercase(Locale.US))) {
+                val cleaned = if (ambiguousPackQuantities) {
+                    withoutModifiers.trim()
+                } else {
+                    cleanSegment(
+                        withoutModifiers,
+                        preserveLeadingNumber = shouldPreserveLeadingNumber(withoutModifiers)
+                    )
+                }
+                if (cleaned.isEmpty() ||
+                    standaloneMeasureRegex.matches(cleaned) ||
+                    standaloneMeasuredValueRegex.matches(cleaned) ||
+                    Regex("^(?:\\d+\\s+)?(?:packs?|packets?|units?)$", RegexOption.IGNORE_CASE).matches(cleaned) ||
+                    noOpRegex.matches(cleaned.lowercase(Locale.US))
+                ) {
                     return@forEach
                 }
 
@@ -240,7 +316,8 @@ object InstructionParser {
 
                 expanded.forEach { item ->
                     val itemQuantity = if (expanded.size == 1) quantity else Quantity.Default
-                    val exactMeasuredPack = itemQuantity is Quantity.Count && isMeasuredDescriptorPrefix(item)
+                    val exactMeasuredPack = (itemQuantity is Quantity.Count && isMeasuredDescriptorPrefix(item)) ||
+                        leadingMeasuredMultipackRegex.matches(item)
                     val productText = if (exactMeasuredPack) normalizeMeasuredPackPrefix(item) else item
                     val query = ProductLexicon.canonicalizeProductText(productText).lowercase(Locale.US)
                     if (query.isBlank()) {
@@ -252,6 +329,7 @@ object InstructionParser {
                         query = query,
                         quantity = itemQuantity,
                         quantitySignal = quantitySignal,
+                        retailPackCount = spokenNormalized.retailPackCount,
                         parserConfidence = if (!query.equals(item, ignoreCase = true)) minOf(confidence, 0.85f) else confidence,
                         avoidPhrases = if (expanded.size == 1) avoidPhrases else emptyList(),
                         strictMatchPhrase = strictMatchPhrase,
@@ -297,6 +375,7 @@ object InstructionParser {
     private fun mergeParsedItems(existing: ParsedItem, candidate: ParsedItem): ParsedItem? {
         if (existing.query != candidate.query) return null
         if (existing.quantitySignal != null || candidate.quantitySignal != null) return null
+        if (existing.retailPackCount != candidate.retailPackCount) return null
         if (existing.avoidPhrases != candidate.avoidPhrases) return null
 
         return when {
@@ -319,9 +398,102 @@ object InstructionParser {
         return "$amount $unit $product"
     }
 
+    /**
+     * Retain provenance for an explicit purchase-unit request. Ordinary
+     * leading counts ("2 eggs") are not retail-pack counts, while a count
+     * attached to packs/packets/pouches/units is. Numeric brand prefixes and
+     * descriptor-only "24 pack paper towels" remain catalogue identity.
+     */
+    private fun hasExplicitRetailPackCount(segment: String): Boolean {
+        val trimmed = segment.trim()
+        val tokens = ProductLexicon.tokenize(trimmed)
+        if (tokens.isEmpty()) return false
+        val packNounIndices = tokens.withIndex()
+            .filter { (_, token) -> token.matches(Regex("tetrapouches?|tetrapackets?|tetrapacks?|pouches?|packets?|packs?|units?", RegexOption.IGNORE_CASE)) }
+            .map { it.index }
+        if (packNounIndices.isEmpty()) return false
+
+        // A count immediately following the package noun is unambiguous,
+        // including the spoken Hindi/Hinglish forms handled by the parser.
+        if (packNounIndices.any { index ->
+                index + 1 < tokens.size && normalizeCountToken(tokens[index + 1]) != null
+            }) return true
+
+        val firstCount = normalizeCountToken(tokens.first())
+        if (firstCount == null) return false
+
+        // A numeric brand such as "5 star" or "24 mantra" owns its number;
+        // only an additional outer count before that brand is retail syntax.
+        if (isNumericBrandPrefix(trimmed)) return false
+        if (tokens.size > 1 && isNumericBrandPrefix(tokens.drop(1).joinToString(" "))) return true
+
+        // Measured prefixes own their number. They become retail-pack syntax
+        // only when an explicit trailing count was found above.
+        if (isMeasuredDescriptorPrefix(trimmed)) return false
+
+        // A singular high-number "24 pack ..." is a common catalogue
+        // descriptor; do not label it as a requested quantity.
+        if (firstCount > 20 && packNounIndices.firstOrNull() == 1 && tokens[1] == "pack") return false
+        return true
+    }
+
     private fun normalizeTrailingPackCount(segment: String): String {
         val match = trailingPackCountRegex.matchEntire(segment.trim()) ?: return segment
         return "${match.groupValues[2]} ${match.groupValues[1].trim()}"
+    }
+
+    /**
+     * Keep a common spoken milk request together before the generic quantity
+     * splitter runs.  Inputs such as "500 ml 5 milk tetta packs" contain two
+     * quantities in one product phrase; treating the volume as its own item
+     * produces the unsafe `ml` product and loses the requested pack count.
+     *
+     * The correction is intentionally narrow: `tetta` is only normalised when
+     * milk, tetra and pack language are all present. Brands and packaging stay
+     * in the product identity. Conflicting measures/counts fail validation.
+     */
+    private data class MilkTetraPackNormalization(
+        val normalized: String?,
+        val ambiguous: Boolean,
+    )
+
+    private fun normalizeMilkTetraPackSegment(segment: String): MilkTetraPackNormalization {
+        val trimmed = segment.trim()
+        val typoNormalized = trimmed.replace(
+            Regex("\\btetta\\b", RegexOption.IGNORE_CASE),
+            "tetra",
+        )
+        val tokens = ProductLexicon.tokenize(typoNormalized)
+        val milkTokens = setOf("milk", "doodh", "दूध", "haalu", "ಹಾಲು")
+        val hasMilk = tokens.any { it in milkTokens }
+        val hasTetra = tokens.contains("tetra")
+        val hasPack = tokens.any { it in setOf("pack", "packs", "packet", "packets") }
+        if (!hasMilk || !hasTetra || !hasPack) return MilkTetraPackNormalization(null, false)
+        if (Regex("\\b(?:24\\s*mantra|7\\s*up|5\\s*star)\\b", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)) {
+            return MilkTetraPackNormalization(null, false)
+        }
+
+        val measure = Regex("\\b(\\d+(?:\\.\\d+)?)\\s*(ml|l|ltr|liters?|litres?)\\b", RegexOption.IGNORE_CASE)
+        val volumes = measure.findAll(typoNormalized).toList()
+        val withoutVolume = measure.replace(typoNormalized, " ")
+        val countPattern = Regex("\\b\\d+\\b")
+        val counts = countPattern.findAll(withoutVolume).toList()
+        val productWords = countPattern.replace(withoutVolume, " ").replace(Regex("\\s+"), " ").trim()
+        // Keep explicit letter-only brand/variant prefixes. Numeric brands use
+        // the existing parser, never a guessed pack count.
+        val productPattern = Regex("^(?:[\\p{L}\\p{M}']+\\s+)*(?:milk|doodh|दूध|haalu|ಹಾಲು)\\s+tetra\\s+(?:packs?|packets?)$", RegexOption.IGNORE_CASE)
+        if (!productPattern.matches(productWords)) return MilkTetraPackNormalization(null, false)
+        if (volumes.size > 1 || counts.size > 1) return MilkTetraPackNormalization(null, true)
+        val volume = volumes.singleOrNull()?.let { "${it.groupValues[1]} ${it.groupValues[2]} " } ?: ""
+        val count = counts.singleOrNull()?.value?.toIntOrNull()
+        if (counts.isNotEmpty() && (count == null || count !in 1..20)) return MilkTetraPackNormalization(null, true)
+        val product = volume + productWords
+            .replace(Regex("\\b(?:doodh|दूध|haalu|ಹಾಲು)\\b", RegexOption.IGNORE_CASE), "milk")
+            .replace(Regex("\\b(?:packs?|packets?)$", RegexOption.IGNORE_CASE), "pack")
+        return MilkTetraPackNormalization(
+            normalized = if (count == null) product else "$count $product",
+            ambiguous = false,
+        )
     }
 
     private fun normalizeFractionalMeasures(segment: String): String {
@@ -421,6 +593,7 @@ object InstructionParser {
         while (true) {
             val before = text
             text = text
+                .replace(leadingConversationWrapperRegex, "")
                 .replace(leadingCommandRegex, "")
                 .trim()
                 .trimStart(',', ';')
@@ -448,10 +621,22 @@ object InstructionParser {
         var text = segment.trim().trim(',', ';', '&').trim()
         text = text.replace(trailingPreferenceNoiseRegex, "").trim()
 
-        val match = negativePreferenceClauseRegex.find(text) ?: return text to emptyList()
+        // Protect the positive phrase before generic negative extraction. The
+        // connector ("with"/"without") is not a catalogue token here; the
+        // marker is restored as human-readable "no added sugar" on return.
+        text = positiveAddedSugarPhraseRegex.replace(text, positiveAddedSugarMarker)
+        fun restorePositiveAddedSugar(value: String): String =
+            value.replace(positiveAddedSugarMarker, "no added sugar")
+
+        leadingBinaPreferenceRegex.matchEntire(text)?.let { match ->
+            val core = match.groupValues[2].trim()
+            val avoid = cleanAvoidPhrase(match.groupValues[1])
+            return restorePositiveAddedSugar(core) to listOf(avoid).filter { it.isNotBlank() }
+        }
+        val match = negativePreferenceClauseRegex.find(text) ?: return restorePositiveAddedSugar(text) to emptyList()
         val core = match.groupValues[1].trim().trim(',', ';', '&').trim()
         val avoid = cleanAvoidPhrase(match.groupValues[2])
-        return core to listOf(avoid).filter { it.isNotBlank() }
+        return restorePositiveAddedSugar(core) to listOf(avoid).filter { it.isNotBlank() }
     }
 
     private fun cleanAvoidPhrase(value: String): String {
@@ -493,7 +678,12 @@ object InstructionParser {
 
     private fun shouldPreserveLeadingNumber(segment: String): Boolean {
         val normalized = segment.trim()
+        val outerCountBeforeNumericBrand = leadingCountRegex.find(normalized)
+            ?.let { isNumericBrandPrefix(it.groupValues[2].trim()) }
+            ?: false
+        if (outerCountBeforeNumericBrand) return false
         return leadingMultipackDescriptorRegex.matches(normalized) ||
+            leadingMeasuredMultipackRegex.matches(normalized) ||
             isNumericBrandPrefix(normalized) ||
             isMeasuredDescriptorPrefix(normalized)
     }
@@ -517,6 +707,98 @@ object InstructionParser {
         return trimmed
     }
 
+    private fun normalizeTrailingSpokenPackCount(segment: String): String {
+        // A count after an explicit package noun is unambiguous. Do not strip
+        // arbitrary trailing words ("milk two", product/model names, etc.).
+        val match = Regex(
+            "^(.+\\b(?:packs?|packets?|pouch(?:es)?|units?))\\s+([1-9]\\d?|[\\p{L}]+)$",
+            RegexOption.IGNORE_CASE,
+        ).matchEntire(segment.trim()) ?: return segment
+        val trailingToken = match.groupValues[2].lowercase(Locale.US)
+        val trailingCount = normalizeCountToken(trailingToken) ?: return segment
+
+        val prefix = match.groupValues[1].trim()
+        // A leading measure, measured multipack, or numeric brand is part of
+        // the product descriptor, not a purchase count. Keep its number when
+        // normalizing a trailing count (for example, "1 l milk packs 5" or
+        // "5 star chocolate packs 2").
+        if (isMeasuredDescriptorPrefix(prefix) ||
+            leadingMeasuredMultipackRegex.matches(prefix) ||
+            isNumericBrandPrefix(prefix)
+        ) {
+            return "$trailingCount ${normalizeTrailingPackProduct(prefix)}"
+        }
+        val leadingNumericCount = Regex("^([1-9]\\d*)\\s+", RegexOption.IGNORE_CASE)
+            .find(prefix)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+        if (leadingNumericCount != null && leadingNumericCount > 20) return segment
+        val leading = Regex("^([1-9]\\d?|[\\p{L}]+)\\s+(.+)$", RegexOption.IGNORE_CASE)
+            .matchEntire(prefix)
+        val leadingCount = leading?.let { normalizeCountToken(it.groupValues[1].lowercase(Locale.US)) }
+        if (leadingCount != null) {
+            // Matching duplicate counts are safe to canonicalize once. Any
+            // disagreement is left untouched and marked by the caller so the
+            // item cannot silently choose one quantity or split into phantoms.
+            if (leadingCount != trailingCount) return segment
+            return "$leadingCount ${normalizeTrailingPackProduct(leading.groupValues[2].trim())}"
+        }
+        return "$trailingCount ${normalizeTrailingPackProduct(prefix)}"
+    }
+
+    private fun normalizeTrailingPackProduct(prefix: String): String {
+        val trimmed = prefix.trim()
+        // Keep tetra-pack and pouch form evidence; generic purchase nouns are
+        // not catalogue identity tokens ("milk packs" -> "milk").
+        if (Regex("\\b(?:tetra|tetta)\\s+(?:packs?|packets?)$", RegexOption.IGNORE_CASE).containsMatchIn(trimmed) ||
+            Regex("\\bpouch(?:es)?$", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)
+        ) {
+            return trimmed
+        }
+        return trimmed.replace(Regex("\\s+(?:packs?|packets?|units?)$", RegexOption.IGNORE_CASE), "").trim()
+    }
+
+    private fun hasConflictingPackCounts(segment: String): Boolean {
+        val trimmed = segment.trim()
+        val leadingNumber = Regex("^([1-9]\\d*)\\s+", RegexOption.IGNORE_CASE)
+            .find(trimmed)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+        val trailingPackCount = Regex(
+            "(?:packs?|packets?|pouch(?:es)?|units?)(?:\\s*([1-9]\\d*)|\\s+([\\p{L}]+))$",
+            RegexOption.IGNORE_CASE,
+        ).find(trimmed)?.let { match ->
+            match.groupValues.drop(1).firstOrNull { it.isNotEmpty() }
+                ?.let { normalizeCountToken(it.lowercase(Locale.US)) }
+        }
+        if (leadingNumber != null && leadingNumber > 20 &&
+            !isMeasuredDescriptorPrefix(trimmed) &&
+            !leadingMeasuredMultipackRegex.matches(trimmed) &&
+            !isNumericBrandPrefix(trimmed) &&
+            trailingPackCount != null
+        ) {
+            // Preserve an out-of-range leading count so downstream validation
+            // can reject it; cleanSegment must not silently drop the number.
+            return true
+        }
+        val match = Regex(
+            "^([1-9]\\d*|[\\p{L}]+)\\s+(.+\\b(?:packs?|packets?|pouch(?:es)?|units?))\\s*([1-9]\\d*|[\\p{L}]+)$",
+            RegexOption.IGNORE_CASE,
+        ).matchEntire(segment.trim()) ?: return false
+        val leadingCount = normalizeCountToken(match.groupValues[1].lowercase(Locale.US)) ?: return false
+        val trailingCount = normalizeCountToken(match.groupValues[3].lowercase(Locale.US)) ?: return false
+        val descriptorPrefix = "${match.groupValues[1]} ${match.groupValues[2]}"
+        if (isMeasuredDescriptorPrefix(descriptorPrefix) ||
+            leadingMeasuredMultipackRegex.matches(descriptorPrefix) ||
+            isNumericBrandPrefix(descriptorPrefix)
+        ) {
+            return false
+        }
+        return leadingCount != trailingCount
+    }
+
     private fun normalizeCountToken(token: String): Int? {
         token.toIntOrNull()?.let { count ->
             if (count > 0) return count
@@ -531,6 +813,21 @@ object InstructionParser {
             .trim()
             .replace(leadingFillerRegex, "")
             .trim()
+        // A normalized outer count may precede a numeric brand (for example,
+        // "2 24 mantra atta packs"). Treat that outer number as purchase
+        // quantity before descriptor-preservation checks inspect the suffix.
+        Regex("^([1-9]\\d?)\\s+((?:7\\s+up|5\\s+star|24\\s+mantra)\\b.*)$", RegexOption.IGNORE_CASE)
+            .matchEntire(normalized)?.let { match ->
+                val count = match.groupValues[1].toIntOrNull()
+                if (count != null && count > 0) return match.groupValues[2].trim() to Quantity.Count(count)
+            }
+        leadingCountRegex.find(normalized)?.let { match ->
+            val suffix = match.groupValues[2].trim()
+            if (isNumericBrandPrefix(suffix)) {
+                val count = match.groupValues[1].toIntOrNull()
+                if (count != null && count > 0) return suffix to Quantity.Count(count)
+            }
+        }
         leadingWeightRegex.find(normalized)?.let { match ->
             val amount = match.groupValues[1].toDoubleOrNull() ?: return segment to Quantity.Default
             val unit = match.groupValues[2].lowercase(Locale.US)
@@ -583,5 +880,8 @@ object InstructionParser {
 
 data class SpokenQuantityNormalization(
     val text: String,
-    val quantitySignal: String? = null
+    val quantitySignal: String? = null,
+    val ambiguousMilkTetraPack: Boolean = false,
+    val ambiguousPackQuantities: Boolean = false,
+    val retailPackCount: Boolean = false,
 )

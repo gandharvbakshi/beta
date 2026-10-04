@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -20,6 +21,11 @@ import kotlin.math.max
 internal data class SwiggyStepAction(
     val label: String,
     val onClick: () -> Unit,
+)
+
+internal data class SwiggyStepAcknowledgement(
+    val label: String,
+    val onCheckedChange: (Boolean) -> Unit,
 )
 
 internal data class SwiggyStepRow(
@@ -55,6 +61,7 @@ internal data class SwiggyStepScreen(
     val secondary: SwiggyStepAction? = null,
     val tertiary: SwiggyStepAction? = null,
     val cancel: (() -> Unit)? = null,
+    val acknowledgement: SwiggyStepAcknowledgement? = null,
 )
 
 /** Full-screen, single-surface UI for the direct Swiggy MCP cart journey. */
@@ -86,6 +93,9 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
     private val tertiary: Button = dialog.findViewById(R.id.swiggyStepTertiary)
     private val caption: TextView = dialog.findViewById(R.id.swiggyStepCaption)
     private val scroll: ScrollView = dialog.findViewById(R.id.swiggyStepScroll)
+    private var activeAcknowledgementEpoch = 0L
+    private var acknowledgementChecked = false
+    private var consumedAcknowledgementEpoch = 0L
 
     init {
         val baseLeft = root.paddingLeft
@@ -108,13 +118,18 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
     fun show(screen: SwiggyStepScreen) {
         val epoch = interactionGate.beginPresentation()
         activeEpoch = epoch
+        activeAcknowledgementEpoch = if (screen.acknowledgement == null) 0L else epoch
+        acknowledgementChecked = false
+        consumedAcknowledgementEpoch = 0L
+        screen.acknowledgement?.onCheckedChange?.invoke(false)
         val cancel = screen.cancel
         eyebrow.text = screen.eyebrow
         title.text = screen.title
         message.text = screen.message
         caption.text = screen.caption
         caption.contentDescription = screen.caption
-        renderContent(screen.rows, screen.choices, epoch)
+        caption.visibility = if (screen.caption.isBlank()) View.GONE else View.VISIBLE
+        renderContent(screen.rows, screen.choices, screen.acknowledgement, epoch)
 
         safetyNote.text = screen.safetyNote.orEmpty()
         safetyNote.visibility = if (screen.safetyNote.isNullOrBlank()) View.GONE else View.VISIBLE
@@ -126,7 +141,7 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
         close.visibility = if (cancel == null) View.GONE else View.VISIBLE
         if (cancel != null) {
             close.setOnClickListener {
-                interactionGate.wrap(epoch, cancel).invoke()
+                runStepAction(epoch, cancel)
             }
         } else {
             close.setOnClickListener(null)
@@ -134,12 +149,18 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
         dialog.setCancelable(screen.cancel != null)
         dialog.setCanceledOnTouchOutside(false)
         dialog.setOnCancelListener {
-            interactionGate.wrap(epoch) {
+            runStepAction(epoch) {
                 interactionGate.invalidate(epoch)
                 cancel?.invoke()
-            }.invoke()
+            }
         }
-        dialog.setOnDismissListener { interactionGate.invalidate(epoch) }
+        dialog.setOnDismissListener {
+            interactionGate.invalidate(epoch)
+            if (activeEpoch == epoch) {
+                activeAcknowledgementEpoch = 0L
+                acknowledgementChecked = false
+            }
+        }
 
         if (!dialog.isShowing && !activity.isFinishing && !activity.isDestroyed) {
             dialog.show()
@@ -153,6 +174,7 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
     }
 
     fun dismiss() {
+        consumeAcknowledgement(activeEpoch)
         interactionGate.invalidate(activeEpoch)
         if (dialog.isShowing) dialog.dismiss()
     }
@@ -165,16 +187,66 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
         }
         button.text = action.label
         button.setBackgroundResource(backgroundRes)
+        button.isEnabled = action != null && (
+            button !== primary || !requiresAcknowledgement(epoch) || isAcknowledged(epoch)
+        )
         button.setOnClickListener {
-            interactionGate.wrap(epoch, action.onClick).invoke()
+            if (button === primary && requiresAcknowledgement(epoch) && !isAcknowledged(epoch)) return@setOnClickListener
+            runStepAction(epoch, action.onClick)
         }
     }
 
-    private fun renderContent(rows: List<SwiggyStepRow>, choices: List<SwiggyStepChoice>, epoch: Long) {
+    private fun renderContent(
+        rows: List<SwiggyStepRow>,
+        choices: List<SwiggyStepChoice>,
+        acknowledgement: SwiggyStepAcknowledgement?,
+        epoch: Long,
+    ) {
         items.removeAllViews()
         rows.forEach { items.addView(createRow(it, epoch)) }
         choices.forEach { items.addView(createChoice(it, epoch)) }
-        items.visibility = if (rows.isEmpty() && choices.isEmpty()) View.GONE else View.VISIBLE
+        acknowledgement?.let { items.addView(createAcknowledgement(it, epoch)) }
+        items.visibility = if (rows.isEmpty() && choices.isEmpty() && acknowledgement == null) View.GONE else View.VISIBLE
+    }
+
+    private fun createAcknowledgement(acknowledgement: SwiggyStepAcknowledgement, epoch: Long): CheckBox =
+        CheckBox(activity).apply {
+            id = R.id.swiggyStepAcknowledgement
+            text = acknowledgement.label
+            contentDescription = acknowledgement.label
+            minHeight = dp(56)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setTextColor(ContextCompat.getColor(activity, R.color.beta_text_primary))
+            textSize = 16f
+            isChecked = false
+            setOnCheckedChangeListener { _, checked ->
+                if (epoch != activeEpoch || activeAcknowledgementEpoch != epoch ||
+                    consumedAcknowledgementEpoch == epoch
+                ) return@setOnCheckedChangeListener
+                acknowledgementChecked = checked
+                primary.isEnabled = primary.visibility == View.VISIBLE && (!requiresAcknowledgement(epoch) || checked)
+                acknowledgement.onCheckedChange(checked)
+            }
+        }
+
+    private fun requiresAcknowledgement(epoch: Long): Boolean = activeAcknowledgementEpoch == epoch && epoch != 0L
+
+    private fun isAcknowledged(epoch: Long): Boolean =
+        requiresAcknowledgement(epoch) && acknowledgementChecked && consumedAcknowledgementEpoch != epoch
+
+    private fun consumeAcknowledgement(epoch: Long) {
+        if (epoch == activeEpoch && activeAcknowledgementEpoch == epoch) {
+            consumedAcknowledgementEpoch = epoch
+            acknowledgementChecked = false
+            primary.isEnabled = false
+        }
+    }
+
+    private fun runStepAction(epoch: Long, callback: () -> Unit) {
+        interactionGate.wrap(epoch) {
+            consumeAcknowledgement(epoch)
+            callback()
+        }.invoke()
     }
 
     private fun createRow(row: SwiggyStepRow, epoch: Long): View {
@@ -195,8 +267,8 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
         }
 
         val heading = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.START
         }
         heading.addView(TextView(activity).apply {
             text = row.title
@@ -204,7 +276,10 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
             setTextColor(ContextCompat.getColor(activity, R.color.beta_text_primary))
             textSize = 16f
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
         })
         row.badge?.takeIf { it.isNotBlank() }?.let { badge ->
             heading.addView(TextView(activity).apply {
@@ -222,6 +297,10 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
                 )
                 textSize = 13f
                 typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(8) }
             })
         }
         container.addView(heading)
@@ -249,7 +328,7 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
                 typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                 setBackgroundResource(R.drawable.beta_btn_secondary)
                 setOnClickListener {
-                    interactionGate.wrap(epoch, action.onClick).invoke()
+                    runStepAction(epoch, action.onClick)
                 }
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -277,7 +356,7 @@ internal class SwiggyOrderStepDialog(private val activity: Activity) {
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             setBackgroundResource(R.drawable.beta_btn_secondary)
             setOnClickListener {
-                interactionGate.wrap(epoch, choice.onClick).invoke()
+                runStepAction(epoch, choice.onClick)
             }
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,

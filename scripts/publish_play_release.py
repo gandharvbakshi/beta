@@ -53,19 +53,25 @@ SCREENSHOT_DIR_TO_IMAGE_TYPE = {
     "ten_inch": "tenInchScreenshots",
 }
 IMAGE_TYPES = tuple(dict.fromkeys(SCREENSHOT_DIR_TO_IMAGE_TYPE.values())) + ("featureGraphic",)
-RELEASE_NAME = "0.3.3"
+RELEASE_NAME = "0.3.4"
 RELEASE_NOTES_BY_LOCALE = {
     "en-US": (
-        "Product suggestions now use your recent Swiggy purchases across categories, "
-        "while respecting your requested brand, variant and quantity. Improved "
-        "Hinglish, spoken quantities and mixed shopping lists. Review your items, "
-        "address, fees, total and payment method together before confirming."
+        "Limited-preview Enhanced list understanding uses Gemini to turn a typed or "
+        "transcribed shopping request into a structured draft. It is off by "
+        "default and requires your consent before the request is sent through "
+        "Beta's backend to Gemini. Beta runs deterministic structural checks "
+        "and asks you to review "
+        "the draft before any "
+        "items are added. You can turn the feature off in Settings."
     ),
     "en-GB": (
-        "Product suggestions now use your recent Swiggy purchases across categories, "
-        "while respecting your requested brand, variant and quantity. Improved "
-        "Hinglish, spoken quantities and mixed shopping lists. Review your items, "
-        "address, fees, total and payment method together before confirming."
+        "Limited-preview Enhanced list understanding uses Gemini to turn a typed or "
+        "transcribed shopping request into a structured draft. It is off by "
+        "default and requires your consent before the request is sent through "
+        "Beta's backend to Gemini. Beta runs deterministic structural checks "
+        "and asks you to review "
+        "the draft before any "
+        "items are added. You can turn the feature off in Settings."
     ),
 }
 

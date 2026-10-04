@@ -1,22 +1,49 @@
 # Beta Play Console Submission Guide
 
-September 6 promotion update: on explicit owner direction, existing signed
-version20/0.3.3 was promoted to open-testing beta and freshly read back as
-completed. Production was unchanged. This supersedes the draft hold below for
-this submission only; reviewer-access risk remains unresolved. Do not claim
-review approval or falsify app-access declarations from this API result.
+## Current release preparation status — 4 October 2026
 
-Target release: `0.3.3` / version code `20`, package
-`live.betaapp.android`, open-testing track `beta`.
+Version `0.3.3` (`versionCode 20`) is the latest completed Open Testing
+release. Version `0.3.4` (`versionCode 21`) is a candidate only and has not
+been uploaded to Play. The previously signed bundle predates the latest
+grounding fix and requires a final signed rebuild. The latest grounding/dish
+fix is still pending that rebuild. No Git push or Play v21 upload has
+occurred. Production was not changed.
 
-Current status: the history-first, enabled Swiggy checkout candidate is the
-release target. Version 20 is saved as a draft, not a public rollout.
-Reusable full Swiggy reviewer access is required before promotion; the four
-static offline demo screens do not satisfy signed-in app access. See
-`SWIGGY_HISTORY_MATCHING_RELEASE_20260906.md` for the latest verified readback.
-Pre-approval phone checks still stop before live checkout or payment, and
-older installed builds may remain cart-only until Play readback confirms the
-new release is active.
+The public privacy policy was published at
+`sites/beta-496723/versions/a7873bd0e33e1319`; its live URL returned HTTP 200
+and the Gemini consent wording was verified. The owner published the reviewed
+Photos-only Data Safety CSV; the API returned `publish=ok`, and fresh Console
+readback showed Photos/videos 0 of 2 selected. Precise location remains declared because Android's
+Geocoder implementation may use the network.
+
+Final source checks: 373 Android unit tests passed with one opt-in private replay
+skipped; 739 backend tests plus 282 subtests passed. The exact Python 3.9 v11
+image passed its Cloud Build test. Normal service traffic is now 100% on
+`intent-oct04-v11`; AI remains owner-allowlisted and OFF by default. Physical
+synthetic UI checks passed 13/13; six hosted intent examples passed after fixing
+the literal tetra-pack spelling guard. Read-only catalogue matches were 3/3,
+11/15 and 14/20; this is not full-basket/cart-write success. No cart, address,
+checkout, payment or order was mutated during these tests.
+
+AI quality remains a limited-preview gate. The old 20-case confirmation set
+was source-audited at 19/20 semantically correct, with 18/20 review-ready;
+C05's safe shared-context request was rejected and C17's dropped certification
+qualifier was blocked. A separate v8 20-case source audit was also 19/20
+semantically correct, and its corrected saved replay reached 19/20
+review-ready after the pack guard. These curated results do not establish the
+90% target, general accuracy
+or live-cart accuracy. Keep the feature off by default and restricted to
+owner-approved installation allowlisting; no broad connected rollout is
+enabled or authorized here.
+
+The September 6 promotion record below is historical. Reusable full Swiggy
+reviewer access remains a separate requirement; static offline demos do not
+satisfy signed-in app access. Pre-approval phone checks stop before live
+checkout or payment, and this document is not proof of Play review approval.
+
+Target release: `0.3.4` / version code `21`, package
+`live.betaapp.android`, open-testing track `beta`, pending final build and
+release gates.
 
 Enabled checkout release candidate: when checkout is approved, Beta should
 present the full cart, saved address, fees, total and payment method before
@@ -41,6 +68,26 @@ Do not upload until all of these pass against the final commit:
 - Firebase consent-off and consent-on event checks with no grocery, product,
   cart, address, GPS or free-text values in analytics.
 - Final Claude Opus adversarial review and resolution of release blockers.
+- Re-review the privacy policy and current Data Safety mapping for optional
+  Enhanced list understanding. Do not infer Play data-type or sharing
+  classifications from this guide: assess the shipped payload and current
+  Play definitions, including typed/transcribed instructions sent through
+  Beta's backend to a selected AI provider. Do not edit or submit a Data Safety
+  form as part of this documentation change.
+- Verify Enhanced list understanding is off by default and requires
+  affirmative in-app consent; with consent off, provider calls must fail
+  closed. Verify only the user-entered instruction is forwarded, with no
+  automatic address, GPS, history or OAuth-token inclusion; verify backend
+  logs contain only coarse provider/token-count/latency metadata, never the
+  instruction, and provider API keys are absent from the APK.
+- Measure the feature's structured-draft quality against a documented test
+  set. A 90% quality target is a measured release criterion, not a promise or
+  guarantee to users. Current curated evidence (old and separate v8 20-case
+  source audits both 19/20 semantic; old review-ready 18/20; corrected replay
+  19/20 review-ready after the pack guard) is not general or live-cart
+  accuracy. Keep default-off and owner-approved
+  allowlisting; do not enable connected audience rollout. Keep all
+  purchase/order testing mocked; no purchases were tested for this change.
 
 For any future checkout-enabled build, add one more gate before upload: the
 current Console owner must re-review the Data Safety mapping for **Financial
@@ -86,8 +133,10 @@ the UPI app or continue with cash on delivery.
 
 ## 3. Privacy policy and app access
 
-Publish and verify the public URL that serves
-`play_store_assets/privacy-policy.html` before committing the Play edit.
+The privacy policy was published as Sites version
+`sites/beta-496723/versions/a7873bd0e33e1319`; the live
+`https://betaapp.live/privacy-policy.html` URL returned HTTP 200 and its Gemini
+consent wording was verified. Recheck the URL before a future Play edit.
 
 App access instructions should tell the reviewer:
 
@@ -104,11 +153,67 @@ all signed-in functions. Do not put credentials in the public listing or repo.
 Set **Contains ads** to `No`. Advertising the app through Google Ads does not
 mean the app displays ads.
 
-## 4. Data Safety during the v16 to v17 transition
+## 4. Data Safety current export and legacy transition
 
-Google's Data Safety form covers every app version currently distributed. While
-version 16 remains active on any internal, closed, open or production track,
-the form must cover the union of legacy v16 and Swiggy-only v17 behavior.
+### Current export and release readback — 4 October 2026
+
+Source baseline: Play Console UI Data Safety CSV export, saved 4 October 2026
+at 17:28:39 IST (`data_safety_export (2).csv`), before the Photos-only update.
+It had 77 selected responses. For **App activity → Other user-generated content**, it
+declares collected only, required, non-ephemeral, and App functionality; no
+sharing purpose is selected. Shopping instructions typed or transcribed by a
+user are plausibly covered by this existing type. The same instruction is
+needed by standard matching when Enhanced list understanding is off, so the
+optional Gemini path does not by itself make the overall data type optional.
+
+For the Gemini path, Settings first identifies Gemini as the selected public
+release provider; the follow-up dialog explains that the typed or transcribed
+request is sent through Beta to that provider, that account/location data is
+not automatically included, and that the user can cancel or turn the feature
+off. The user must affirmatively press **Enable** before the setting changes.
+Google Play's current Data Safety guidance exempts transfers based on a
+specific user action or a prominent in-app disclosure and consent from the
+"sharing" declaration in qualifying cases. The current `ONLY_COLLECTED` answer
+is retained on that disclosure-and-consent basis only; this is not a claim
+that Gemini is a service provider or a legal guarantee. Reassess if the
+consent flow, data payload or provider changes. See [Google Play Data Safety
+guidance](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en).
+
+Keep the instruction non-ephemeral in the form unless provider handling is
+verified to meet Play's exact in-memory/no-longer-than-request standard.
+Provider retention and training use are not represented as zero or otherwise
+guaranteed here.
+
+The Publisher track readback showed version 20 completed on `beta`,
+version 3 as an internal **draft**, and no releases on `alpha` or `production`;
+version 16 was not an active release. The internal v3 draft is not a
+distributed release. The exported form included legacy-related answers.
+
+The export also selects **Photos and videos → Photos** as collected-only,
+required, non-ephemeral, App functionality. The active v20 Android manifest
+does not request camera/photo/media-read permissions, the app has no image
+picker/capture/upload path, and `FeedbackPayload` sets
+`include_screenshot=false`. Screenshot capture found in instrumentation tests
+is test-only. With v16 inactive and v3 still draft, Photos was identified as a
+legacy-only declaration. The owner published the reviewed Photos-only CSV
+through the Data Safety API; it returned `publish=ok`. The update deselected
+`PSL_PHOTOS` and cleared its dependent usage answers only. Fresh Console
+readback showed Photos/videos 0 of 2 selected on October 4.
+The local helper branch `scripts/update_play_data_safety.py
+--remove-retired-photos-only` validates the current photo-row template, makes
+that narrow transformation, and refuses `--publish`. Its 4 October dry run
+normalized 20 photo rows; 5 response values changed, with every non-Photos row
+and field preserved. Output is `logs/data_safety_photos_only_dryrun.csv`.
+Precise location remains declared: although Beta does not send raw coordinates
+to its backend or analytics, Android's geocoder implementation may use the
+network, and the recipient/handling is device-provider dependent.
+
+### Historical conservative v16/v17 union mapping (audit reference)
+
+The following transition mapping was written while legacy v16 could be active;
+it is retained as historical context and is not a fresh claim that v16 remains
+distributed. Google's Data Safety form covers the union of versions currently
+distributed on Play.
 
 Conservative transition answers:
 
@@ -131,7 +236,7 @@ Declare the applicable types and purposes:
 | User IDs | Pseudonymous Beta installation/connection identity. App functionality, security and opted-in analytics. |
 | Device or other IDs | Firebase app-instance/device identifiers when analytics is enabled. Analytics and campaign measurement. Advertising ID is disabled. |
 | Approximate location | Firebase may derive approximate location from the network when analytics is enabled; legacy v16 may expose a locality on screen. Analytics/app functionality. |
-| Precise location | Legacy v16 only, when visible delivery/map information was processed. Raw v17 GPS stays on-device. |
+| Precise location | Legacy v16 visible delivery/map information and current address ranking through Android location/geocoding APIs. Raw coordinates are not sent to Beta's backend or analytics; the Android provider may process them. |
 | Photos and videos → Other visual content | Legacy v16 screen capture during a user-started cart flow. |
 | App info and performance → Diagnostics | Opted-in Crashlytics and optional feedback diagnostics. Reliability/analytics. |
 
@@ -165,8 +270,9 @@ After Play readback proves that no legacy bundle is active on any track:
 ## 6. Upload and readback
 
 1. Create a temporary edit and re-read every track. Confirm the intended version
-   code is unused; never reuse a version already uploaded. Version 20 is the
-   current candidate, not a guarantee that it remains unused after this release.
+   code is unused; never reuse a version already uploaded. Version 21 is the
+   intended candidate but remains unuploaded; re-read before relying on that
+   code being available.
 2. Upload the final signed AAB from
    `app/build/outputs/bundle/release/app-release.aab`.
 3. Update the open-testing `beta` track with the verified version and release

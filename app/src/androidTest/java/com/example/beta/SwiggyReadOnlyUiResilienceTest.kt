@@ -17,6 +17,7 @@ import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.beta.SwiggyMcpClient.SwiggyAddress
 import org.hamcrest.Matchers.allOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -70,7 +71,7 @@ class SwiggyReadOnlyUiResilienceTest {
         )
 
         try {
-            onView(withId(R.id.swiggyStepPrimary)).inRoot(isDialog()).perform(click(), click())
+            onView(withId(R.id.swiggyStepPrimary)).inRoot(isDialog()).perform(scrollTo(), click(), click())
             assertEquals(1, primaryCalls.get())
         } finally {
             scenario.onActivity { dialog.dismiss() }
@@ -119,8 +120,8 @@ class SwiggyReadOnlyUiResilienceTest {
             }
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
 
-            onView(withId(R.id.swiggyStepPrimary)).inRoot(isDialog()).perform(captureView(stalePrimary))
-            onView(withId(R.id.swiggyStepSecondary)).inRoot(isDialog()).perform(click())
+            onView(withId(R.id.swiggyStepPrimary)).inRoot(isDialog()).perform(scrollTo(), captureView(stalePrimary))
+            onView(withId(R.id.swiggyStepSecondary)).inRoot(isDialog()).perform(scrollTo(), click())
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
 
             scenario.onActivity { stalePrimary.get().performClick() }
@@ -178,9 +179,9 @@ class SwiggyReadOnlyUiResilienceTest {
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
 
             onView(withId(R.id.swiggyStepClose)).inRoot(isDialog()).perform(captureView(staleClose))
-            onView(withId(R.id.swiggyStepSecondary)).inRoot(isDialog()).perform(click())
+            onView(withId(R.id.swiggyStepSecondary)).inRoot(isDialog()).perform(scrollTo(), click())
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-            onView(withId(R.id.swiggyStepPrimary)).inRoot(isDialog()).perform(captureView(freshPrimary))
+            onView(withId(R.id.swiggyStepPrimary)).inRoot(isDialog()).perform(scrollTo(), captureView(freshPrimary))
 
             scenario.onActivity {
                 staleClose.get().performClick()
@@ -202,7 +203,7 @@ class SwiggyReadOnlyUiResilienceTest {
     @Test
     fun longSyntheticAddressAndTenRowsRemainReachable() {
         val rowTenClicks = AtomicInteger(0)
-        val longAddress = "You have selected your address marked home, which is 8/18 in Example Apartments on Orchard Road"
+        val longAddress = "You have selected your address marked home, which is Flat 204 in Maple Court on Orchard Lane"
         val (scenario, dialog) = launchDialog(
             stepScreen(
                 rows = (1..10).map { index ->
@@ -242,6 +243,23 @@ class SwiggyReadOnlyUiResilienceTest {
             scenario.onActivity { dialog.dismiss() }
             scenario.close()
         }
+    }
+
+    @Test
+    fun suggestedAddressCopyIsTentativeUntilUserChoosesIt() {
+        val address = SwiggyAddress(
+            id = "synthetic-home",
+            label = "Flat 204, Block B, Maple Court, Orchard Lane, 7th Block, Bengaluru, 560041, India",
+            shortLabel = "Home — Bengaluru",
+            categoryLabel = "Home",
+            confirmationDetail = "Flat 204, Block B in Maple Court, Orchard Lane 560041",
+        )
+
+        val spoken = swiggySpokenAddressSuggestion(address)
+        assertTrue(spoken.startsWith("Suggested address Home"))
+        assertTrue(spoken.contains("Block B"))
+        assertTrue(spoken.contains("Maple Court"))
+        assertTrue(!spoken.contains("You selected"))
     }
 
     private fun launchDialog(screen: SwiggyStepScreen): Pair<ActivityScenario<MainActivity>, SwiggyOrderStepDialog> {

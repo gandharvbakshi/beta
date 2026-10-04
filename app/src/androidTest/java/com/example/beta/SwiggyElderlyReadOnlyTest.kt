@@ -111,22 +111,24 @@ class SwiggyElderlyReadOnlyTest {
             var topMatchCount = 0
             var candidateSetMatchCount = 0
             var clarificationCount = 0
+            var usualUnavailableCount = 0
+            val usualUnavailableIndices = mutableListOf<Int>()
 
-            parsed.forEachIndexed { index, recommendation ->
+            parsed.forEachIndexed recommendationLoop@ { index, recommendation ->
                 val expected = case.expectedItems.getOrNull(index)
                 val requestQuery = queries.getOrNull(index)
                 if (expected == null) {
                     issues += "Case ${case.caseId} has more recommendation results than expected items at index ${index + 1}."
-                    return@forEachIndexed
+                    return@recommendationLoop
                 }
                 if (requestQuery == null) {
                     issues += "Case ${case.caseId} has more recommendation results than queries at index ${index + 1}."
-                    return@forEachIndexed
+                    return@recommendationLoop
                 }
                 val preparedItem = preparedItems.getOrNull(index)
                 if (preparedItem == null) {
                     issues += "Case ${case.caseId} has more recommendation results than prepared items at index ${index + 1}."
-                    return@forEachIndexed
+                    return@recommendationLoop
                 }
                 val responseQuery = recommendation.query?.takeIf { it.isNotBlank() }
                 if (responseQuery == null) {
@@ -141,10 +143,18 @@ class SwiggyElderlyReadOnlyTest {
 
                 val topSuggestion = recommendation.candidates.firstOrNull()
                 val topSuggestionMatches = topSuggestion?.let {
-                    matchesTokenGroups(it.label, expected.expectedTokenGroups)
+                    matchesExpectedTokenGroups(it.label, expected.expectedTokenGroups)
                 } == true
                 val candidateSetHasExpected = recommendation.candidates.any {
-                    matchesTokenGroups(it.label, expected.expectedTokenGroups)
+                    matchesExpectedTokenGroups(it.label, expected.expectedTokenGroups)
+                }
+                val acceptedUsualUnavailable = recommendation.usualProductUnavailable &&
+                    recommendation.candidates.isEmpty() &&
+                    recommendation.suggested == null &&
+                    recommendation.requiresConfirmation
+                if (acceptedUsualUnavailable) {
+                    usualUnavailableCount += 1
+                    usualUnavailableIndices += index + 1
                 }
                 val needsQuestion = swiggySuggestionNeedsReview(preparedItem, recommendation, recommendation.suggested != null)
 
@@ -158,7 +168,7 @@ class SwiggyElderlyReadOnlyTest {
                     }
                 }
 
-                if (expected.expectedTokenGroups.isNotEmpty() && !candidateSetHasExpected) {
+                if (!acceptedUsualUnavailable && expected.expectedTokenGroups.isNotEmpty() && !candidateSetHasExpected) {
                     issues += "Case ${case.caseId} query ${index + 1} produced no candidate matching the expected token groups."
                 }
                 if (expected.maxParserConfidenceExclusive != null &&
@@ -188,6 +198,8 @@ class SwiggyElderlyReadOnlyTest {
                 .put("candidateCountMax", candidateCounts.maxOrNull() ?: 0)
                 .put("candidateCountMean", if (candidateCounts.isNotEmpty()) candidateCounts.average() else 0.0)
                 .put("requiresConfirmationCount", clarificationCount)
+                .put("usualUnavailableCount", usualUnavailableCount)
+                .put("usualUnavailableIndices", JSONArray().apply { usualUnavailableIndices.forEach { put(it) } })
                 .put("topSuggestionMatchCount", topMatchCount)
                 .put("candidateSetHasExpectedCount", candidateSetMatchCount)
                 .put("latencyMs", elapsedMs)
@@ -197,7 +209,8 @@ class SwiggyElderlyReadOnlyTest {
                 "SWIGGY_ELDERLY_CASE_SUMMARY caseId=${case.caseId} queries=${queries.size} " +
                     "results=${parsed.size} candidateCountMin=${candidateCounts.minOrNull() ?: 0} " +
                     "candidateCountMax=${candidateCounts.maxOrNull() ?: 0} requiresConfirmationCount=$clarificationCount " +
-                    "topSuggestionMatchCount=$topMatchCount candidateSetHasExpectedCount=$candidateSetMatchCount latencyMs=$elapsedMs",
+                    "usualUnavailableCount=$usualUnavailableCount topSuggestionMatchCount=$topMatchCount " +
+                    "candidateSetHasExpectedCount=$candidateSetMatchCount latencyMs=$elapsedMs",
             )
 
             if (caseIndex < cases.lastIndex) {
@@ -348,6 +361,17 @@ class SwiggyElderlyReadOnlyTest {
                 .map { normalizeForComparison(it) }
                 .filter(String::isNotBlank)
                 .any { normalizedLabel.contains(it) }
+        }
+    }
+
+    private fun matchesExpectedTokenGroups(label: String, tokenGroups: List<List<String>>): Boolean {
+        val isMilkGroup = tokenGroups.size == 1 &&
+            tokenGroups.single().size == 1 &&
+            normalizeForComparison(tokenGroups.single().single()) == "milk"
+        return if (isMilkGroup) {
+            swiggyIdentityTokens(label).contains("milk")
+        } else {
+            matchesTokenGroups(label, tokenGroups)
         }
     }
 
