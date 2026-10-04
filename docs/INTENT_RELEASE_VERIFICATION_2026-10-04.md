@@ -339,3 +339,28 @@ field roles, retained descriptors, Android mapping and fresh holdout remain.
 The complete limits and next integration gates are in
 `docs/INTENT_V2_OFFLINE_CONTRACT_2026-10-04.md`. Do not hot-swap v1 or widen AI
 audience using these development results. The owner deadline remains unchanged.
+
+### 22:12 IST amount-role checkpoint — offline only
+
+Backend GitHub main readback:
+`bb50febd5c03c692fc767be32330615404113aa4`. A separate closed-template guard
+now rejects explicit packet contents misused as a purchased total, the same
+amount reused in two fields, and explicit nutrition/total-to-pack contradictions.
+Ordinary sugar/protein product requests remain unresolved rather than being
+misclassified as nutrition. Unknown syntax and supporting corrections are still
+not general semantic proof; unresolved role metadata is a required next
+integration step, not an already-shipped UI feature.
+
+Verification: 135 focused tests + 163 subtests; full local suite 885 + 445
+with the same two manual-demo exclusions and 11 existing warnings. The existing
+read-only, network-disabled Python 3.9 container passed 76 relevant unittests.
+Claude Opus and an independent reviewer both caught the nutrient false reject;
+root corrected it and added regressions, including non-first-item offsets.
+Independent re-review found no new material issue in that fix. Claude's final
+approval is limited to offline use with cautions, not release approval.
+
+Captured response replay remains 16/20 contract-valid, semantic/contract
+intersection 15/20. No additional provider/Swiggy tests or transaction writes
+were made for this guard. Hosted v13, signed Android v21 and the existing Play
+submission are unchanged. Last Console observation (21:50 IST) was Changes in
+review; that is not Google approval or verified availability to testers.
