@@ -1,0 +1,3250 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "cases": [
+    {
+      "id": "canonical",
+      "instruction": "1 apple, 1 tea with no added sugar, 1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "tea",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "1 tea with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple, 1 tea with no added sugar, 1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [
+          {
+            "row_index": 0,
+            "item": {
+              "name": "apple",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 apple",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 apple",
+                "start_utf16": 0,
+                "end_utf16": 7
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 1,
+            "item": {
+              "name": "tea",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [
+                "no_added_sugar"
+              ],
+              "excluded": [],
+              "source_text": "1 tea with no added sugar",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 tea with no added sugar",
+                "start_utf16": 9,
+                "end_utf16": 34
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 2,
+            "item": {
+              "name": "cabbage",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 cabbage",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 cabbage",
+                "start_utf16": 36,
+                "end_utf16": 45
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          }
+        ],
+        "blocked_rows": []
+      },
+      "expected_count": 3,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    },
+    {
+      "id": "different-count",
+      "instruction": "3 apple, 3 coffee with no added sugar, 3 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 3,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "3 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "3",
+            "pack_text": null
+          },
+          {
+            "name": "coffee",
+            "quantity": 3,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "3 coffee with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "3",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 3,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "3 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "3",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "3 apple, 3 coffee with no added sugar, 3 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [
+          {
+            "row_index": 0,
+            "item": {
+              "name": "apple",
+              "quantity": 3,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "3 apple",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "3",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "3 apple",
+                "start_utf16": 0,
+                "end_utf16": 7
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 1,
+            "item": {
+              "name": "coffee",
+              "quantity": 3,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [
+                "no_added_sugar"
+              ],
+              "excluded": [],
+              "source_text": "3 coffee with no added sugar",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "3",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "3 coffee with no added sugar",
+                "start_utf16": 9,
+                "end_utf16": 37
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 2,
+            "item": {
+              "name": "cabbage",
+              "quantity": 3,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "3 cabbage",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "3",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "3 cabbage",
+                "start_utf16": 39,
+                "end_utf16": 48
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          }
+        ],
+        "blocked_rows": []
+      },
+      "expected_count": 3,
+      "quantity": 3,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    },
+    {
+      "id": "no-sugar",
+      "instruction": "1 apple, 1 biscuits with no sugar, 1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "biscuits",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "sugar_free"
+            ],
+            "excluded": [],
+            "source_text": "1 biscuits with no sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple, 1 biscuits with no sugar, 1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [
+          {
+            "row_index": 0,
+            "item": {
+              "name": "apple",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 apple",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 apple",
+                "start_utf16": 0,
+                "end_utf16": 7
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 1,
+            "item": {
+              "name": "biscuits",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [
+                "sugar_free"
+              ],
+              "excluded": [],
+              "source_text": "1 biscuits with no sugar",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 biscuits with no sugar",
+                "start_utf16": 9,
+                "end_utf16": 33
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 2,
+            "item": {
+              "name": "cabbage",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 cabbage",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 cabbage",
+                "start_utf16": 35,
+                "end_utf16": 44
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          }
+        ],
+        "blocked_rows": []
+      },
+      "expected_count": 3,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no sugar"
+    },
+    {
+      "id": "no-added-salt",
+      "instruction": "1 apple, 1 rice with no added salt, 1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "rice",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [
+              "added salt"
+            ],
+            "source_text": "1 rice with no added salt",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple, 1 rice with no added salt, 1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [
+          {
+            "row_index": 0,
+            "item": {
+              "name": "apple",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 apple",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 apple",
+                "start_utf16": 0,
+                "end_utf16": 7
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 1,
+            "item": {
+              "name": "rice",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [
+                "added salt"
+              ],
+              "source_text": "1 rice with no added salt",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 rice with no added salt",
+                "start_utf16": 9,
+                "end_utf16": 34
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 2,
+            "item": {
+              "name": "cabbage",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 cabbage",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 cabbage",
+                "start_utf16": 36,
+                "end_utf16": 45
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          }
+        ],
+        "blocked_rows": []
+      },
+      "expected_count": 3,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added salt"
+    },
+    {
+      "id": "semicolon",
+      "instruction": "1 apple; 1 milk with no added sugar; 1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "milk",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "1 milk with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple; 1 milk with no added sugar; 1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [
+          {
+            "row_index": 0,
+            "item": {
+              "name": "apple",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 apple",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 apple",
+                "start_utf16": 0,
+                "end_utf16": 7
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 1,
+            "item": {
+              "name": "milk",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [
+                "no_added_sugar"
+              ],
+              "excluded": [],
+              "source_text": "1 milk with no added sugar",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 milk with no added sugar",
+                "start_utf16": 9,
+                "end_utf16": 35
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 2,
+            "item": {
+              "name": "cabbage",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 cabbage",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 cabbage",
+                "start_utf16": 37,
+                "end_utf16": 46
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          }
+        ],
+        "blocked_rows": []
+      },
+      "expected_count": 3,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    },
+    {
+      "id": "newline",
+      "instruction": "1 apple\n1 oats with no added sugar\n1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "oats",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "1 oats with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple\n1 oats with no added sugar\n1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [
+          {
+            "row_index": 0,
+            "item": {
+              "name": "apple",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 apple",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 apple",
+                "start_utf16": 0,
+                "end_utf16": 7
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 1,
+            "item": {
+              "name": "oats",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [
+                "no_added_sugar"
+              ],
+              "excluded": [],
+              "source_text": "1 oats with no added sugar",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 oats with no added sugar",
+                "start_utf16": 8,
+                "end_utf16": 34
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 2,
+            "item": {
+              "name": "cabbage",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 cabbage",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 cabbage",
+                "start_utf16": 35,
+                "end_utf16": 44
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          }
+        ],
+        "blocked_rows": []
+      },
+      "expected_count": 3,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    },
+    {
+      "id": "utf16-source",
+      "instruction": "1 café 😀, 1 tea with no added sugar, 1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "café 😀",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 café 😀",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "tea",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "1 tea with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 café 😀, 1 tea with no added sugar, 1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [
+          {
+            "row_index": 0,
+            "item": {
+              "name": "café 😀",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 café 😀",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 café 😀",
+                "start_utf16": 0,
+                "end_utf16": 9
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 1,
+            "item": {
+              "name": "tea",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [
+                "no_added_sugar"
+              ],
+              "excluded": [],
+              "source_text": "1 tea with no added sugar",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 tea with no added sugar",
+                "start_utf16": 11,
+                "end_utf16": 36
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 2,
+            "item": {
+              "name": "cabbage",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 cabbage",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 cabbage",
+                "start_utf16": 38,
+                "end_utf16": 47
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          }
+        ],
+        "blocked_rows": []
+      },
+      "expected_count": 3,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    },
+    {
+      "id": "long-15",
+      "instruction": "1 apple, 1 tea with no added sugar, 1 cabbage, 1 milk, 1 oats, 1 flour, 1 rice, 1 coffee, 1 biscuits, 1 chocolate, 1 carrots, 1 eggs, 1 lentils, 1 bread, 1 pasta",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "tea",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "1 tea with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "milk",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 milk",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "oats",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 oats",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "flour",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 flour",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "rice",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 rice",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "coffee",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 coffee",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "biscuits",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 biscuits",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "chocolate",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 chocolate",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "carrots",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 carrots",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "eggs",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 eggs",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "lentils",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 lentils",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "bread",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 bread",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "pasta",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 pasta",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple, 1 tea with no added sugar, 1 cabbage, 1 milk, 1 oats, 1 flour, 1 rice, 1 coffee, 1 biscuits, 1 chocolate, 1 carrots, 1 eggs, 1 lentils, 1 bread, 1 pasta",
+        "source_item_count": 15,
+        "ready_rows": [
+          {
+            "row_index": 0,
+            "item": {
+              "name": "apple",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 apple",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 apple",
+                "start_utf16": 0,
+                "end_utf16": 7
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 1,
+            "item": {
+              "name": "tea",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [
+                "no_added_sugar"
+              ],
+              "excluded": [],
+              "source_text": "1 tea with no added sugar",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 tea with no added sugar",
+                "start_utf16": 9,
+                "end_utf16": 34
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 2,
+            "item": {
+              "name": "cabbage",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 cabbage",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 cabbage",
+                "start_utf16": 36,
+                "end_utf16": 45
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 3,
+            "item": {
+              "name": "milk",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 milk",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 milk",
+                "start_utf16": 47,
+                "end_utf16": 53
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 4,
+            "item": {
+              "name": "oats",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 oats",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 oats",
+                "start_utf16": 55,
+                "end_utf16": 61
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 5,
+            "item": {
+              "name": "flour",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 flour",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 flour",
+                "start_utf16": 63,
+                "end_utf16": 70
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 6,
+            "item": {
+              "name": "rice",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 rice",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 rice",
+                "start_utf16": 72,
+                "end_utf16": 78
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 7,
+            "item": {
+              "name": "coffee",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 coffee",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 coffee",
+                "start_utf16": 80,
+                "end_utf16": 88
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 8,
+            "item": {
+              "name": "biscuits",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 biscuits",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 biscuits",
+                "start_utf16": 90,
+                "end_utf16": 100
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 9,
+            "item": {
+              "name": "chocolate",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 chocolate",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 chocolate",
+                "start_utf16": 102,
+                "end_utf16": 113
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 10,
+            "item": {
+              "name": "carrots",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 carrots",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 carrots",
+                "start_utf16": 115,
+                "end_utf16": 124
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 11,
+            "item": {
+              "name": "eggs",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 eggs",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 eggs",
+                "start_utf16": 126,
+                "end_utf16": 132
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 12,
+            "item": {
+              "name": "lentils",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 lentils",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 lentils",
+                "start_utf16": 134,
+                "end_utf16": 143
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 13,
+            "item": {
+              "name": "bread",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 bread",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 bread",
+                "start_utf16": 145,
+                "end_utf16": 152
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 14,
+            "item": {
+              "name": "pasta",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 pasta",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 pasta",
+                "start_utf16": 154,
+                "end_utf16": 161
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          }
+        ],
+        "blocked_rows": []
+      },
+      "expected_count": 15,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    },
+    {
+      "id": "long-20",
+      "instruction": "1 apple, 1 tea with no added sugar, 1 cabbage, 1 milk, 1 oats, 1 flour, 1 rice, 1 coffee, 1 biscuits, 1 chocolate, 1 carrots, 1 eggs, 1 lentils, 1 bread, 1 pasta, 1 honey, 1 oranges, 1 tomatoes, 1 yogurt, 1 bananas",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "tea",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "1 tea with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "milk",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 milk",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "oats",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 oats",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "flour",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 flour",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "rice",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 rice",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "coffee",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 coffee",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "biscuits",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 biscuits",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "chocolate",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 chocolate",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "carrots",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 carrots",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "eggs",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 eggs",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "lentils",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 lentils",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "bread",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 bread",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "pasta",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 pasta",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "honey",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 honey",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "oranges",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 oranges",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "tomatoes",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 tomatoes",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "yogurt",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 yogurt",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "bananas",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 bananas",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple, 1 tea with no added sugar, 1 cabbage, 1 milk, 1 oats, 1 flour, 1 rice, 1 coffee, 1 biscuits, 1 chocolate, 1 carrots, 1 eggs, 1 lentils, 1 bread, 1 pasta, 1 honey, 1 oranges, 1 tomatoes, 1 yogurt, 1 bananas",
+        "source_item_count": 20,
+        "ready_rows": [
+          {
+            "row_index": 0,
+            "item": {
+              "name": "apple",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 apple",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 apple",
+                "start_utf16": 0,
+                "end_utf16": 7
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 1,
+            "item": {
+              "name": "tea",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [
+                "no_added_sugar"
+              ],
+              "excluded": [],
+              "source_text": "1 tea with no added sugar",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 tea with no added sugar",
+                "start_utf16": 9,
+                "end_utf16": 34
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 2,
+            "item": {
+              "name": "cabbage",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 cabbage",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 cabbage",
+                "start_utf16": 36,
+                "end_utf16": 45
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 3,
+            "item": {
+              "name": "milk",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 milk",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 milk",
+                "start_utf16": 47,
+                "end_utf16": 53
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 4,
+            "item": {
+              "name": "oats",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 oats",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 oats",
+                "start_utf16": 55,
+                "end_utf16": 61
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 5,
+            "item": {
+              "name": "flour",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 flour",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 flour",
+                "start_utf16": 63,
+                "end_utf16": 70
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 6,
+            "item": {
+              "name": "rice",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 rice",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 rice",
+                "start_utf16": 72,
+                "end_utf16": 78
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 7,
+            "item": {
+              "name": "coffee",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 coffee",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 coffee",
+                "start_utf16": 80,
+                "end_utf16": 88
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 8,
+            "item": {
+              "name": "biscuits",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 biscuits",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 biscuits",
+                "start_utf16": 90,
+                "end_utf16": 100
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 9,
+            "item": {
+              "name": "chocolate",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 chocolate",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 chocolate",
+                "start_utf16": 102,
+                "end_utf16": 113
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 10,
+            "item": {
+              "name": "carrots",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 carrots",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 carrots",
+                "start_utf16": 115,
+                "end_utf16": 124
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 11,
+            "item": {
+              "name": "eggs",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 eggs",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 eggs",
+                "start_utf16": 126,
+                "end_utf16": 132
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 12,
+            "item": {
+              "name": "lentils",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 lentils",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 lentils",
+                "start_utf16": 134,
+                "end_utf16": 143
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 13,
+            "item": {
+              "name": "bread",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 bread",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 bread",
+                "start_utf16": 145,
+                "end_utf16": 152
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 14,
+            "item": {
+              "name": "pasta",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 pasta",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 pasta",
+                "start_utf16": 154,
+                "end_utf16": 161
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 15,
+            "item": {
+              "name": "honey",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 honey",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 honey",
+                "start_utf16": 163,
+                "end_utf16": 170
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 16,
+            "item": {
+              "name": "oranges",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 oranges",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 oranges",
+                "start_utf16": 172,
+                "end_utf16": 181
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 17,
+            "item": {
+              "name": "tomatoes",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 tomatoes",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 tomatoes",
+                "start_utf16": 183,
+                "end_utf16": 193
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 18,
+            "item": {
+              "name": "yogurt",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 yogurt",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 yogurt",
+                "start_utf16": 195,
+                "end_utf16": 203
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          },
+          {
+            "row_index": 19,
+            "item": {
+              "name": "bananas",
+              "quantity": 1,
+              "quantity_unit": "count",
+              "pack_value": null,
+              "pack_unit": "unspecified",
+              "packaging": null,
+              "required": [],
+              "excluded": [],
+              "source_text": "1 bananas",
+              "supporting_text": [],
+              "needs_clarification": false,
+              "quantity_text": "1",
+              "pack_text": null
+            },
+            "evidence": {
+              "primary": {
+                "text": "1 bananas",
+                "start_utf16": 205,
+                "end_utf16": 214
+              },
+              "supporting": []
+            },
+            "quantity_origin": "stated",
+            "amount_role_status": "unresolved"
+          }
+        ],
+        "blocked_rows": []
+      },
+      "expected_count": 20,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    },
+    {
+      "id": "hamper",
+      "instruction": "1 apple, 1 gift hamper with no added sugar, 1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "gift hamper",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "1 gift hamper with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple, 1 gift hamper with no added sugar, 1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [],
+        "blocked_rows": [
+          {
+            "row_index": 0,
+            "source": {
+              "text": "1 apple",
+              "start_utf16": 0,
+              "end_utf16": 7
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          },
+          {
+            "row_index": 1,
+            "source": {
+              "text": "1 gift hamper with no added sugar",
+              "start_utf16": 9,
+              "end_utf16": 42
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          },
+          {
+            "row_index": 2,
+            "source": {
+              "text": "1 cabbage",
+              "start_utf16": 44,
+              "end_utf16": 53
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          }
+        ]
+      },
+      "expected_count": 0,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    },
+    {
+      "id": "unknown-head",
+      "instruction": "1 apple, 1 widget with no added sugar, 1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "widget",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "1 widget with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple, 1 widget with no added sugar, 1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [],
+        "blocked_rows": [
+          {
+            "row_index": 0,
+            "source": {
+              "text": "1 apple",
+              "start_utf16": 0,
+              "end_utf16": 7
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          },
+          {
+            "row_index": 1,
+            "source": {
+              "text": "1 widget with no added sugar",
+              "start_utf16": 9,
+              "end_utf16": 37
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          },
+          {
+            "row_index": 2,
+            "source": {
+              "text": "1 cabbage",
+              "start_utf16": 39,
+              "end_utf16": 48
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          }
+        ]
+      },
+      "expected_count": 0,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    },
+    {
+      "id": "bare-conjunction",
+      "instruction": "1 apple and 1 tea with no added sugar and 1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "tea",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "1 tea with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple and 1 tea with no added sugar and 1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [],
+        "blocked_rows": [
+          {
+            "row_index": 0,
+            "source": {
+              "text": "1 apple",
+              "start_utf16": 0,
+              "end_utf16": 7
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          },
+          {
+            "row_index": 1,
+            "source": {
+              "text": "1 tea with no added sugar",
+              "start_utf16": 12,
+              "end_utf16": 37
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          },
+          {
+            "row_index": 2,
+            "source": {
+              "text": "1 cabbage",
+              "start_utf16": 42,
+              "end_utf16": 51
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          }
+        ]
+      },
+      "expected_count": 0,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    },
+    {
+      "id": "not-retained",
+      "instruction": "1 apple, 1 tea with no added sugar, 1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "tea",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 tea with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple, 1 tea with no added sugar, 1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [],
+        "blocked_rows": [
+          {
+            "row_index": 0,
+            "source": {
+              "text": "1 apple",
+              "start_utf16": 0,
+              "end_utf16": 7
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          },
+          {
+            "row_index": 1,
+            "source": {
+              "text": "1 tea with no added sugar",
+              "start_utf16": 9,
+              "end_utf16": 34
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven",
+              "missing_negative_ingredient"
+            ]
+          },
+          {
+            "row_index": 2,
+            "source": {
+              "text": "1 cabbage",
+              "start_utf16": 36,
+              "end_utf16": 45
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          }
+        ]
+      },
+      "expected_count": 0,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    },
+    {
+      "id": "reported",
+      "instruction": "1 apple, 1 tea with label says no added sugar, 1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "tea",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "1 tea with label says no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "1 apple, 1 tea with label says no added sugar, 1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [],
+        "blocked_rows": [
+          {
+            "row_index": 0,
+            "source": {
+              "text": "1 apple",
+              "start_utf16": 0,
+              "end_utf16": 7
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          },
+          {
+            "row_index": 1,
+            "source": {
+              "text": "1 tea with label says no added sugar",
+              "start_utf16": 9,
+              "end_utf16": 45
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          },
+          {
+            "row_index": 2,
+            "source": {
+              "text": "1 cabbage",
+              "start_utf16": 47,
+              "end_utf16": 56
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven"
+            ]
+          }
+        ]
+      },
+      "expected_count": 0,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "label says no added sugar"
+    },
+    {
+      "id": "no-extra-prefix",
+      "instruction": "Only if available: 1 apple, 1 tea with no added sugar, 1 cabbage",
+      "model_payload": {
+        "items": [
+          {
+            "name": "apple",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 apple",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "tea",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [
+              "no_added_sugar"
+            ],
+            "excluded": [],
+            "source_text": "1 tea with no added sugar",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          },
+          {
+            "name": "cabbage",
+            "quantity": 1,
+            "quantity_unit": "count",
+            "pack_value": null,
+            "pack_unit": "unspecified",
+            "packaging": null,
+            "required": [],
+            "excluded": [],
+            "source_text": "1 cabbage",
+            "supporting_text": [],
+            "needs_clarification": false,
+            "quantity_text": "1",
+            "pack_text": null
+          }
+        ]
+      },
+      "review": {
+        "contract_version": "grocery-intent-v2",
+        "requires_review": true,
+        "instruction": "Only if available: 1 apple, 1 tea with no added sugar, 1 cabbage",
+        "source_item_count": 3,
+        "ready_rows": [],
+        "blocked_rows": [
+          {
+            "row_index": 0,
+            "source": {
+              "text": "1 apple",
+              "start_utf16": 19,
+              "end_utf16": 26
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven",
+              "header_requires_group_proof",
+              "unclaimed_correction_requires_review"
+            ]
+          },
+          {
+            "row_index": 1,
+            "source": {
+              "text": "1 tea with no added sugar",
+              "start_utf16": 28,
+              "end_utf16": 53
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven",
+              "header_requires_group_proof",
+              "unclaimed_correction_requires_review"
+            ]
+          },
+          {
+            "row_index": 2,
+            "source": {
+              "text": "1 cabbage",
+              "start_utf16": 55,
+              "end_utf16": 64
+            },
+            "issue_codes": [
+              "cross_item_contents_scope_unproven",
+              "header_requires_group_proof",
+              "unclaimed_correction_requires_review"
+            ]
+          }
+        ]
+      },
+      "expected_count": 0,
+      "quantity": 1,
+      "owner_index": 1,
+      "owner_claim": "no added sugar"
+    }
+  ]
+}

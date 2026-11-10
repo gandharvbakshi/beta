@@ -15,6 +15,7 @@ internal class SwiggyCheckoutCoordinator(
     private val announce: (String) -> Unit,
     private val store: SwiggyCheckoutStore = SwiggyCheckoutStore(activity),
     private val gateway: SwiggyCheckoutGateway = LiveSwiggyCheckoutGateway(activity),
+    private val fulfillmentStore: GroceryIntentConstraintStore = GroceryIntentConstraintStore(activity),
     private val onSettled: () -> Unit,
 ) {
     private val screen = SwiggyOrderStepDialog(activity)
@@ -25,6 +26,10 @@ internal class SwiggyCheckoutCoordinator(
     private var epoch = 0L
     private var lastAttempt: SwiggyCheckoutAttempt? = null
     private var paymentOpened = false
+    private val fulfillmentGate = GroceryIntentCheckoutConstraintGate()
+    // Do not clear notes for an adopted/recovered attempt this instance never reviewed.
+    // This survives a UPI app switch, but process death conservatively retains notes.
+    private var submittedFulfillment: Pair<String, List<String>>? = null
     private val poll = Runnable { if (resumed && store.isPending()) recover() }
 
     fun isActive(): Boolean = showing || busy || store.isPending()
@@ -40,6 +45,7 @@ internal class SwiggyCheckoutCoordinator(
 
     fun onPause() {
         resumed = false
+        fulfillmentGate.invalidate()
         handler.removeCallbacks(poll)
         // A UPI handoff is expected; an unconfirmed review is invalidated.
         if (!store.isPending()) { epoch++; busy = false; showing = false; screen.dismiss() }
@@ -111,15 +117,22 @@ internal class SwiggyCheckoutCoordinator(
 
     private fun finalReview(review: SwiggyCheckoutReview, method: SwiggyCheckoutMethod) {
         if (!resumed) return
+        val fulfillment = readFulfillmentForReview() ?: return
+        fulfillmentGate.beginReview(fulfillment)
         val warning = "Check the flat or house and area even if location is off or you are ordering for someone elsewhere. Swiggy may split items into separate store orders. Keep Swiggy closed during this process."
         screen.show(SwiggyStepScreen(
             eyebrow = "Final order confirmation", title = "Place this order for ₹${review.amount}?",
             message = "Deliver to ${review.addressLabel}: ${review.addressFull}",
             caption = "Payment: ${method.label}. This includes ALL items in the cart, including any added earlier.",
-            rows = review.items.map { SwiggyStepRow(it.name, "${it.variant} · Quantity ${it.quantity} · Unit price ₹${it.unitPrice}") } +
+            rows = groceryIntentFulfillmentReviewRows(fulfillment) +
+                review.items.map { SwiggyStepRow(it.name, "${it.variant} · Quantity ${it.quantity} · Unit price ₹${it.unitPrice}") } +
                 review.charges.map { SwiggyStepRow(it.label, "₹${it.amount}") } +
                 SwiggyStepRow("Total payable", "₹${review.amount}", "Final total"),
             safetyNote = warning,
+            acknowledgement = if (fulfillment.isEmpty()) null else SwiggyStepAcknowledgement(
+                "I understand my earlier delivery request is NOT arranged. I want this order sent to Swiggy now.",
+                fulfillmentGate::acknowledge,
+            ),
             primary = SwiggyStepAction(if (method.paymentMethod == "UPI") "Confirm order · Pay ₹${review.amount}" else "Place order · ₹${review.amount} on delivery") {
                 place(review, method)
             },
@@ -127,20 +140,54 @@ internal class SwiggyCheckoutCoordinator(
             tertiary = SwiggyStepAction("Read the summary again") { finalReview(review, method) },
             cancel = ::dismiss,
         ))
-        speakReview(review, method)
+        speakReview(review, method, fulfillment)
     }
 
-    private fun speakReview(review: SwiggyCheckoutReview, method: SwiggyCheckoutMethod) {
+    private fun speakReview(review: SwiggyCheckoutReview, method: SwiggyCheckoutMethod, fulfillment: List<String>) {
         val short = review.addressFull.split(' ').take(20).joinToString(" ")
         val items = review.items.joinToString(". ") { "${it.quantity} ${it.name} ${it.variant}" }
-        announce("You selected the address marked ${review.addressLabel}, $short. The total including fees is ${review.amount} rupees. Payment: ${method.label}. $items. Check the full address and items on screen. Tap the final confirmation only if these are correct.")
+        val requestNotice = if (fulfillment.isEmpty()) "" else
+            " Your earlier request was: ${fulfillment.joinToString(". ")}. $FULFILLMENT_LIMITATION Confirm only if you want the order sent to Swiggy now."
+        announce("You selected the address marked ${review.addressLabel}, $short. The total including fees is ${review.amount} rupees. Payment: ${method.label}. $items. Check the full address and items on screen.$requestNotice Tap the final confirmation only if these are correct.")
+    }
+
+    private fun readFulfillmentForReview(): List<String>? = when (val state = fulfillmentStore.read()) {
+        GroceryIntentConstraintStore.State.Empty -> emptyList()
+        is GroceryIntentConstraintStore.State.Ready -> state.quotes
+        GroceryIntentConstraintStore.State.Unreadable -> {
+            val generation = ++epoch
+            busy = false
+            showing = true
+            fulfillmentGate.invalidate()
+            screen.show(groceryIntentUnreadableConstraintRecoveryScreen(
+                discard = {
+                    if (resumed && epoch == generation && !busy && !store.isPending()) {
+                        if (fulfillmentStore.discardUnreadableAfterConfirmation()) {
+                            android.util.Log.i("BetaAgent", "Unreadable fulfillment record discarded after confirmation")
+                            dismiss()
+                            announce("The unreadable request was forgotten. Please review your cart and delivery details again. Nothing was ordered.")
+                            onSettled()
+                        } else problem("Beta could not safely forget the unreadable request. Nothing was ordered. Please go back and try again.")
+                    }
+                },
+                back = ::dismiss,
+            ))
+            announce(UNREADABLE_FULFILLMENT_WARNING)
+            null
+        }
     }
 
     private fun place(review: SwiggyCheckoutReview, method: SwiggyCheckoutMethod) {
         if (!resumed || busy || store.isPending()) return
+        val fulfillment = readFulfillmentForReview() ?: return
+        if (!fulfillmentGate.canPlace(fulfillment)) {
+            finalReview(review, method)
+            return
+        }
         if (System.currentTimeMillis() / 1000 >= review.expiresAt) { this.review(review.addressId); return }
         val id = UUID.randomUUID().toString()
         if (!store.save(id)) { problem("Beta could not save a safe recovery record. No order was sent."); return }
+        submittedFulfillment = id to fulfillment.toList()
         val generation = ++epoch
         progress("Sending your confirmed order", "Please wait. If interrupted, Beta checks this attempt and never sends it again automatically.")
         gateway.place(review.quoteToken, method.id, id) { result -> ui(generation) {
@@ -248,12 +295,25 @@ internal class SwiggyCheckoutCoordinator(
 
     private fun acknowledge() {
         if (lastAttempt?.state !in terminalStates) return
+        // Failed, cancelled or partial attempts must never erase delivery notes.
+        val submitted = submittedFulfillment
+        var notesRetained = false
+        if (lastAttempt?.state == "placed" && submitted != null &&
+            submitted.first == lastAttempt?.attemptId && submitted.first == store.load() &&
+            submitted.second.isNotEmpty() && !fulfillmentStore.settlePlacedAfterReview(submitted.second)) {
+            // Notes are conservative review context, not duplicate-order fences.
+            // A failed note tombstone must not strand an already-confirmed order.
+            notesRetained = true
+            android.util.Log.i("BetaAgent", "Confirmed-order fulfillment notes retained after settlement failure")
+        }
         // Clear cart receipt before attempt marker so recovery wins across a crash.
         if (!SwiggyCartReviewStore(activity).clear() || !SwiggyPendingCartStore(activity).clear() || !store.clear()) {
             uncertain(); return
         }
         lastAttempt = null // A queued second Done tap cannot settle this attempt twice.
+        submittedFulfillment = null
         dismiss()
+        if (notesRetained) announce("Your order is confirmed. Earlier delivery requests may appear again at your next review.")
         onSettled()
     }
 
@@ -273,7 +333,7 @@ internal class SwiggyCheckoutCoordinator(
         announce(message)
     }
 
-    private fun dismiss() { epoch++; busy = false; showing = false; paymentOpened = false; screen.dismiss(); handler.removeCallbacks(poll) }
+    private fun dismiss() { epoch++; busy = false; showing = false; paymentOpened = false; fulfillmentGate.invalidate(); screen.dismiss(); handler.removeCallbacks(poll) }
 
     private fun ui(generation: Long, action: () -> Unit) {
         activity.runOnUiThread {

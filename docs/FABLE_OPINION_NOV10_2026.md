@@ -1,0 +1,34 @@
+# Fable's second opinion — 10 November 2026
+
+One read-only Fable consultation, at high effort, on the [evidence packet](FABLE_REVIEW_NOV10_2026.md). The Claude Code CLI was explicitly set to `fable` with no fallback; its assistant response record identifies `claude-fable-5-1`. No second Cursor consultation was used; billing or credits were not independently verified. Fable answered from the packet, not from a code inspection or an independent shop run. Verdict: **changes requested**. This note summarizes the response and separates the recommendations from our own safety decisions. Nothing below has been implemented or qualified by virtue of this review.
+
+## The main disagreement
+
+Fable's diagnosis: we have too many places that can reject an entire basket, including places before a read-only search. Failing safely is preferable to ordering the wrong thing, but **a safe refusal is not a completed shopping trip**. A new evidence contract should *replace* duplicate interpretation, not add a further veto. This is particularly important for long lists: a single uncertain phrase should not prevent looking up the other seventeen rows.
+
+| Fable's recommendation | Our disposition and acceptance test |
+|---|---|
+| Attach uncertainty to a row; allow discovery without authorizing a cart action. | Prioritize. Search independently grounded rows, time- and spend-bounded. If a negative or shared condition may apply to several rows, mark that group unresolved. For an unbound phrase, show it in the one review; never silently discard it or count a partial basket as whole. No automatic cart write. |
+| The model points to literal spans in the request and seller fields; deterministic code validates them. Don't block the entire order because the model invented a stronger claim. | Prioritize. Re-read the **original** “unsalted”, not the model's “contains no salt.” Literal occurrence is necessary but insufficient: also prove item, negation, scope, retail variant and field ownership. An unproven required dietary or allergy claim stays unconfirmed. |
+| Combine same-variant title, form and maker evidence. One purchasable SKU is one sale unit; don't demand an explicit “one” for every ordinary purchase. | Prototype as a **review-only proposal**, not a general rule that silence proves one inner pack. Show “1 store unit · 500 g” if grounded. A specific carton needs same-variant carton/form evidence. Known multipacks expose their contents. Two requested separate 100 g packs must not silently become a 200 g unit or a bundled pack. Any proposed equivalent needs explicit agreement, and must never be scored as an exact match. A title/brand conflict remains a veto. |
+| Backend owns semantic acceptance; phone checks freshness and mechanics. Remove duplicate Kotlin re-interpretation. | Shadow old and new decisions first, using the same shop replies. Compare proposed SKU, quantity, price, reason, and required hold. Remove a duplicate only once parity, positive cases, scope/negation and negative controls are documented. Phone should still confirm current address, exact plan, price, stock, expiry, mode, and user intent. |
+| No catalogue crawl, large retrieval index, new model bake-off, or added checkout features yet. | Agree for this iteration. A SKU index cannot fix a basket rejected before search. Try bounded retrieval only if fresh evidence shows recall, not validation, is now the limiting stage. |
+
+## Qualification Fable proposed
+
+- First directional gate: **30 new stocked baskets**, at least **20 whole-correct**, zero unsafe acceptances. This is an engineering milestone, **not** a 90% claim.
+- Next: pre-register **100 independent new stocked baskets** with at least **96/100 whole-correct** and zero unsafe acceptances. A two-sided 95% Wilson lower bound at 96/100 is about **90.2%**; it supports a population claim only if sampling reflects the intended population. For a 95% target, use a separately powered larger panel (Fable proposed at least 200); sample size alone is not a pass.
+- Blind panels are one first attempt per basket, not one independent data point per provider. Keep timeouts visible. Report all-request outcomes, stocked whole baskets, unnecessary holds, unsafe accepts, actual end-to-end p50/p95 latency and per-completed-preview cost. If testing an automatic fallback later, label and measure that route separately.
+- Absolute stop for a wrong quantity, contradictory dietary evidence, or sibling-SKU price/pack attribution. A review UI is not an excuse for an unsafe default. The packet alone cannot establish current population performance, safety rate, model superiority, or latest-source live success.
+
+## Defensive engineering Fable wants before enabling writes
+
+Treat an APK header as public, never as shopper authentication. Bind short-lived sessions to the correct shopper and install; verify OAuth state and PKCE, token rotation and logout. Isolate user history/cache; use server-side quotas and spend caps. Treat seller text and model output as data, not authority. Log counts and reason codes rather than grocery lists, addresses or tokens. Verify private-preview and ordinary tokens, modes and kill switches cannot cross.
+
+Give each confirmed action a durable idempotency key reused on retries of the **same** action. Check address, cart snapshot, target SKU, quantity, fresh price and plan expiry immediately before a write. On mismatch, review again. On an unknown write result, reconcile the actual cart, not an automatic re-add. Persist an unresolved action across app restart. If payment status is unknown, query order status only. These are release gates, not claims of an already completed security audit.
+
+## Next experiment
+
+On the unchanged milk/chocolate/popcorn, 15-item Tamil/English, and paneer/cheese-maker fixtures, compare before/after *stage by stage*: parsed → searched → plausible candidate → grounded review proposal → exact whole review. Keep explicit-size, dietary, multipack, sibling-field and wrong-address negatives alongside each positive. Re-run ordinary Swiggy searches on the exact preview pair only after development results improve. Then use a genuinely new blind panel. No Play rollout or public feature activation follows from this opinion.
+
+**Independent checks on 10 November:** 559 focused backend tests passed. The Android catalogue/ingredient/reported-basket selection passed 75/76; the sole failure was `SwiggyReportedBasketRegressionTest.exposedStandardMilkChocolatePopcorn`. The preview app's Swiggy connection test passed on the phone (HTTP 200 READY). No live basket or checkout test was run as part of this review.

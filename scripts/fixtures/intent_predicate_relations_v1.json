@@ -1,0 +1,204 @@
+{
+  "version": "ingredient-source-relations-v1",
+  "note": "Synthetic source grammar only; parsed clauses never prove membership, legacy enforcement or readiness.",
+  "cases": [
+    {
+      "id": "no-addition-postfix",
+      "text": "No salt added to the juice",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "NO_ADDITION",
+          "operand": "salt"
+        }
+      ]
+    },
+    {
+      "id": "no-addition-prefix",
+      "text": "No added salt in the juice",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "NO_ADDITION",
+          "operand": "salt"
+        }
+      ]
+    },
+    {
+      "id": "without-added",
+      "text": "juice without added salt",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "NO_ADDITION",
+          "operand": "salt"
+        }
+      ]
+    },
+    {
+      "id": "explicit-absence",
+      "text": "No salt in the juice",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "ABSENT",
+          "operand": "salt"
+        }
+      ]
+    },
+    {
+      "id": "without",
+      "text": "juice without salt",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "ABSENT",
+          "operand": "salt"
+        }
+      ]
+    },
+    {
+      "id": "hindi-noun-alias",
+      "text": "juice mein namak nahi",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "ABSENT",
+          "operand": "salt"
+        }
+      ]
+    },
+    {
+      "id": "hindi-variant",
+      "text": "juice mein namak nahin",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "ABSENT",
+          "operand": "salt"
+        }
+      ]
+    },
+    {
+      "id": "negative-or",
+      "text": "juice without salt or preservatives",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "ABSENT",
+          "operand": "salt"
+        },
+        {
+          "operator": "ABSENT",
+          "operand": "preservatives"
+        }
+      ]
+    },
+    {
+      "id": "negative-ya",
+      "text": "juice without namak ya preservatives",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "ABSENT",
+          "operand": "salt"
+        },
+        {
+          "operator": "ABSENT",
+          "operand": "preservatives"
+        }
+      ]
+    },
+    {
+      "id": "local-added",
+      "text": "juice without salt or added sugar",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "ABSENT",
+          "operand": "salt"
+        },
+        {
+          "operator": "NO_ADDITION",
+          "operand": "sugar"
+        }
+      ]
+    },
+    {
+      "id": "added-not-inherited",
+      "text": "juice without added salt or sugar",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "NO_ADDITION",
+          "operand": "salt"
+        },
+        {
+          "operator": "ABSENT",
+          "operand": "sugar"
+        }
+      ]
+    },
+    {
+      "id": "added-both-explicit",
+      "text": "juice without added salt or added sugar",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "NO_ADDITION",
+          "operand": "salt"
+        },
+        {
+          "operator": "NO_ADDITION",
+          "operand": "sugar"
+        }
+      ]
+    },
+    {
+      "id": "added-shared-postfix",
+      "text": "No salt or sugar added to the juice",
+      "selector": "juice",
+      "predicates": [
+        {
+          "operator": "NO_ADDITION",
+          "operand": "salt"
+        },
+        {
+          "operator": "NO_ADDITION",
+          "operand": "sugar"
+        }
+      ]
+    },
+    {
+      "id": "unknown-does-not-project",
+      "text": "No fragrance in the soap",
+      "selector": "soap",
+      "predicates": [
+        {
+          "operator": "ABSENT",
+          "operand": "fragrance"
+        }
+      ]
+    },
+    {
+      "id": "bare-cancellation",
+      "text": "bread, no eggs",
+      "selector": null
+    },
+    {
+      "id": "unicode-boundary",
+      "text": "juİce without salt",
+      "selector": null
+    },
+    {
+      "id": "qualified-tail",
+      "text": "juice mein salt nahi lekin sugar",
+      "selector": null
+    },
+    {
+      "id": "positive-claim",
+      "text": "juice contains salt",
+      "selector": null
+    }
+  ]
+}

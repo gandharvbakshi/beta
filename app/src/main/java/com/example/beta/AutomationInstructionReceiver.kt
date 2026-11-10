@@ -25,7 +25,7 @@ class AutomationInstructionReceiver : BroadcastReceiver() {
                         confidence = confidence
                     )
                 )
-                Log.i("BetaAgent", "PREFERENCE_SEEDED token=\"$token\"")
+                Log.i("BetaAgent", "PREFERENCE_SEEDED")
             }
             return
         }

@@ -1,0 +1,920 @@
+{
+  "version": "typed-ingredient-contract-v1",
+  "instruction": "one juice, one soap, one coffee, one tea, one rice, one milk, one eggs, one noodles, one pasta, one shampoo, one towel, one pencil, one notebook, one chocolate, one dal, one butter, one paneer, one banana, one apple, one bread; No caffeine in the juice; No fragrance in the soap",
+  "model_payload": {
+    "items": [
+      {
+        "name": "juice",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [
+          "caffeine"
+        ],
+        "source_text": "one juice",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "soap",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [
+          "fragrance"
+        ],
+        "source_text": "one soap",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "coffee",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one coffee",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "tea",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one tea",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "rice",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one rice",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "milk",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one milk",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "eggs",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one eggs",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "noodles",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one noodles",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "pasta",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one pasta",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "shampoo",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one shampoo",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "towel",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one towel",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "pencil",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one pencil",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "notebook",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one notebook",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "chocolate",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one chocolate",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "dal",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one dal",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "butter",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one butter",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "paneer",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one paneer",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "banana",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one banana",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "apple",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one apple",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      },
+      {
+        "name": "bread",
+        "quantity": 1,
+        "quantity_unit": "count",
+        "pack_value": null,
+        "pack_unit": "unspecified",
+        "packaging": null,
+        "required": [],
+        "excluded": [],
+        "source_text": "one bread",
+        "supporting_text": [],
+        "needs_clarification": false,
+        "quantity_text": "one",
+        "pack_text": null
+      }
+    ]
+  },
+  "review": {
+    "contract_version": "grocery-intent-v2",
+    "requires_review": true,
+    "instruction": "one juice, one soap, one coffee, one tea, one rice, one milk, one eggs, one noodles, one pasta, one shampoo, one towel, one pencil, one notebook, one chocolate, one dal, one butter, one paneer, one banana, one apple, one bread; No caffeine in the juice; No fragrance in the soap",
+    "source_item_count": 20,
+    "ready_rows": [
+      {
+        "row_index": 0,
+        "item": {
+          "name": "juice",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [
+            "caffeine"
+          ],
+          "source_text": "one juice",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one juice",
+            "start_utf16": 0,
+            "end_utf16": 9
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 1,
+        "item": {
+          "name": "soap",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [
+            "fragrance"
+          ],
+          "source_text": "one soap",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one soap",
+            "start_utf16": 11,
+            "end_utf16": 19
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 2,
+        "item": {
+          "name": "coffee",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one coffee",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one coffee",
+            "start_utf16": 21,
+            "end_utf16": 31
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 3,
+        "item": {
+          "name": "tea",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one tea",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one tea",
+            "start_utf16": 33,
+            "end_utf16": 40
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 4,
+        "item": {
+          "name": "rice",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one rice",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one rice",
+            "start_utf16": 42,
+            "end_utf16": 50
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 5,
+        "item": {
+          "name": "milk",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one milk",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one milk",
+            "start_utf16": 52,
+            "end_utf16": 60
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 6,
+        "item": {
+          "name": "eggs",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one eggs",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one eggs",
+            "start_utf16": 62,
+            "end_utf16": 70
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 7,
+        "item": {
+          "name": "noodles",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one noodles",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one noodles",
+            "start_utf16": 72,
+            "end_utf16": 83
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 8,
+        "item": {
+          "name": "pasta",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one pasta",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one pasta",
+            "start_utf16": 85,
+            "end_utf16": 94
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 9,
+        "item": {
+          "name": "shampoo",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one shampoo",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one shampoo",
+            "start_utf16": 96,
+            "end_utf16": 107
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 10,
+        "item": {
+          "name": "towel",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one towel",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one towel",
+            "start_utf16": 109,
+            "end_utf16": 118
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 11,
+        "item": {
+          "name": "pencil",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one pencil",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one pencil",
+            "start_utf16": 120,
+            "end_utf16": 130
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 12,
+        "item": {
+          "name": "notebook",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one notebook",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one notebook",
+            "start_utf16": 132,
+            "end_utf16": 144
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 13,
+        "item": {
+          "name": "chocolate",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one chocolate",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one chocolate",
+            "start_utf16": 146,
+            "end_utf16": 159
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 14,
+        "item": {
+          "name": "dal",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one dal",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one dal",
+            "start_utf16": 161,
+            "end_utf16": 168
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 15,
+        "item": {
+          "name": "butter",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one butter",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one butter",
+            "start_utf16": 170,
+            "end_utf16": 180
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 16,
+        "item": {
+          "name": "paneer",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one paneer",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one paneer",
+            "start_utf16": 182,
+            "end_utf16": 192
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 17,
+        "item": {
+          "name": "banana",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one banana",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one banana",
+            "start_utf16": 194,
+            "end_utf16": 204
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 18,
+        "item": {
+          "name": "apple",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one apple",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one apple",
+            "start_utf16": 206,
+            "end_utf16": 215
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      },
+      {
+        "row_index": 19,
+        "item": {
+          "name": "bread",
+          "quantity": 1,
+          "quantity_unit": "count",
+          "pack_value": null,
+          "pack_unit": "unspecified",
+          "packaging": null,
+          "required": [],
+          "excluded": [],
+          "source_text": "one bread",
+          "supporting_text": [],
+          "needs_clarification": false,
+          "quantity_text": "one",
+          "pack_text": null
+        },
+        "evidence": {
+          "primary": {
+            "text": "one bread",
+            "start_utf16": 217,
+            "end_utf16": 226
+          },
+          "supporting": []
+        },
+        "quantity_origin": "stated",
+        "amount_role_status": "unresolved"
+      }
+    ],
+    "blocked_rows": [],
+    "ingredient_obligations": [
+      {
+        "source": {
+          "text": "No caffeine in the juice",
+          "start_utf16": 228,
+          "end_utf16": 252
+        },
+        "member_indices": [
+          0
+        ],
+        "predicates": [
+          {
+            "operator": "absent",
+            "operand": "caffeine"
+          }
+        ]
+      },
+      {
+        "source": {
+          "text": "No fragrance in the soap",
+          "start_utf16": 254,
+          "end_utf16": 278
+        },
+        "member_indices": [
+          1
+        ],
+        "predicates": [
+          {
+            "operator": "absent",
+            "operand": "fragrance"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ready_rows": 20
+}

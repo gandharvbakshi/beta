@@ -1,11 +1,17 @@
 package com.example.beta
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
 
 class MyApplication : Application() {
     lateinit var analyticsConsentManager: AnalyticsConsentManager
         private set
+
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(base)
+        AppConfig.install(base)
+    }
 
     override fun onCreate() {
         super.onCreate()

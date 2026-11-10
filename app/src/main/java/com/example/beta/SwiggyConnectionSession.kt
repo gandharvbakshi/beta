@@ -3,6 +3,7 @@ package com.example.beta
 /** A failed status read is not evidence that the provider has signed the user out. */
 internal class SwiggyConnectionSession {
     enum class Presentation { CHECKING, CONFIRMED, RETRY }
+    enum class Screen { FIRST_TIME, EXPIRED, CHECKING, OPENING_BROWSER, SIGN_IN_PENDING, RETRY, CONNECTED }
     data class Request(val generation: Long, val sequence: Long)
 
     var generation = 0L
@@ -16,6 +17,16 @@ internal class SwiggyConnectionSession {
 
     val canUseConnection: Boolean
         get() = presentation == Presentation.CONFIRMED && state == SwiggyMcpClient.ConnectionState.READY
+
+    fun screen(openingBrowser: Boolean, signInPending: Boolean): Screen = when {
+        openingBrowser -> Screen.OPENING_BROWSER
+        presentation == Presentation.CHECKING -> Screen.CHECKING
+        presentation == Presentation.RETRY -> Screen.RETRY
+        canUseConnection -> Screen.CONNECTED
+        signInPending -> Screen.SIGN_IN_PENDING
+        state == SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED -> Screen.EXPIRED
+        else -> Screen.FIRST_TIME
+    }
 
     fun invalidate() {
         generation++

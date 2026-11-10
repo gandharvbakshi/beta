@@ -2,6 +2,7 @@ package com.example.beta
 
 import android.content.Context
 import android.util.Log
+import com.example.beta.automation.IntentCartQuantityMode
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -11,6 +12,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.math.BigDecimal
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -19,12 +21,13 @@ internal sealed class JsonValue {
     data class Bool(val value: Boolean) : JsonValue()
     data class Num(val raw: String) : JsonValue()
     data class Str(val value: String) : JsonValue()
-    data class Obj(val members: Map<String, JsonValue>) : JsonValue()
+    data class Obj(val members: Map<String, JsonValue>, val duplicateKeys: Set<String> = emptySet()) : JsonValue()
     data class Arr(val items: List<JsonValue>) : JsonValue()
 }
 
 internal class JsonParser(private val text: String) {
     private var index = 0
+    private var strict = false
 
     fun parse(): JsonValue? {
         skipWhitespace()
@@ -35,6 +38,7 @@ internal class JsonParser(private val text: String) {
     }
 
     fun parseStrict(): JsonValue {
+        strict = true
         val value = parse() ?: error("Empty JSON")
         skipWhitespace()
         require(index == text.length) { "Trailing JSON content" }
@@ -67,9 +71,10 @@ internal class JsonParser(private val text: String) {
         expect('{')
         skipWhitespace()
         val members = linkedMapOf<String, JsonValue>()
+        val duplicateKeys = mutableSetOf<String>()
         if (peek() == '}') {
             index++
-            return JsonValue.Obj(members)
+            return JsonValue.Obj(members, duplicateKeys)
         }
         while (index < text.length) {
             skipWhitespace()
@@ -77,6 +82,10 @@ internal class JsonParser(private val text: String) {
             skipWhitespace()
             expect(':')
             skipWhitespace()
+            if (key in members) {
+                require(!strict) { "Duplicate JSON field" }
+                duplicateKeys += key
+            }
             members[key] = parseValue()
             skipWhitespace()
             when (peek()) {
@@ -86,7 +95,7 @@ internal class JsonParser(private val text: String) {
                 }
                 '}' -> {
                     index++
-                    return JsonValue.Obj(members)
+                    return JsonValue.Obj(members, duplicateKeys)
                 }
                 else -> error("Invalid JSON object")
             }
@@ -142,11 +151,17 @@ internal class JsonParser(private val text: String) {
                                 index += 4
                                 hex.toInt(16).toChar()
                             }
-                            else -> escaped
+                            else -> {
+                                require(!strict) { "Invalid JSON escape" }
+                                escaped
+                            }
                         }
                     )
                 }
-                else -> out.append(ch)
+                else -> {
+                    require(!strict || ch.code >= 0x20) { "Unescaped JSON control" }
+                    out.append(ch)
+                }
             }
         }
         error("Unterminated JSON string")
@@ -163,7 +178,11 @@ internal class JsonParser(private val text: String) {
             }
         }
         if (start == index) error("Expected JSON value")
-        return text.substring(start, index)
+        return text.substring(start, index).also {
+            require(!strict || Regex("-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?").matches(it)) {
+                "Invalid JSON number"
+            }
+        }
     }
 
     private fun consumeLiteral(expected: String) {
@@ -174,7 +193,7 @@ internal class JsonParser(private val text: String) {
     }
 
     private fun skipWhitespace() {
-        while (index < text.length && text[index].isWhitespace()) {
+        while (index < text.length && if (strict) text[index] in " \t\r\n" else text[index].isWhitespace()) {
             index++
         }
     }
@@ -202,6 +221,10 @@ object SwiggyMcpClient {
             val orderNotSubmitted: Boolean = false,
             val intentNeedsReview: Boolean = false,
             val intentUnavailable: Boolean = false,
+            // A plan-only outcome, not evidence of a purchase or verified cart success.
+            val cartPlanUnchanged: Boolean = false,
+            // Edit-only offsets. No rejected draft, inferred product or raw source travels here.
+            val intentEditRanges: List<IntRange> = emptyList(),
         ) : SwiggyMcpResult<Nothing>()
     }
 
@@ -245,6 +268,20 @@ object SwiggyMcpClient {
         val hasCurrentCart: Boolean = false,
     )
 
+    data class CatalogueBrandEvidence(
+        val name: String,
+        val spinId: String,
+        val skuId: String,
+        val source: String,
+    )
+
+    /** Negative evidence only, expressed in sellable units of this exact live variation. */
+    data class CataloguePurchaseLimit(val spinId: String, val skuId: String, val maxUnits: Int) {
+        fun validFor(spin: String, sku: String?) = spinId == spin && skuId == sku && maxUnits in 1..999 &&
+            opaqueId.matches(spinId) && opaqueId.matches(skuId)
+        private companion object { val opaqueId = Regex("[A-Za-z0-9_-]{1,128}") }
+    }
+
     data class RecommendationCandidate(
         val spinId: String,
         val label: String,
@@ -252,6 +289,16 @@ object SwiggyMcpClient {
         val subtitle: String? = null,
         val suggested: Boolean = false,
         val skuId: String? = null,
+        val catalogueBrand: CatalogueBrandEvidence? = null,
+        val catalogueQuantity: CatalogueQuantityEvidence? = null,
+        val catalogueQuantityInvalid: Boolean = false,
+        val catalogueIngredients: CatalogueIngredientEvidence? = null,
+        val catalogueIngredientsInvalid: Boolean = false,
+        val cataloguePurchaseLimit: CataloguePurchaseLimit? = null,
+        val cataloguePurchaseLimitInvalid: Boolean = false,
+        // Derived locally from another observation of the same sellable SKU; deny only.
+        val catalogueVesselRole: String? = null,
+        val sellerAssessment: SwiggySellerAssessment? = null,
     )
 
     data class Recommendations(
@@ -260,7 +307,19 @@ object SwiggyMcpClient {
         val requiresConfirmation: Boolean = false,
         val query: String? = null,
         val usualProductUnavailable: Boolean = false,
-    )
+        val catalogueMatchUnverified: Boolean = false,
+        val searchProductsUnavailable: Boolean = false,
+    ) {
+        /** Diagnostic only: absence of extractable offers is NOT proof about seller inventory. */
+        val emptyCatalogueDisposition: String
+            get() = when {
+                candidates.isNotEmpty() -> "not_empty"
+                catalogueMatchUnverified && searchProductsUnavailable -> "server_match_filtered_and_upstream_search_unavailable"
+                catalogueMatchUnverified -> "server_match_filtered"
+                searchProductsUnavailable -> "upstream_search_unavailable"
+                else -> "no_extractable_or_unclassified"
+            }
+    }
 
     data class CartPlanChange(
         val spinId: String? = null,
@@ -276,6 +335,9 @@ object SwiggyMcpClient {
         val quantity: Int,
         val displayName: String,
         val skuId: String? = null,
+        val quantityMode: IntentCartQuantityMode = IntentCartQuantityMode.TARGET,
+        // Local veto for merged rows / incremental plans. Never trust or send it as cart authority.
+        val cataloguePurchaseLimit: CataloguePurchaseLimit? = null,
     )
 
     data class CartPlan(
@@ -283,8 +345,29 @@ object SwiggyMcpClient {
         val existingItemCount: Int? = null,
         val confirmationToken: String? = null,
         val cartMutationEnabled: Boolean = false,
-        val message: String? = null
-    )
+        val message: String? = null,
+        val snapshot: CartPlanSnapshot? = null,
+    ) {
+        override fun toString(): String = "CartPlan(changes=<redacted>, token=<redacted>, snapshot=<redacted>)"
+    }
+
+    data class CartPlanItem(val spinId: String, val quantity: Int, val skuId: String? = null) {
+        override fun toString(): String = "CartPlanItem(<redacted>)"
+    }
+
+    data class CartPlanSnapshot(
+        val existingItems: List<CartPlanItem>,
+        val proposedItems: List<CartPlanItem>,
+        // Equality only; this receipt is never an apply token or source proof.
+        val reviewBasis: String? = null,
+    ) {
+        override fun toString(): String = "CartPlanSnapshot(<redacted>)"
+    }
+
+    /** Equality-only baseline. Deliberately has no token or mutation capability. */
+    data class CartReviewSnapshot(val existingItems: List<CartPlanItem>, val reviewBasis: String) {
+        override fun toString(): String = "CartReviewSnapshot(<redacted>)"
+    }
 
     data class ApplyResult(
         val verified: Boolean,
@@ -392,29 +475,137 @@ object SwiggyMcpClient {
         addressId: String,
         queries: List<String>,
         strictMatchPhrases: List<String?> = List(queries.size) { null },
+        ingredientProofs: List<IntentIngredientProvenance?> = List(queries.size) { null },
+        sourceItems: List<com.example.beta.automation.ParsedItem>? = null,
+        sellerAssessmentProvider: GroceryIntentProvider? = null,
+        sourceOffset: Int? = null,
         callback: SwiggyCallback<List<Recommendations>>,
     ) {
-        require(strictMatchPhrases.size == queries.size) {
-            "Strict match phrases must align with recommendation queries."
-        }
-        val body = JSONObject()
-            .put("addressId", addressId)
-            .put("queries", JSONArray().apply { queries.forEach(::put) })
-            .put(
-                "strictMatchPhrases",
-                JSONArray().apply {
-                    strictMatchPhrases.forEach { phrase -> put(phrase ?: JSONObject.NULL) }
-                },
-            )
-            .toString()
+        val wire = recommendationBatchWire(addressId, queries, strictMatchPhrases, ingredientProofs, sourceItems,
+            sellerAssessmentProvider, sourceOffset)
         executeJsonRequest(
             context = context,
             method = "POST",
             path = "/swiggy/recommendations/batch",
-            body = body,
+            postWire = wire,
             callback = callback,
-            parser = ::parseRecommendationBatch,
+            parser = wire::parse,
             timeoutSeconds = 120,
+        )
+    }
+
+    /** Keep the expected ingredient evidence paired with the exact request that asked for it. */
+    internal class RecommendationBatchFields(
+        val body: Map<String, Any?>,
+        private val expectedPredicates: List<List<IngredientPredicate>>?,
+        private val expectedSellerProperties: List<SellerPropertyRequirement?>?,
+        private val expectMerchandiseEvidence: Boolean,
+    ) {
+        fun parse(responseBody: String): List<Recommendations> =
+            parseRecommendationBatch(responseBody, expectedPredicates, expectedSellerProperties,
+                expectMerchandiseEvidence = expectMerchandiseEvidence)
+    }
+
+    internal class RecommendationBatchWire(private val projection: RecommendationBatchFields) :
+        ProfiledPost("/swiggy/recommendations/batch", JSONObject(projection.body).toString(), "X-Beta-Catalog-Profile" to "validated-window-1") {
+        fun parse(responseBody: String) = projection.parse(responseBody)
+    }
+
+    internal fun recommendationBatchWire(
+        addressId: String,
+        queries: List<String>,
+        strictMatchPhrases: List<String?>,
+        ingredientProofs: List<IntentIngredientProvenance?>,
+        sourceItems: List<com.example.beta.automation.ParsedItem>? = null,
+        sellerAssessmentProvider: GroceryIntentProvider? = null,
+        sourceOffset: Int? = null,
+    ) = RecommendationBatchWire(recommendationBatchFields(addressId, queries, strictMatchPhrases, ingredientProofs,
+        sourceItems, sellerAssessmentProvider, sourceOffset))
+
+    internal fun recommendationBatchFields(addressId: String, queries: List<String>, strictMatchPhrases: List<String?>,
+        ingredientProofs: List<IntentIngredientProvenance?>, sourceItems: List<com.example.beta.automation.ParsedItem>? = null,
+        sellerAssessmentProvider: GroceryIntentProvider? = null, sourceOffset: Int? = null): RecommendationBatchFields {
+        // A window may borrow authority only from its complete unchanged source basket, not other rows or a mode flag.
+        val interpreted = sourceItems?.any { it.hasAuditedIntent() } == true
+        require(!interpreted || auditedIntentBasketMatches(requireNotNull(sourceItems))) { "Incomplete interpreted basket" }
+        val window = if (sourceOffset == null) sourceItems else {
+            require(interpreted && sourceItems != null && queries.isNotEmpty() && sourceOffset in 0..(sourceItems.size - queries.size))
+            sourceItems.subList(sourceOffset, sourceOffset + queries.size)
+        }
+        val predicates = recommendationPredicates(queries, strictMatchPhrases, ingredientProofs, window)
+        val sellers = recommendationSellerProperties(queries, strictMatchPhrases, window)?.takeIf { rows -> rows.any { it != null } }
+        val fields = linkedMapOf<String, Any?>("addressId" to addressId, "queries" to queries.toList(),
+            "strictMatchPhrases" to strictMatchPhrases.toList())
+        predicates?.let { fields["ingredientPredicates"] = it.map { row -> row.map(IngredientPredicate::toPayload) } }
+        sellers?.let { fields["sellerProperties"] = it.map { row -> row?.toPayload() }
+            sellerAssessmentProvider?.let { provider -> fields["sellerAssessmentProvider"] = provider.requestValue } }
+        window?.let(::auditedPhysicalTotals)?.let { fields["auditedPhysicalTotals"] =
+            it.map { total -> total?.let { (amount, unit) -> mapOf("amount" to amount, "unit" to unit) } } }
+        if (interpreted) fields["includeMerchandiseEvidence"] = true
+        return RecommendationBatchFields(fields, predicates, sellers, interpreted)
+    }
+
+    /** Optional read-only evidence for the backend: source-audited physical totals only.
+     * A null row means this aligned basket row is not independently eligible for this contract. */
+    internal fun auditedPhysicalTotals(items: List<com.example.beta.automation.ParsedItem>): List<Pair<Int, String>?>? {
+        if (items.none { it.hasAuditedIntent() } || !auditedIntentBasketMatches(items)) return null
+        return items.map { item ->
+            val proof = item.auditedIntent() ?: return@map null
+            val atom = proof.amountAtoms().singleOrNull() ?: return@map null
+            if (proof.role != "physical_total" || proof.packAtom != null ||
+                atom.source != item.rawText || atom.source.length !in 1..640) return@map null
+            val (amount, unit) = when (val q = item.quantity) {
+                is com.example.beta.automation.Quantity.Weight -> q.grams to "g"
+                is com.example.beta.automation.Quantity.Volume -> q.ml to "ml"
+                else -> return@map null
+            }
+            if (amount !in 1..999_999_999 ||
+                GroceryIntentInterpretedAmounts(atom.source).bind(amount.toBigDecimal(), unit) != atom) null
+            else amount to unit
+        }.takeIf { rows -> rows.any { it != null } }
+    }
+
+    /** Same pure mapping for production requests and offline contract tests. */
+    internal fun recommendationPredicates(
+        queries: List<String>, strictMatchPhrases: List<String?>,
+        ingredientProofs: List<IntentIngredientProvenance?>,
+        sourceItems: List<com.example.beta.automation.ParsedItem>? = null,
+    ): List<List<IngredientPredicate>>? {
+        require(strictMatchPhrases.size == queries.size) {
+            "Strict match phrases must align with recommendation queries."
+        }
+        require(ingredientProofs.size == queries.size)
+        return if (sourceItems != null) {
+            require(sourceItems.size == queries.size && sourceItems.map(::swiggyRecommendationQuery) == queries &&
+                sourceItems.map { it.strictMatchPhrase } == strictMatchPhrases &&
+                sourceItems.map { it.ingredientProvenance } == ingredientProofs)
+            sourceItems.map { requireNotNull(validatedIngredientPredicates(it)) { "Ingredient provenance changed" } }
+        } else ingredientProofs.takeIf { it.any { proof -> proof != null } }?.map { it?.predicates().orEmpty() }
+    }
+
+    /** Source-bound seller qualifiers share the exact query/source alignment. */
+    internal fun recommendationSellerProperties(
+        queries: List<String>, strictMatchPhrases: List<String?>,
+        sourceItems: List<com.example.beta.automation.ParsedItem>? = null,
+    ): List<SellerPropertyRequirement?>? {
+        require(strictMatchPhrases.size == queries.size) {
+            "Strict match phrases must align with recommendation queries."
+        }
+        return sourceItems?.also { items ->
+            require(items.size == queries.size && items.map(::swiggyRecommendationQuery) == queries &&
+                items.map { it.strictMatchPhrase } == strictMatchPhrases)
+        }?.map(::validatedSellerPropertyRequirement)
+    }
+
+    fun fetchCartReviewSnapshot(context: Context, addressId: String, callback: SwiggyCallback<CartReviewSnapshot>) {
+        executeJsonRequest(
+            context = context,
+            method = "POST",
+            path = "/swiggy/cart/snapshot",
+            body = JSONObject().put("addressId", addressId).toString(),
+            callback = callback,
+            parser = ::parseCartReviewSnapshot,
+            timeoutSeconds = 30L,
         )
     }
 
@@ -426,17 +617,7 @@ object SwiggyMcpClient {
     ) {
         val body = JSONObject()
             .put("addressId", addressId)
-            .put("requestedItems", JSONArray().apply {
-                requestedItems.forEach { item ->
-                    put(
-                        JSONObject()
-                            .put("spinId", item.spinId)
-                            .apply { item.skuId?.takeIf { it.isNotBlank() }?.let { put("skuId", it) } }
-                            .put("quantity", item.quantity)
-                            .put("displayName", item.displayName)
-                    )
-                }
-            })
+            .put("requestedItems", requestedItemsJson(requestedItems))
             .toString()
         executeJsonRequest(
             context = context,
@@ -444,8 +625,26 @@ object SwiggyMcpClient {
             path = "/swiggy/cart/plan",
             body = body,
             callback = callback,
-            parser = ::parseCartPlan
+            parser = ::parseCartPlan,
+            // Bound the whole read, including retries/body consumption. Its
+            // terminal callback releases the single-flight review scheduler.
+            timeoutSeconds = 30L,
         )
+    }
+
+    internal fun requestedItemsJson(requestedItems: List<RequestedItem>): JSONArray = JSONArray().apply {
+        requestedItems.forEach { item ->
+            put(JSONObject(requestedItemPayload(item)))
+        }
+    }
+
+    internal fun requestedItemPayload(item: RequestedItem): Map<String, Any> = linkedMapOf<String, Any>(
+        "spinId" to item.spinId,
+    ).apply {
+        item.skuId?.takeIf { it.isNotBlank() }?.let { put("skuId", it) }
+        put("quantity", item.quantity)
+        put("displayName", item.displayName)
+        if (item.quantityMode == IntentCartQuantityMode.INCREMENT) put("quantityMode", "increment")
     }
 
     fun applyCartPlan(
@@ -641,14 +840,188 @@ object SwiggyMcpClient {
         }.filter(String::isNotBlank).distinct()
     }
 
-    internal fun parseRecommendationBatch(body: String): List<Recommendations> {
-        val root = parseRoot(body)
+    internal fun parseRecommendationBatch(body: String,
+        expectedIngredientPredicates: List<List<IngredientPredicate>>? = null,
+        expectedSellerProperties: List<SellerPropertyRequirement?>? = null,
+        expectedBrands: List<String?>? = null,
+    ): List<Recommendations> = parseRecommendationBatch(body, expectedIngredientPredicates, expectedSellerProperties, expectedBrands, false)
+
+    internal fun parseRecommendationBatch(body: String,
+        expectedIngredientPredicates: List<List<IngredientPredicate>>? = null,
+        expectedSellerProperties: List<SellerPropertyRequirement?>? = null,
+        expectedBrands: List<String?>? = null,
+        expectMerchandiseEvidence: Boolean,
+    ): List<Recommendations> {
+        val root = if (expectMerchandiseEvidence || expectedSellerProperties != null || expectedBrands != null)
+            JsonParser(body).parseStrict() else parseRoot(body)
         val results = firstArray(root, "results")
             ?: throw IllegalArgumentException("Swiggy recommendation batch has no results")
-        return results.items.map(::parseRecommendationsValue)
+        if (expectMerchandiseEvidence) {
+            require(root is JsonValue.Obj && root.members["results"] === results &&
+                (root.members["merchandiseEvidenceVersion"] as? JsonValue.Num)?.raw == "1") { "Missing merchandise evidence version" }
+        }
+        if (expectedBrands != null) {
+            val envelope = root as? JsonValue.Obj ?: error("Missing brand receipt")
+            require(envelope.duplicateKeys.isEmpty() && envelope.members["results"] === results &&
+                (envelope.members["requiredBrandVersion"] as? JsonValue.Num)?.raw == "1" &&
+                results.items.size == expectedBrands.size)
+            results.items.forEachIndexed { i, value ->
+                val row = value as? JsonValue.Obj ?: error("Missing brand receipt")
+                val expected = expectedBrands[i]
+                require(row.duplicateKeys.isEmpty() && row.members["candidates"] is JsonValue.Arr &&
+                    row.members["requiredBrand"] == (expected?.let(JsonValue::Str) ?: JsonValue.Null))
+                if (expected != null) {
+                    require(expected.isNotBlank() && expected.length <= 120 && expected.none(Char::isISOControl))
+                    val offers = (row.members.getValue("candidates") as JsonValue.Arr).items
+                    val preferred = row.members["suggested"]
+                    require(preferred == null || preferred == JsonValue.Null || preferred in offers)
+                    require(offers.all { offer -> offer is JsonValue.Obj &&
+                        parseCatalogueBrandEvidence(offer)?.let { sameCatalogueMaker(it.name, expected) } == true })
+                }
+            }
+        }
+        if (expectedIngredientPredicates != null) {
+            val envelope = root as? JsonValue.Obj ?: error("Missing ingredient contract")
+            require(envelope.duplicateKeys.isEmpty() &&
+                (envelope.members["ingredientPredicateVersion"] as? JsonValue.Num)?.raw == "1" &&
+                envelope.members["results"] === results && results.items.size == expectedIngredientPredicates.size)
+            results.items.forEachIndexed { index, result ->
+                val row = result as? JsonValue.Obj ?: error("Missing ingredient receipt")
+                require(row.duplicateKeys.isEmpty())
+                val predicates = row.members["ingredientPredicates"] as? JsonValue.Arr ?: error("Missing ingredient receipt")
+                require(predicates.items.size <= 16)
+                val parsed = predicates.items.map { value ->
+                    val predicate = value as? JsonValue.Obj ?: error("Invalid ingredient receipt")
+                    require(predicate.duplicateKeys.isEmpty() && predicate.members.keys == setOf("operator", "operand"))
+                    IngredientPredicate.fromPayload(mapOf("operator" to
+                        ((predicate.members["operator"] as? JsonValue.Str)?.value ?: error("Invalid operator")),
+                        "operand" to ((predicate.members["operand"] as? JsonValue.Str)?.value ?: error("Invalid operand"))))
+                }
+                require(parsed == expectedIngredientPredicates[index]) { "Changed ingredient receipt" }
+            }
+        }
+        if (expectedSellerProperties != null) {
+            val envelope = root as? JsonValue.Obj ?: error("Missing seller-property contract")
+            require(envelope.duplicateKeys.isEmpty() &&
+                (envelope.members["sellerPropertyVersion"] as? JsonValue.Num)?.raw == "2" &&
+                (envelope.members["sellerAssessmentPolicy"] as? JsonValue.Str)?.value == SwiggySellerAssessment.batchPolicy(expectedSellerProperties) &&
+                envelope.members["results"] === results && results.items.size == expectedSellerProperties.size)
+            results.items.forEachIndexed { index, result ->
+                val row = result as? JsonValue.Obj ?: error("Missing seller-property receipt")
+                require(row.duplicateKeys.isEmpty())
+                val raw = row.members["sellerProperties"] ?: error("Missing seller-property receipt")
+                val parsed = when (raw) {
+                    JsonValue.Null -> null
+                    else -> SellerPropertyRequirement.fromPayload(raw)
+                }
+                require(parsed == expectedSellerProperties[index]) { "Changed seller-property receipt" }
+            }
+        }
+        val decoded = reconcileCatalogueVetoes(results.items.mapIndexed { index, value ->
+            decodeRecommendations(value, expectedSellerProperties?.getOrNull(index))
+        })
+        if (expectedBrands != null) {
+            val all = decoded.flatMap { it.candidates + listOfNotNull(it.suggested) }.groupBy { it.spinId to it.skuId }
+            decoded.forEachIndexed { i, row -> expectedBrands[i]?.let { expected ->
+                for (offer in row.candidates + listOfNotNull(row.suggested))
+                    require(all.getValue(offer.spinId to offer.skuId).all { other ->
+                        other.catalogueBrand?.let { it.spinId == other.spinId && it.skuId == other.skuId &&
+                            it.source == "search_variation" && sameCatalogueMaker(it.name, expected) } == true
+                    }) { "Changed catalogue maker evidence" }
+            } }
+        }
+        return decoded
     }
 
-    private fun parseRecommendationsValue(root: JsonValue?): Recommendations {
+    // Do not remove punctuation, accents or product words. ASCII case folding
+    // is intentionally no more permissive than the backend.
+    private fun sameCatalogueMaker(a: String, b: String): Boolean {
+        fun key(name: String) = name.trim().split(Regex("[ \\t]+")).joinToString(" ").map {
+            if (it in 'A'..'Z') it.lowercaseChar() else it
+        }.joinToString("")
+        return key(a) == key(b)
+    }
+
+    private fun hasRecommendationWarning(root: JsonValue?, expected: String): Boolean =
+        firstArray(root, "warnings")?.items?.any { (it as? JsonValue.Str)?.value == expected } == true
+
+    internal fun parseRecommendationsValue(root: JsonValue?): Recommendations =
+        reconcileCatalogueVetoes(listOf(decodeRecommendations(root))).single()
+
+    // A preferred copy or a second query can repeat the same SKU with a looser
+    // or missing limit. A previously observed veto cannot be erased by list order.
+    internal fun reconcileCatalogueVetoes(rows: List<Recommendations>): List<Recommendations> {
+        val observations = rows.flatMap { it.candidates + listOfNotNull(it.suggested) }
+        // A second description may reveal that the matching product words refer
+        // to intended contents of empty hardware. Keep it across query/batch boundaries.
+        val vesselRoles = observations.filter { !it.skuId.isNullOrBlank() }.mapNotNull { candidate ->
+            sellerVesselRole(candidate)?.let { (candidate.spinId to candidate.skuId) to it }
+        }.groupBy({ it.first }, { it.second }).mapValues { (_, roles) -> roles.distinct().singleOrNull() ?: "conflict" }
+        // A second query cannot launder a clean copy of a SKU when another
+        // observation carries invalid or conflicting variation evidence.
+        val bySku = observations.filter { !it.skuId.isNullOrBlank() }.groupBy { it.spinId to it.skuId }
+        val sellerPropertyConflicts = bySku.mapValues { (_, group) ->
+                group.any { it.catalogueIngredientsInvalid } ||
+                    group.mapNotNull { it.catalogueIngredients?.identityKey() }.distinct().size > 1 ||
+                    group.map { listOf(it.label, it.variant, it.subtitle) }.distinct().size > 1
+            }
+        val sizeConflicts = bySku.filterValues { group -> group.size > 1 &&
+            (group.any { it.catalogueQuantityIssue() != null || swiggyCatalogueQuantityConflict(it) } ||
+                group.mapNotNull { it.catalogueQuantityIdentityKey() }.distinct().size > 1 ||
+                group.any { it.variant?.let(::parseSingleOuterNetSize) != null } &&
+                group.map { Triple(it.label, it.variant, it.catalogueQuantityIdentityKey()) }.distinct().size > 1)
+        }.keys
+        val evidence = observations
+            .filter { it.cataloguePurchaseLimit != null || it.cataloguePurchaseLimitInvalid }
+            .groupBy { it.spinId to it.skuId }
+            .mapValues { (_, group) -> group.any { it.cataloguePurchaseLimitInvalid } to
+                group.mapNotNull { it.cataloguePurchaseLimit }.minByOrNull { it.maxUnits } }
+        if (evidence.isEmpty() && vesselRoles.isEmpty() && sellerPropertyConflicts.values.none { it } && sizeConflicts.isEmpty()) return rows
+        fun bound(candidate: RecommendationCandidate): RecommendationCandidate {
+            val id = candidate.spinId to candidate.skuId
+            val observation = evidence[id]
+            val sellerConflict = sellerPropertyConflicts[id] == true
+            if (observation == null && id !in vesselRoles && !sellerConflict && id !in sizeConflicts) return candidate
+            return candidate.copy(cataloguePurchaseLimit = observation?.second,
+                catalogueQuantityInvalid = candidate.catalogueQuantityInvalid || id in sizeConflicts,
+                cataloguePurchaseLimitInvalid = observation?.first == true, catalogueVesselRole = vesselRoles[id],
+                catalogueIngredientsInvalid = candidate.catalogueIngredientsInvalid || sellerConflict)
+        }
+        return rows.map { it.copy(candidates = it.candidates.map(::bound), suggested = it.suggested?.let(::bound)) }
+    }
+
+    private fun decodeRecommendations(
+        root: JsonValue?,
+        requiredSellerAssessment: SellerPropertyRequirement? = null,
+    ): Recommendations {
+        if (requiredSellerAssessment != null) {
+            val strictRoot = root as? JsonValue.Obj ?: error("Missing seller-assessed recommendation row")
+            require(strictRoot.duplicateKeys.isEmpty())
+            require(listOf("recommendations", "items", "results").none { it in strictRoot.members })
+            val strictArray = strictRoot.members["candidates"] as? JsonValue.Arr
+                ?: error("Missing seller-assessed candidate list")
+            val strictCandidates = strictArray.items.mapIndexed { index, item ->
+                val candidate = item as? JsonValue.Obj ?: error("Malformed seller-assessed candidate")
+                parseRecommendationCandidate(candidate, index, requiredSellerAssessment)
+            }
+            require(listOf("recommended", "default", "primaryCandidate").none { it in strictRoot.members })
+            val strictSuggested = when (val raw = strictRoot.members["suggested"]) {
+                null, JsonValue.Null -> null
+                is JsonValue.Obj -> parseRecommendationCandidate(raw, -1, requiredSellerAssessment)
+                else -> error("Malformed seller-assessed suggestion")
+            } ?: strictCandidates.firstOrNull { it.suggested }
+            val confirmationValue = findField(strictRoot, "requiresConfirmation", "requires_confirmation", "confirmationRequired")
+            return Recommendations(
+                candidates = strictCandidates,
+                suggested = strictSuggested,
+                requiresConfirmation = confirmationValue == null || isTruthy(
+                    strictRoot, "requiresConfirmation", "requires_confirmation", "confirmationRequired"),
+                query = firstString(strictRoot, "query"),
+                usualProductUnavailable = hasRecommendationWarning(strictRoot, "usual_product_unavailable"),
+                catalogueMatchUnverified = hasRecommendationWarning(strictRoot, "catalogue_match_unverified"),
+                searchProductsUnavailable = hasRecommendationWarning(strictRoot, "search_products_unavailable"),
+            )
+        }
         val array = firstArray(root, "candidates", "recommendations", "items", "results")
             ?: JsonValue.Arr(emptyList())
         val candidates = array.items.mapIndexedNotNull { index, value ->
@@ -683,19 +1056,43 @@ object SwiggyMcpClient {
                 "confirmationRequired",
             ),
             query = firstString(root, "query"),
-            usualProductUnavailable = firstArray(root, "warnings")?.items?.any {
-                (it as? JsonValue.Str)?.value == "usual_product_unavailable"
-            } == true,
+            usualProductUnavailable = hasRecommendationWarning(root, "usual_product_unavailable"),
+            catalogueMatchUnverified = hasRecommendationWarning(root, "catalogue_match_unverified"),
+            searchProductsUnavailable = hasRecommendationWarning(root, "search_products_unavailable"),
         )
     }
 
     internal fun parseCartPlan(body: String): CartPlan {
-        val root = parseRoot(body)
-        val array = firstArray(root, "changes", "cartChanges", "cart_changes", "operations")
-            ?: JsonValue.Arr(emptyList())
+        val envelope = JsonParser(body.trim()).parseStrict() as? JsonValue.Obj
+            ?: error("Invalid cart plan response")
+        val changeKeys = arrayOf("changes", "cartChanges", "cart_changes", "operations")
+        val root = if ("data" in envelope.members) {
+            require(envelope.members.keys.none { it in changeKeys || it in setOf(
+                "confirmationToken", "confirmation_token", "token", "existingItems", "existing_items",
+                "proposedItems", "reviewBasis", "cartMutationEnabled", "cart_mutation_enabled", "mutationEnabled",
+            ) }) { "Conflicting cart plan envelopes" }
+            envelope.members["data"] as? JsonValue.Obj ?: error("Invalid cart plan envelope")
+        } else envelope
+        val snapshot = parseCartPlanSnapshot(root)
+        val array = if (snapshot != null) {
+            directCartPlanField(root, *changeKeys) as? JsonValue.Arr ?: error("Invalid cart plan changes")
+        } else firstArray(root, *changeKeys) ?: JsonValue.Arr(emptyList())
         val changes = array.items.mapIndexed { index, value ->
+            if (snapshot != null) require(value is JsonValue.Obj) { "Invalid cart plan change" }
             when (value) {
-                is JsonValue.Obj -> parseCartPlanChange(value, index)
+                is JsonValue.Obj -> if (snapshot == null) parseCartPlanChange(value, index)
+                    else CartPlanChange(
+                        spinId = cartSnapshotId(directCartPlanField(value, "spinId", "spin_id", "productId", "product_id")),
+                        kind = directCartPlanString(value, "kind", "type", "action", "operation") ?: "change",
+                        displayName = normalizeLabel(directCartPlanString(value,
+                            "displayName", "display_name", "label", "name", "title", "item")
+                            ?: directCartPlanString(value, "description") ?: "Change ${index + 1}"),
+                        fromQuantity = cartSnapshotQuantity(directCartPlanField(value,
+                            "fromQuantity", "from_quantity", "quantityBefore", "quantity_before"), allowZero = true),
+                        toQuantity = cartSnapshotQuantity(directCartPlanField(value,
+                            "toQuantity", "to_quantity", "quantityAfter", "quantity_after", "quantity"), allowZero = true),
+                        description = directCartPlanString(value, "description", "details", "notes"),
+                    )
                 is JsonValue.Str -> CartPlanChange(
                     kind = "note",
                     displayName = normalizeLabel(value.value),
@@ -710,11 +1107,91 @@ object SwiggyMcpClient {
         }
         return CartPlan(
             changes = changes,
-            existingItemCount = firstArray(root, "existingItems", "existing_items")?.items?.size,
-            confirmationToken = firstString(root, "confirmationToken", "confirmation_token", "token"),
-            cartMutationEnabled = isTruthy(root, "cartMutationEnabled", "cart_mutation_enabled", "mutationEnabled"),
-            message = firstString(root, "message", "statusMessage", "status_message")
+            existingItemCount = snapshot?.existingItems?.size ?: firstArray(root, "existingItems", "existing_items")?.items?.size,
+            confirmationToken = if (snapshot != null) directCartPlanString(root, "confirmationToken", "confirmation_token", "token")
+                else firstString(root, "confirmationToken", "confirmation_token", "token"),
+            cartMutationEnabled = if (snapshot != null) {
+                optionalDirectCartPlanField(root, "cartMutationEnabled", "cart_mutation_enabled", "mutationEnabled")?.let {
+                    (it as? JsonValue.Bool)?.value ?: error("Invalid cart mutation flag")
+                } ?: false
+            } else isTruthy(root, "cartMutationEnabled", "cart_mutation_enabled", "mutationEnabled"),
+            message = if (snapshot != null) directCartPlanString(root, "message", "statusMessage", "status_message")
+                else firstString(root, "message", "statusMessage", "status_message"),
+            snapshot = snapshot,
         )
+    }
+
+    private fun directCartPlanField(root: JsonValue.Obj, vararg keys: String): JsonValue =
+        optionalDirectCartPlanField(root, *keys) ?: error("Missing cart plan field")
+
+    private fun optionalDirectCartPlanField(root: JsonValue.Obj, vararg keys: String): JsonValue? {
+        val present = keys.filter { it in root.members }
+        require(present.size <= 1) { "Ambiguous cart plan field" }
+        return present.singleOrNull()?.let { root.members.getValue(it) }
+    }
+
+    private fun directCartPlanString(root: JsonValue.Obj, vararg keys: String): String? {
+        val value = optionalDirectCartPlanField(root, *keys) ?: return null
+        return (value as? JsonValue.Str)?.value ?: error("Invalid cart plan text")
+    }
+
+    /** Decode one complete server snapshot; malformed evidence never downgrades to legacy. */
+    private fun parseCartPlanSnapshot(root: JsonValue.Obj): CartPlanSnapshot? {
+        if ("proposedItems" !in root.members && "reviewBasis" !in root.members) return null
+        val basis = if ("reviewBasis" in root.members) cartReviewBasis(root.members["reviewBasis"]) else null
+        return CartPlanSnapshot(
+            cartSnapshotItems(directCartPlanField(root, "existingItems", "existing_items")),
+            cartSnapshotItems(directCartPlanField(root, "proposedItems")), basis,
+        )
+    }
+
+    internal fun parseCartReviewSnapshot(body: String): CartReviewSnapshot {
+        val root = JsonParser(body.trim()).parseStrict() as? JsonValue.Obj ?: error("Invalid cart review snapshot")
+        require(root.members.keys == setOf("existingItems", "reviewBasis")) { "Invalid cart review fields" }
+        val items = root.members["existingItems"] as? JsonValue.Arr ?: error("Invalid cart review items")
+        require(items.items.all { item -> item is JsonValue.Obj &&
+            item.members.keys.all { it in setOf("spinId", "skuId", "quantity") }
+        }) { "Invalid cart review item fields" }
+        return CartReviewSnapshot(cartSnapshotItems(items), cartReviewBasis(root.members["reviewBasis"]))
+    }
+
+    private fun cartReviewBasis(value: JsonValue?): String {
+        val basis = (value as? JsonValue.Str)?.value
+        require(basis != null && Regex("cart-basis-v1:[0-9a-f]{64}").matches(basis)) { "Invalid cart review basis" }
+        return basis
+    }
+
+    private fun cartSnapshotItems(value: JsonValue?): List<CartPlanItem> {
+        val array = value as? JsonValue.Arr ?: error("Incomplete cart snapshot")
+        val rows = array.items.map { item ->
+            val row = item as? JsonValue.Obj ?: error("Invalid cart snapshot item")
+            require(row.members.keys.all { it in setOf("spinId", "skuId", "quantity", "providerManagedFree") }) {
+                "Unknown cart snapshot fields"
+            }
+            if ("providerManagedFree" in row.members) require(row.members["providerManagedFree"] == JsonValue.Bool(true))
+            CartPlanItem(
+                spinId = cartSnapshotId(row.members["spinId"]),
+                quantity = cartSnapshotQuantity(row.members["quantity"]),
+                skuId = if ("skuId" in row.members) cartSnapshotId(row.members["skuId"]) else null,
+            )
+        }
+        require(rows.map { it.spinId }.distinct().size == rows.size) { "Duplicate cart snapshot item" }
+        return java.util.Collections.unmodifiableList(rows)
+    }
+
+    private fun cartSnapshotId(value: JsonValue?): String {
+        val id = (value as? JsonValue.Str)?.value
+        require(id != null && id.isNotBlank() && id == id.trim()) { "Invalid cart snapshot identity" }
+        return id
+    }
+
+    private fun cartSnapshotQuantity(value: JsonValue?, allowZero: Boolean = false): Int {
+        val raw = (value as? JsonValue.Num)?.raw
+        val quantity = raw?.takeIf { it.matches(Regex("0|[1-9][0-9]*")) }?.toIntOrNull()
+        // Match the backend's existing checkout/readback contract; user edits
+        // remain subject to the separate, stricter 20-unit planning limit.
+        require(quantity != null && quantity in (if (allowZero) 0 else 1)..100) { "Invalid cart snapshot quantity" }
+        return quantity
     }
 
     internal fun parseApplyResult(body: String): ApplyResult {
@@ -754,7 +1231,18 @@ object SwiggyMcpClient {
         callback: SwiggyCallback<T>,
         parser: (String) -> T,
         timeoutSeconds: Long? = null,
+        postWire: ProfiledPost? = null,
+        editHintInstruction: String? = null,
     ) {
+        require((postWire != null) == (path == "/swiggy/intent" || path == "/swiggy/recommendations/batch"))
+        require(postWire == null || (method == "POST" && body == null && path == postWire.path))
+        val backendBaseUrl = try {
+            AppConfig.backendBaseUrl
+        } catch (_: BackendConfigurationUnavailableException) {
+            callback(SwiggyMcpResult.Failure(userMessage =
+                "This Beta build could not connect to its service. Please update the app. Nothing was sent."))
+            return
+        }
         val installationToken = runCatching {
             SwiggyInstallationIdentity.installationToken(context)
         }.getOrElse {
@@ -766,11 +1254,15 @@ object SwiggyMcpClient {
             return
         }
         val requestBuilder = Request.Builder()
-            .url("${AppConfig.backendBaseUrl}$path")
+            .url("$backendBaseUrl$path")
             .header(HEADER_BACKEND_KEY, AppConfig.backendApiKey)
             .header(HEADER_INSTALLATION_TOKEN, installationToken)
+        if (editHintInstruction != null) {
+            require(path == "/swiggy/intent" && postWire is IntentPreparationWire)
+            requestBuilder.header("X-Beta-Intent-Edit-Hints", "1")
+        }
 
-        val request = when (method) {
+        val request = postWire?.applyTo(requestBuilder)?.build() ?: when (method) {
             "POST" -> requestBuilder
                 .post((body ?: JSONObject().toString()).toRequestBody(jsonMediaType))
                 .build()
@@ -778,7 +1270,7 @@ object SwiggyMcpClient {
         }
 
         // Intent inference is read-only but billable; never replay it automatically.
-        val baseClient = if (isCartMutationPath(path) || path == "/swiggy/intent") cartMutationClient else safeRequestClient
+        val baseClient = if (permitsConnectionRetry(path)) safeRequestClient else cartMutationClient
         val requestClient = timeoutSeconds?.let { seconds ->
             baseClient.newBuilder().readTimeout(seconds, TimeUnit.SECONDS).build()
         } ?: baseClient
@@ -792,7 +1284,7 @@ object SwiggyMcpClient {
             override fun onResponse(call: Call, response: Response) {
                 // Consume/read failures must also reach the owner, especially after an apply.
                 // Keep the owner's callback outside parser catches to prevent double delivery.
-                callback(readSwiggyHttpResponse(path, response, parser))
+                callback(readSwiggyHttpResponse(path, response, editHintInstruction, parser))
             }
         })
     }
@@ -800,6 +1292,13 @@ object SwiggyMcpClient {
     internal fun <T> readSwiggyHttpResponse(
         path: String,
         response: Response,
+        parser: (String) -> T,
+    ): SwiggyMcpResult<T> = readSwiggyHttpResponse(path, response, null, parser)
+
+    private fun <T> readSwiggyHttpResponse(
+        path: String,
+        response: Response,
+        editHintInstruction: String?,
         parser: (String) -> T,
     ): SwiggyMcpResult<T> = response.use {
         val body = try {
@@ -815,12 +1314,20 @@ object SwiggyMcpClient {
                 retryable = swiggyRetryable(path, it.code),
                 orderNotSubmitted = checkoutOrderNotSubmittedFlag(path, it.code, body),
                 intentNeedsReview = path == "/swiggy/intent" && it.code == 422,
+                intentEditRanges = if (path == "/swiggy/intent" && it.code == 422 && editHintInstruction != null)
+                    GroceryIntentEditHints.fromRejection(editHintInstruction, body).map { q -> q.startUtf16 until q.endUtf16 }
+                    else emptyList(),
                 intentUnavailable = path == "/swiggy/intent" && it.code == 404 &&
-                    swiggyHttpErrorReason(body) == "intent_unavailable",
+                    swiggyHttpErrorReason(body) in setOf("intent_unavailable", "intent_version_unavailable"),
+                cartPlanUnchanged = isCartPlanUnchanged(path, it.code, body),
             )
         }
         val parsed = try {
             parser(body)
+        } catch (hold: GroceryLocalEditHold) {
+            return SwiggyMcpResult.Failure(userMessage = "Beta needs help with your wording.",
+                intentNeedsReview = path == "/swiggy/intent",
+                intentEditRanges = if (path == "/swiggy/intent" && editHintInstruction != null) hold.ranges else emptyList())
         } catch (_: Exception) {
             return SwiggyMcpResult.Failure(intentNeedsReview = path == "/swiggy/intent", userMessage = if (path.startsWith("/swiggy/checkout/")) {
                 "Beta could not read the order result. Check the existing attempt; do not place or pay again."
@@ -858,12 +1365,27 @@ object SwiggyMcpClient {
     internal fun isCartMutationPath(path: String): Boolean = path in setOf(
         "/swiggy/cart/apply", "/swiggy/checkout/place", "/swiggy/checkout/status")
 
+    // Recommendation batches can contain paid assessment work. A transport
+    // retry cannot know whether the first request already consumed its quota.
+    internal fun permitsConnectionRetry(path: String): Boolean =
+        !isCartMutationPath(path) && path !in setOf("/swiggy/intent", "/swiggy/recommendations/batch")
+
     internal fun swiggyHttpErrorReason(body: String): String? {
         val root = parseRoot(body)
         return firstString(root, "reason")
             ?: firstObject(root, "detail")?.let { detail ->
                 firstString(detail, "reason", "error", "message", "detail")
             }
+    }
+
+    private fun isCartPlanUnchanged(path: String, code: Int, body: String): Boolean {
+        if (path != "/swiggy/cart/plan" || code != 409) return false
+        val envelope = runCatching { JsonParser(body).parseStrict() }.getOrNull() as? JsonValue.Obj ?: return false
+        val root = if ("detail" in envelope.members) {
+            if ("reason" in envelope.members) return false
+            envelope.members["detail"] as? JsonValue.Obj ?: return false
+        } else envelope
+        return root.members["reason"] == JsonValue.Str("cart_no_changes") && !containsReconnectRequired(envelope)
     }
 
     internal fun swiggyReconnectRequired(body: String): Boolean {
@@ -911,7 +1433,7 @@ object SwiggyMcpClient {
             reason == "cart_address_mismatch" -> "Swiggy's current cart address does not match the selected delivery address. Please choose the right address again."
             reason == "cart_schema_unrecognized" -> "Beta could not safely read this Swiggy cart. Nothing was changed."
             reason == "cart_mutation_disabled" -> "Swiggy cart updates are not enabled yet. Nothing was changed."
-            reason == "cart_no_changes" -> "Your Swiggy cart already has those quantities."
+            reason == "cart_no_changes" -> "Beta could not verify this cart review. Please review your list again."
             code == 401 || code == 403 -> "Swiggy authorization is no longer valid."
             code == 404 -> "Swiggy setup is not ready yet. Please try again later."
             code in 500..599 -> if (isCartMutationPath(path)) {
@@ -1087,14 +1609,125 @@ object SwiggyMcpClient {
             context = context,
             method = "POST",
             path = "/swiggy/intent",
-            body = JSONObject()
-                .put("instruction", instruction)
-                .put("provider", provider.requestValue)
-                .toString(),
+            postWire = intentPreparationWire(instruction, provider, GroceryIntentContract.V1),
             callback = callback,
             parser = { body -> GroceryIntentResponse.parse(body, instruction) },
             timeoutSeconds = 15,
         )
+    }
+
+    /** Version is captured by the coordinator at operation start; no retry or downgrade. */
+    internal fun fetchIntentPreparation(
+        context: Context,
+        instruction: String,
+        provider: GroceryIntentProvider,
+        contract: GroceryIntentContract,
+        callback: SwiggyCallback<GroceryIntentPreparation>,
+    ) {
+        require(contract != GroceryIntentContract.CONTEXT) {
+            "The context contract requires fetchIntentContextPreparation"
+        }
+        require(instruction.isNotBlank()) { "Instruction must not be blank" }
+        executeJsonRequest(
+            context = context,
+            method = "POST",
+            path = "/swiggy/intent",
+            postWire = intentPreparationWire(instruction, provider, contract),
+            editHintInstruction = instruction.takeIf { contract == GroceryIntentContract.V1 },
+            callback = callback,
+            parser = { body ->
+                when (contract) {
+                    GroceryIntentContract.V1 -> prepareV1WithEditHints(body, instruction)
+                    GroceryIntentContract.V2 -> GroceryIntentReviewV2Response.parse(body, instruction).let { response ->
+                        if (response.inputRepairRejected) Log.w("BetaAgent", "INTENT_INPUT_REPAIR_REJECTED")
+                        response.draft.prepareForReview(allowPropertyObligations = true, allowIngredientPredicates = true,
+                            allowTypedIngredientPredicates = true)
+                            .copy(inputRepair = response.inputRepair?.takeIf { it.isOnlyIssueIn(response.draft) })
+                    }
+                    GroceryIntentContract.CONTEXT -> error("The context contract requires fetchIntentContextPreparation")
+                    GroceryIntentContract.INTERPRETED -> GroceryIntentInterpretedResponse.parse(body, instruction)
+                        .prepareForReview()
+                }
+            },
+            timeoutSeconds = 15,
+        )
+    }
+
+    /** Separate strict adapter. Context responses never enter the V1/V2 callback path. */
+    internal fun fetchIntentContextPreparation(
+        context: Context,
+        instruction: String,
+        provider: GroceryIntentProvider,
+        callback: SwiggyCallback<GroceryIntentContextAssessment>,
+    ) {
+        require(instruction.isNotBlank()) { "Instruction must not be blank" }
+        executeJsonRequest(
+            context = context,
+            method = "POST",
+            path = "/swiggy/intent",
+            postWire = intentPreparationWire(instruction, provider, GroceryIntentContract.CONTEXT),
+            callback = callback,
+            parser = { body -> GroceryIntentContextResponse.parse(body, instruction).assessForReview() },
+            timeoutSeconds = 15,
+        )
+    }
+
+    internal fun prepareV1WithEditHints(body: String, instruction: String): GroceryIntentPreparation {
+        val draft = GroceryIntentResponse.parse(body, instruction).draft
+        try { return draft.prepareForReview() } catch (hold: IntentNeedsReviewException) {
+            if (!hold.localEditOnly) throw hold
+            val hints = GroceryIntentEditHints.fromLocal(instruction, draft.items, hold.affectedSourceText)
+            if (hints.isEmpty()) throw hold
+            throw GroceryLocalEditHold(hints.map { it.startUtf16 until it.endUtf16 })
+        }
+    }
+
+    internal sealed class ProfiledPost(val path: String, val body: String, private val header: Pair<String, String>?) {
+        fun applyTo(builder: Request.Builder): Request.Builder {
+            header?.let { (name, value) -> builder.header(name, value) }
+            return builder.post(body.toRequestBody(jsonMediaType))
+        }
+    }
+
+    internal class IntentPreparationWire(body: String, profile: String?) :
+        ProfiledPost("/swiggy/intent", body, profile?.let { "X-Beta-Intent-Profile" to it })
+
+    internal fun intentPreparationWire(
+        instruction: String,
+        provider: GroceryIntentProvider,
+        contract: GroceryIntentContract,
+    ): IntentPreparationWire {
+        // Strict legacy V1 servers accept just these two keys. An additive header, unlike
+        // unknown JSON fields, can cross a rolling deployment without a second inference.
+        val body = JSONObject().put("instruction", instruction).put("provider", provider.requestValue)
+        if (contract == GroceryIntentContract.V1) return IntentPreparationWire(body.toString(), "v1-source-offers-1")
+        body.put("contract_version", contract.requestValue)
+        intentPreparationCapabilities(contract).forEach { (name, enabled) -> body.put(name, enabled) }
+        return IntentPreparationWire(body.toString(), null)
+    }
+
+    internal fun intentPreparationCapabilities(contract: GroceryIntentContract): Map<String, Boolean> = when (contract) {
+        GroceryIntentContract.V2 -> mapOf(
+                "supports_headless_groups" to true,
+                "supports_variant_cardinality" to true,
+                "supports_postfix_identity" to true,
+                "supports_input_repair" to true,
+                "supports_property_obligations" to true,
+                "supports_ingredient_predicates" to true,
+                "supports_typed_ingredient_predicates" to true,
+                "supports_group_corrections" to true,
+                "supports_list_purpose" to true,
+                "supports_purpose_groups" to true,
+                "supports_named_piece_corrections" to true,
+                "supports_restatement_receipts" to true,
+                "supports_quantity_exclusion_receipts" to true,
+                "supports_trailing_fulfillment" to true,
+                "supports_same_count_refinements" to true,
+                "supports_product_operations" to true,
+            )
+        GroceryIntentContract.INTERPRETED -> emptyMap()
+        GroceryIntentContract.V1, GroceryIntentContract.CONTEXT ->
+            mapOf("supports_source_piece_counts" to true, "supports_generic_container_offers" to true)
     }
 
     internal val INDIAN_STATE_NAMES = setOf(
@@ -1117,7 +1750,11 @@ object SwiggyMcpClient {
         return parts.joinToString(", ")
     }
 
-    private fun parseRecommendationCandidate(value: JsonValue.Obj, index: Int): RecommendationCandidate {
+    private fun parseRecommendationCandidate(
+        value: JsonValue.Obj,
+        index: Int,
+        requiredSellerAssessment: SellerPropertyRequirement? = null,
+    ): RecommendationCandidate {
         val label = normalizeLabel(
             firstString(
                 value,
@@ -1130,15 +1767,77 @@ object SwiggyMcpClient {
                 "text"
             ) ?: "Suggestion ${index + 1}"
         )
-        return RecommendationCandidate(
+        val catalogueQuantity = parseCatalogueQuantityEvidence(
+            raw = value.members["catalogueQuantity"],
+            candidateSpinId = (value.members["spinId"] as? JsonValue.Str)?.value,
+            candidateSkuId = (value.members["skuId"] as? JsonValue.Str)?.value,
+            duplicatedCandidateKeys = value.duplicateKeys,
+        )
+        val catalogueIngredients = CatalogueIngredientEvidence.parse(value.members["catalogueIngredients"],
+            (value.members["spinId"] as? JsonValue.Str)?.value,
+            (value.members["skuId"] as? JsonValue.Str)?.value, value.duplicateKeys)
+        val limit = parseCataloguePurchaseLimit(value)
+        val candidate = RecommendationCandidate(
             spinId = firstString(value, "spinId", "spin_id", "id", "candidateId", "candidate_id", "value", "slug")
                 ?: label.ifBlank { index.toString() },
             skuId = firstString(value, "skuId", "sku_id"),
             label = label,
             variant = firstString(value, "variant", "pack", "packSize", "pack_size", "size", "quantityLabel"),
             subtitle = firstString(value, "subtitle", "description", "details"),
-            suggested = isTruthy(value, "suggested", "isSuggested", "is_suggested", "recommended")
+            suggested = isTruthy(value, "suggested", "isSuggested", "is_suggested", "recommended"),
+            catalogueBrand = parseCatalogueBrandEvidence(value),
+            catalogueQuantity = catalogueQuantity,
+            catalogueQuantityInvalid = "catalogueQuantity" in value.members && catalogueQuantity == null,
+            catalogueIngredients = catalogueIngredients,
+            catalogueIngredientsInvalid = "catalogueIngredients" in value.members && catalogueIngredients == null,
+            cataloguePurchaseLimit = limit,
+            cataloguePurchaseLimitInvalid = "cataloguePurchaseLimit" in value.members && limit == null,
         )
+        if (requiredSellerAssessment == null) return candidate
+        require(value.duplicateKeys.isEmpty())
+        require(value.members.keys.containsAll(setOf("spinId", "skuId", "label")))
+        require(value.members.keys.none { it in setOf(
+            "spin_id", "id", "candidateId", "candidate_id", "productId", "product_id", "name", "title",
+            "value", "slug", "displayText", "display_text", "query", "text",
+            "sku_id", "pack", "packSize", "pack_size", "size", "quantityLabel",
+            "description", "details",
+        ) })
+        return candidate.copy(sellerAssessment = SwiggySellerAssessment.parse(
+            raw = value.members["sellerAssessment"],
+            rawCandidate = value,
+            expected = requiredSellerAssessment,
+            normalizedCandidate = candidate,
+        ))
+    }
+
+    private fun parseCataloguePurchaseLimit(candidate: JsonValue.Obj): CataloguePurchaseLimit? {
+        val obj = candidate.members["cataloguePurchaseLimit"] as? JsonValue.Obj ?: return null
+        if (candidate.duplicateKeys.any { it in setOf("cataloguePurchaseLimit", "spinId", "skuId") } ||
+            obj.duplicateKeys.isNotEmpty() || obj.members.keys != setOf("source", "spinId", "skuId", "maxUnits")) return null
+        fun text(row: JsonValue.Obj, key: String) = (row.members[key] as? JsonValue.Str)?.value
+        if (text(obj, "source") != "live_search_variation") return null
+        val units = (obj.members["maxUnits"] as? JsonValue.Num)?.raw?.toIntOrNull() ?: return null
+        val limit = CataloguePurchaseLimit(text(obj, "spinId") ?: return null, text(obj, "skuId") ?: return null, units)
+        return limit.takeIf { it.validFor(text(candidate, "spinId") ?: return null, text(candidate, "skuId")) }
+    }
+
+    private fun parseCatalogueBrandEvidence(candidate: JsonValue.Obj): CatalogueBrandEvidence? {
+        val evidence = candidate.members["catalogueBrand"] as? JsonValue.Obj ?: return null
+        val fields = evidence.members
+        if (fields.keys != setOf("name", "spinId", "skuId", "source")) return null
+        val name = (fields["name"] as? JsonValue.Str)?.value ?: return null
+        val spinId = (fields["spinId"] as? JsonValue.Str)?.value ?: return null
+        val skuId = (fields["skuId"] as? JsonValue.Str)?.value ?: return null
+        val source = (fields["source"] as? JsonValue.Str)?.value ?: return null
+        // Brand evidence is bound only to explicit backend IDs, never to the
+        // parser's synthetic label-based fallback or a loose alias field.
+        val suppliedSpinId = (candidate.members["spinId"] as? JsonValue.Str)?.value ?: return null
+        val suppliedSkuId = (candidate.members["skuId"] as? JsonValue.Str)?.value ?: return null
+        if (name.isBlank() || name.length > 120 || name != name.trim() || name.any(Char::isISOControl)) return null
+        if (spinId.isBlank() || spinId != spinId.trim() || spinId != suppliedSpinId) return null
+        if (skuId.isBlank() || skuId != skuId.trim() || skuId != suppliedSkuId) return null
+        if (source != "search_variation") return null
+        return CatalogueBrandEvidence(name, spinId, skuId, source)
     }
 
     private fun parseCartPlanChange(value: JsonValue.Obj, index: Int): CartPlanChange {
@@ -1254,7 +1953,11 @@ object SwiggyMcpClient {
                 for (key in keys) {
                     root.members[key]?.let { return it }
                 }
-                for (child in root.members.values) {
+                for ((field, child) in root.members) {
+                    // Optional evidence has its own strict decoder. Its name,
+                    // IDs or unexpected keys cannot fill ordinary response
+                    // fields, even when the evidence is rejected as malformed.
+                    if (field in setOf("catalogueBrand", "catalogueQuantity", "catalogueIngredients", "cataloguePurchaseLimit")) continue
                     val nested = findFieldRecursive(child, keys)
                     if (nested != null) return nested
                 }

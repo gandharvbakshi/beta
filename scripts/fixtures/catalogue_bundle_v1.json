@@ -1,0 +1,387 @@
+{
+  "schema": "catalogue-bundle-denial-v1",
+  "cases": [
+    {
+      "id": "single",
+      "fields": [
+        "Milk 500 ml"
+      ],
+      "denied": false
+    },
+    {
+      "id": "family",
+      "fields": [
+        "Milk Family Pack 500 ml"
+      ],
+      "denied": false
+    },
+    {
+      "id": "economical",
+      "fields": [
+        "Milk Economical Pack 500 ml"
+      ],
+      "denied": false
+    },
+    {
+      "id": "twinings",
+      "fields": [
+        "Twinings Tea 100 g"
+      ],
+      "denied": false
+    },
+    {
+      "id": "duo_name",
+      "fields": [
+        "Duo Chocolate 100 g"
+      ],
+      "denied": false
+    },
+    {
+      "id": "twin",
+      "fields": [
+        "Milk 500 ml Twin Pack"
+      ],
+      "denied": true
+    },
+    {
+      "id": "duo",
+      "fields": [
+        "Juice Duo Pack 500 ml"
+      ],
+      "denied": true
+    },
+    {
+      "id": "trio",
+      "fields": [
+        "Butter Trio Pack 250 g"
+      ],
+      "denied": true
+    },
+    {
+      "id": "combo",
+      "fields": [
+        "Juice Combo 500 ml"
+      ],
+      "denied": true
+    },
+    {
+      "id": "bundle",
+      "fields": [
+        "Rice Bundle 1 kg"
+      ],
+      "denied": true
+    },
+    {
+      "id": "multipack",
+      "fields": [
+        "Soap Multipack 100 g"
+      ],
+      "denied": true
+    },
+    {
+      "id": "multi_hyphen",
+      "fields": [
+        "Soap Multi-Pack 100 g"
+      ],
+      "denied": true
+    },
+    {
+      "id": "twin_hyphen",
+      "fields": [
+        "Tea Twin-Pack 250 g"
+      ],
+      "denied": true
+    },
+    {
+      "id": "unicode_hyphen",
+      "fields": [
+        "Tea Twin‑Pack 250 g"
+      ],
+      "denied": true
+    },
+    {
+      "id": "joined_twin",
+      "fields": [
+        "Milk 500 ml Twin",
+        "Pack"
+      ],
+      "denied": true
+    },
+    {
+      "id": "variant",
+      "fields": [
+        "Milk 500 ml",
+        "Twin Pack"
+      ],
+      "denied": true
+    },
+    {
+      "id": "subtitle",
+      "fields": [
+        "Milk",
+        "500 ml",
+        "Trio Pack"
+      ],
+      "denied": true
+    },
+    {
+      "id": "word_count",
+      "fields": [
+        "Milk 500 ml (Pack of Two)"
+      ],
+      "denied": true
+    },
+    {
+      "id": "word_count_many",
+      "fields": [
+        "Milk 500 ml Pack of Twenty Four"
+      ],
+      "denied": true
+    },
+    {
+      "id": "numeric_count",
+      "fields": [
+        "Milk 500 ml Pack of 2"
+      ],
+      "denied": false
+    },
+    {
+      "id": "numeric_outer",
+      "fields": [
+        "Milk 2 x 500 ml"
+      ],
+      "denied": false
+    },
+    {
+      "id": "numeric_suffix",
+      "fields": [
+        "Milk 500 ml x 2"
+      ],
+      "denied": false
+    },
+    {
+      "id": "numeric_offer",
+      "fields": [
+        "Milk 500 ml Buy 1 Get 1"
+      ],
+      "denied": true
+    },
+    {
+      "id": "word_offer",
+      "fields": [
+        "Soap Buy One Get One"
+      ],
+      "denied": true
+    },
+    {
+      "id": "numeric_bonus",
+      "fields": [
+        "Milk 500 ml 2+1 Free"
+      ],
+      "denied": true
+    },
+    {
+      "id": "unspaced_twin",
+      "fields": [
+        "Milk TwinPack 500 ml"
+      ],
+      "denied": true
+    },
+    {
+      "id": "set",
+      "fields": [
+        "Set of Cups"
+      ],
+      "denied": true
+    },
+    {
+      "id": "pair",
+      "fields": [
+        "Pair of Socks"
+      ],
+      "denied": true
+    },
+    {
+      "id": "double_pack",
+      "fields": [
+        "Milk Double Pack"
+      ],
+      "denied": true
+    },
+    {
+      "id": "double_toned",
+      "fields": [
+        "Double Toned Milk 500 ml"
+      ],
+      "denied": false
+    },
+    {
+      "id": "bundle_name",
+      "fields": [
+        "Bundle of Flowers"
+      ],
+      "denied": true
+    },
+    {
+      "id": "multigrain",
+      "fields": [
+        "Multigrain Bread 400 g"
+      ],
+      "denied": false
+    },
+    {
+      "id": "compost",
+      "fields": [
+        "Compost 1 kg"
+      ],
+      "denied": false
+    },
+    {
+      "id": "empty",
+      "fields": [],
+      "denied": false
+    },
+    {
+      "id": "fullwidth",
+      "fields": [
+        "Ｍｉｌｋ Ｔｗｉｎ Ｐａｃｋ ５００ｍｌ"
+      ],
+      "denied": true
+    },
+    {
+      "id": "trio_bottles",
+      "fields": [
+        "Oil Trio Bottles"
+      ],
+      "denied": true
+    },
+    {
+      "id": "twin_bags",
+      "fields": [
+        "Rice Twin Bags"
+      ],
+      "denied": true
+    },
+    {
+      "id": "duo_plain",
+      "fields": [
+        "Duo Milk 500 ml"
+      ],
+      "denied": false
+    },
+    {
+      "id": "casefold",
+      "fields": [
+        "milk TWIN PACK"
+      ],
+      "denied": true
+    },
+    {
+      "id": "split_multi",
+      "fields": [
+        "Milk Multi",
+        "Pack"
+      ],
+      "denied": true
+    },
+    {
+      "id": "split_offer",
+      "fields": [
+        "Milk Buy 1",
+        "Get 1"
+      ],
+      "denied": true
+    },
+    {
+      "id": "packaging_word_only",
+      "fields": [
+        "Milk Pack"
+      ],
+      "denied": false
+    },
+    {
+      "id": "bogo",
+      "fields": [
+        "Milk 500 ml BOGO"
+      ],
+      "denied": true
+    },
+    {
+      "id": "b1g1",
+      "fields": [
+        "Milk 500 ml B1G1"
+      ],
+      "denied": true
+    },
+    {
+      "id": "sum_offer",
+      "fields": [
+        "Milk 500 ml 1+1 Offer"
+      ],
+      "denied": true
+    },
+    {
+      "id": "price_condition",
+      "fields": [
+        "Milk 500 ml 2 for ₹99"
+      ],
+      "denied": true
+    },
+    {
+      "id": "single_price",
+      "fields": [
+        "Milk 500 ml 1 for ₹99"
+      ],
+      "denied": false
+    },
+    {
+      "id": "combi_pack",
+      "fields": [
+        "Milk 500 ml Combi Pack"
+      ],
+      "denied": true
+    },
+    {
+      "id": "zero_width",
+      "fields": [
+        "Milk 500 ml Twin​Pack"
+      ],
+      "denied": true
+    },
+    {
+      "id": "gift_box",
+      "fields": [
+        "Chocolate Gift Box 500 g"
+      ],
+      "denied": false
+    },
+    {
+      "id": "numeric_sum",
+      "fields": [
+        "Milk 500 ml 2+1"
+      ],
+      "denied": true
+    },
+    {
+      "id": "rs_condition",
+      "fields": [
+        "Milk 500 ml 12 for Rs. 999"
+      ],
+      "denied": true
+    },
+    {
+      "id": "supplementary_format",
+      "fields": [
+        "Milk 500 ml Twin󠀁Pack"
+      ],
+      "denied": true
+    },
+    {
+      "id": "word_joiner",
+      "fields": [
+        "Milk 500 ml Twin⁠Pack"
+      ],
+      "denied": true
+    }
+  ]
+}

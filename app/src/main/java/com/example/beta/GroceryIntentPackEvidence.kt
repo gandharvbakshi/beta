@@ -60,7 +60,7 @@ private fun parsePhysicalAmount(raw: String): BigDecimal? {
 
 private fun normalizePhysicalUnit(raw: String): String? = when (raw.lowercase()) {
     "g", "gm", "gms", "gram", "grams" -> "g"
-    "kg", "kgs", "kilogram", "kilograms" -> "kg"
+    "kg", "kgs", "kilogram", "kilograms", "keji" -> "kg"
     "ml", "milliliter", "milliliters", "millilitre", "millilitres" -> "ml"
     "l", "lt", "ltr", "ltrs", "liter", "liters", "litre", "litres" -> "l"
     else -> null
@@ -73,7 +73,7 @@ private fun canonicalSize(size: PhysicalSize): PhysicalSize = when (size.unit) {
 }
 
 private val containers = "(?:bags?|packs?|packets?|bottles?|cartons?|pouch(?:es)?|box(?:es)?|tins?|jars?|tubs?|blocks?)"
-private val amountUnits = "(grams?|gms?|gm|g|kilograms?|kgs?|milliliters?|millilitres?|ml|liters?|litres?|ltrs?|lt|l)"
+private val amountUnits = "(grams?|gms?|gm|g|kilograms?|kgs?|$GROCERY_INTENT_KEJI_PATTERN|milliliters?|millilitres?|ml|liters?|litres?|ltrs?|lt|l)"
 private const val amount = "((?:[0-9]+\\s+)?[0-9]+/[0-9]+|[0-9]+(?:,[0-9]{2,3})+(?:\\.[0-9]+)?|[0-9]+(?:\\.[0-9]+)?|[½¼¾])"
 private val amountBeforeContainer = Regex(
     "(?i)(?<![\\p{L}\\d.,/])$amount\\s*-?\\s*$amountUnits\\s+(?:of\\s+)?$containers\\b",

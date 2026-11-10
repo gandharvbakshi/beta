@@ -1,0 +1,397 @@
+{
+  "version": "source-physical-total-v1",
+  "cases": [
+    {
+      "id": "of_volume",
+      "source": "750 ml of juice",
+      "atom": "750",
+      "unit": "ml",
+      "total": true
+    },
+    {
+      "id": "of_mass",
+      "source": "500 g of rice",
+      "atom": "500",
+      "unit": "g",
+      "total": true
+    },
+    {
+      "id": "fraction",
+      "source": "half a litre of cooking oil",
+      "atom": "half a",
+      "unit": "l",
+      "total": true
+    },
+    {
+      "id": "hinglish_fraction",
+      "source": "aadha litre of doodh",
+      "atom": "aadha",
+      "unit": "l",
+      "total": true
+    },
+    {
+      "id": "prefix_total",
+      "source": "total 2 litres juice",
+      "atom": "2",
+      "unit": "l",
+      "total": true
+    },
+    {
+      "id": "prefix_kul",
+      "source": "kul 500 g atta",
+      "atom": "500",
+      "unit": "g",
+      "total": true
+    },
+    {
+      "id": "suffix_total",
+      "source": "500 g rice in total",
+      "atom": "500",
+      "unit": "g",
+      "total": true
+    },
+    {
+      "id": "nominal_suffix_total",
+      "source": "rice 500 g in total",
+      "atom": "500",
+      "unit": "g",
+      "total": true
+    },
+    {
+      "id": "terminal_punctuation",
+      "source": "750 ml of juice!",
+      "atom": "750",
+      "unit": "ml",
+      "total": true
+    },
+    {
+      "id": "case",
+      "source": "TOTAL 2 LITRES JUICE",
+      "atom": "2",
+      "unit": "l",
+      "total": true
+    },
+    {
+      "id": "glued",
+      "source": "500g of rice",
+      "atom": "500",
+      "unit": "g",
+      "total": true
+    },
+    {
+      "id": "hyphen_measure",
+      "source": "500-g of rice",
+      "atom": "500",
+      "unit": "g",
+      "total": true
+    },
+    {
+      "id": "unicode_noun",
+      "source": "500 g of चावल",
+      "atom": "500",
+      "unit": "g",
+      "total": true
+    },
+    {
+      "id": "bare_volume",
+      "source": "500 ml milk",
+      "atom": "500",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "bare_mass",
+      "source": "500 g vegetables",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "bare_suffix",
+      "source": "rice 500g",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "bare_capacity",
+      "source": "500 ml measuring jug",
+      "atom": "500",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "bare_capacity2",
+      "source": "2 l pressure cooker",
+      "atom": "2",
+      "unit": "l",
+      "total": false
+    },
+    {
+      "id": "single_pack",
+      "source": "one 500 g pack rice",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "container_of",
+      "source": "bottle of 750 ml juice",
+      "atom": "750",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "container_after",
+      "source": "750 ml bottle of juice",
+      "atom": "750",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "count",
+      "source": "two 500 g flour",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "variant",
+      "source": "500 g wala atta",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "unit_size",
+      "source": "500 ml of juice each",
+      "atom": "500",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "nutrition",
+      "source": "10 g of protein per serving",
+      "atom": "10",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "nutrition_noun",
+      "source": "10 g of protein powder",
+      "atom": "10",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "dimension",
+      "source": "10 cm of foil",
+      "atom": "10",
+      "unit": "cm",
+      "total": false
+    },
+    {
+      "id": "strength",
+      "source": "500 mg of tablets",
+      "atom": "500",
+      "unit": "mg",
+      "total": false
+    },
+    {
+      "id": "negated",
+      "source": "no 500 g of rice",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "alternative",
+      "source": "500 g of rice or flour",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "correction",
+      "source": "500 g of rice instead",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "extra",
+      "source": "500 g of rice extra",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "second_measure",
+      "source": "500 g of rice 2 kg",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "second_product",
+      "source": "500 g of rice and flour",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "hindi_conjunction",
+      "source": "500 g of rice aur flour",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "repeated_atom",
+      "source": "500 ml of juice 500 ml",
+      "atom": "500",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "embedded_atom",
+      "source": "1500 ml of juice",
+      "atom": "500",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "wrong_unit",
+      "source": "500 g of rice",
+      "atom": "500",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "empty_nominal",
+      "source": "500 g of",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "cropped_fraction",
+      "source": "half a litre of oil",
+      "atom": "half",
+      "unit": "l",
+      "total": false
+    },
+    {
+      "id": "comma",
+      "source": "500 g of rice, flour",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "nonascii_space",
+      "source": "500 g of rice",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "numeric_brand",
+      "source": "500 g of Four Roses tea",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "unicode_numeric_brand",
+      "source": "500 g of ४ चावल",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "unit_apostrophe",
+      "source": "500 l'oreal shampoo",
+      "atom": "500",
+      "unit": "l",
+      "total": false
+    },
+    {
+      "id": "unit_combining",
+      "source": "500 ǵ of rice",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "prefix_request",
+      "source": "get 500 g of rice",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "prefix_total_container",
+      "source": "total 500 ml bottle water",
+      "atom": "500",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "suffix_total_container",
+      "source": "juice bottle 500 ml in total",
+      "atom": "500",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "negative_modifier",
+      "source": "500 g of rice without salt",
+      "atom": "500",
+      "unit": "g",
+      "total": false
+    },
+    {
+      "id": "model_code",
+      "source": "500 ml of Model IX cleaner",
+      "atom": "500",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "nonbmp_nominal",
+      "source": "500 g of 𐐀abc",
+      "atom": "500",
+      "unit": "g",
+      "total": true
+    },
+    {
+      "id": "unicode_case_unit",
+      "source": "2 Kg of rice",
+      "atom": "2",
+      "unit": "kg",
+      "total": false
+    },
+    {
+      "id": "compatibility_nominal",
+      "source": "750 ml of ｂｏｔｔｌｅ",
+      "atom": "750",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "compatibility_marker",
+      "source": "750 ml ｏｆ juice",
+      "atom": "750",
+      "unit": "ml",
+      "total": false
+    },
+    {
+      "id": "tetra_nominal",
+      "source": "750 ml of tetra juice",
+      "atom": "750",
+      "unit": "ml",
+      "total": false
+    }
+  ]
+}

@@ -91,15 +91,18 @@ class InstructionParserMixedPackQuantityTest {
     fun prepareSwiggyMcpItems_keeps_pack_descriptors_and_oversized_counts_in_expected_states() {
         val packDescriptor = prepareSwiggyMcpItems("2 pack milk", lookup = { null }).single()
         val oversized = prepareSwiggyMcpItems("21 packets milk", lookup = { null }).single()
+        val parserState = "descriptorAndOversizedRows=2; quantities=${listOf(packDescriptor, oversized).map { it.quantity }}; " +
+            "signals=${listOf(packDescriptor, oversized).count { it.quantitySignal != null }}; " +
+            "proofRequired=${listOf(packDescriptor, oversized).count { it.requiresIntentQuantityProof }}"
 
-        assertEquals("2 pack milk", packDescriptor.query)
-        assertEquals(Quantity.Default, packDescriptor.quantity)
-        assertEquals("2 pack milk", packDescriptor.backendInputText())
+        assertEquals(parserState, "2 pack milk", packDescriptor.query)
+        assertEquals(parserState, Quantity.Default, packDescriptor.quantity)
+        assertEquals(parserState, "2 pack milk", packDescriptor.backendInputText())
 
-        assertEquals("milk", oversized.query)
-        assertEquals(Quantity.Count(21), oversized.quantity)
-        assertNull(swiggyMcpItemValidationMessage("2 pack milk", listOf(packDescriptor)))
-        assertNotNull(swiggyMcpItemValidationMessage("21 packets milk", listOf(oversized)))
+        assertEquals(parserState, "milk", oversized.query)
+        assertEquals(parserState, Quantity.Count(21), oversized.quantity)
+        assertNotNull(parserState, swiggyMcpItemValidationMessage("2 pack milk", listOf(packDescriptor)))
+        assertNotNull(parserState, swiggyMcpItemValidationMessage("21 packets milk", listOf(oversized)))
     }
 
     private fun assertCountedMilk(input: String) {

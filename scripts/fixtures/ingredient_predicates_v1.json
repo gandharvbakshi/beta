@@ -1,0 +1,937 @@
+{
+  "version": "ingredient-predicates-v1",
+  "note": "Synthetic literal catalogue-claim parity, not source-ownership, product safety or whole-basket qualification. Cross-operator entailment intentionally disabled.",
+  "cases": [
+    {
+      "id": "absent-fragrance-free",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product fragrance-free",
+      "allowed": true
+    },
+    {
+      "id": "absent-fragrance-no",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product no fragrance",
+      "allowed": true
+    },
+    {
+      "id": "absent-fragrance-without",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product without fragrance",
+      "allowed": true
+    },
+    {
+      "id": "absent-fragrance-zero",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product 0% fragrance",
+      "allowed": true
+    },
+    {
+      "id": "absent-fragrance-no-added",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product no added fragrance",
+      "allowed": false
+    },
+    {
+      "id": "absent-fragrance-post-added",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product no fragrance added",
+      "allowed": false
+    },
+    {
+      "id": "absent-fragrance-low",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product low fragrance",
+      "allowed": false
+    },
+    {
+      "id": "absent-fragrance-negated",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product not fragrance-free",
+      "allowed": false
+    },
+    {
+      "id": "absent-fragrance-qualified",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product maybe no fragrance",
+      "allowed": false
+    },
+    {
+      "id": "absent-fragrance-contradiction",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product no fragrance, contains fragrance",
+      "allowed": false
+    },
+    {
+      "id": "absent-fragrance-silent",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-fragrance-alternative",
+      "operator": "ABSENT",
+      "operand": "fragrance",
+      "label": "Product no fragrance or regular",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-fragrance-no-added",
+      "operator": "NO_ADDITION",
+      "operand": "fragrance",
+      "label": "Product no added fragrance",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-fragrance-zero-added",
+      "operator": "NO_ADDITION",
+      "operand": "fragrance",
+      "label": "Product 0% added fragrance",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-fragrance-free-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "fragrance",
+      "label": "Product fragrance-free",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-fragrance-absent-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "fragrance",
+      "label": "Product no fragrance",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-fragrance-reverse-not-yet-supported",
+      "operator": "NO_ADDITION",
+      "operand": "fragrance",
+      "label": "Product no fragrance added",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-fragrance-contradiction",
+      "operator": "NO_ADDITION",
+      "operand": "fragrance",
+      "label": "Product no added fragrance, added fragrance",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-fragrance-silent",
+      "operator": "NO_ADDITION",
+      "operand": "fragrance",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-chilli-free",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product chilli-free",
+      "allowed": true
+    },
+    {
+      "id": "absent-chilli-no",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product no chilli",
+      "allowed": true
+    },
+    {
+      "id": "absent-chilli-without",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product without chilli",
+      "allowed": true
+    },
+    {
+      "id": "absent-chilli-zero",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product 0% chilli",
+      "allowed": true
+    },
+    {
+      "id": "absent-chilli-no-added",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product no added chilli",
+      "allowed": false
+    },
+    {
+      "id": "absent-chilli-post-added",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product no chilli added",
+      "allowed": false
+    },
+    {
+      "id": "absent-chilli-low",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product low chilli",
+      "allowed": false
+    },
+    {
+      "id": "absent-chilli-negated",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product not chilli-free",
+      "allowed": false
+    },
+    {
+      "id": "absent-chilli-qualified",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product maybe no chilli",
+      "allowed": false
+    },
+    {
+      "id": "absent-chilli-contradiction",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product no chilli, contains chilli",
+      "allowed": false
+    },
+    {
+      "id": "absent-chilli-silent",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-chilli-alternative",
+      "operator": "ABSENT",
+      "operand": "chilli",
+      "label": "Product no chilli or regular",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-chilli-no-added",
+      "operator": "NO_ADDITION",
+      "operand": "chilli",
+      "label": "Product no added chilli",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-chilli-zero-added",
+      "operator": "NO_ADDITION",
+      "operand": "chilli",
+      "label": "Product 0% added chilli",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-chilli-free-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "chilli",
+      "label": "Product chilli-free",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-chilli-absent-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "chilli",
+      "label": "Product no chilli",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-chilli-reverse-not-yet-supported",
+      "operator": "NO_ADDITION",
+      "operand": "chilli",
+      "label": "Product no chilli added",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-chilli-contradiction",
+      "operator": "NO_ADDITION",
+      "operand": "chilli",
+      "label": "Product no added chilli, added chilli",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-chilli-silent",
+      "operator": "NO_ADDITION",
+      "operand": "chilli",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-salt-free",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product salt-free",
+      "allowed": true
+    },
+    {
+      "id": "absent-salt-no",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product no salt",
+      "allowed": true
+    },
+    {
+      "id": "absent-salt-without",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product without salt",
+      "allowed": true
+    },
+    {
+      "id": "absent-salt-zero",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product 0% salt",
+      "allowed": true
+    },
+    {
+      "id": "absent-salt-no-added",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product no added salt",
+      "allowed": false
+    },
+    {
+      "id": "absent-salt-post-added",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product no salt added",
+      "allowed": false
+    },
+    {
+      "id": "absent-salt-low",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product low salt",
+      "allowed": false
+    },
+    {
+      "id": "absent-salt-negated",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product not salt-free",
+      "allowed": false
+    },
+    {
+      "id": "absent-salt-qualified",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product maybe no salt",
+      "allowed": false
+    },
+    {
+      "id": "absent-salt-contradiction",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product no salt, contains salt",
+      "allowed": false
+    },
+    {
+      "id": "absent-salt-silent",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-salt-alternative",
+      "operator": "ABSENT",
+      "operand": "salt",
+      "label": "Product no salt or regular",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-salt-no-added",
+      "operator": "NO_ADDITION",
+      "operand": "salt",
+      "label": "Product no added salt",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-salt-zero-added",
+      "operator": "NO_ADDITION",
+      "operand": "salt",
+      "label": "Product 0% added salt",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-salt-free-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "salt",
+      "label": "Product salt-free",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-salt-absent-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "salt",
+      "label": "Product no salt",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-salt-reverse-not-yet-supported",
+      "operator": "NO_ADDITION",
+      "operand": "salt",
+      "label": "Product no salt added",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-salt-contradiction",
+      "operator": "NO_ADDITION",
+      "operand": "salt",
+      "label": "Product no added salt, added salt",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-salt-silent",
+      "operator": "NO_ADDITION",
+      "operand": "salt",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-palm-oil-free",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product palm oil-free",
+      "allowed": true
+    },
+    {
+      "id": "absent-palm-oil-no",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product no palm oil",
+      "allowed": true
+    },
+    {
+      "id": "absent-palm-oil-without",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product without palm oil",
+      "allowed": true
+    },
+    {
+      "id": "absent-palm-oil-zero",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product 0% palm oil",
+      "allowed": true
+    },
+    {
+      "id": "absent-palm-oil-no-added",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product no added palm oil",
+      "allowed": false
+    },
+    {
+      "id": "absent-palm-oil-post-added",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product no palm oil added",
+      "allowed": false
+    },
+    {
+      "id": "absent-palm-oil-low",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product low palm oil",
+      "allowed": false
+    },
+    {
+      "id": "absent-palm-oil-negated",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product not palm oil-free",
+      "allowed": false
+    },
+    {
+      "id": "absent-palm-oil-qualified",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product maybe no palm oil",
+      "allowed": false
+    },
+    {
+      "id": "absent-palm-oil-contradiction",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product no palm oil, contains palm oil",
+      "allowed": false
+    },
+    {
+      "id": "absent-palm-oil-silent",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-palm-oil-alternative",
+      "operator": "ABSENT",
+      "operand": "palm oil",
+      "label": "Product no palm oil or regular",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-palm-oil-no-added",
+      "operator": "NO_ADDITION",
+      "operand": "palm oil",
+      "label": "Product no added palm oil",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-palm-oil-zero-added",
+      "operator": "NO_ADDITION",
+      "operand": "palm oil",
+      "label": "Product 0% added palm oil",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-palm-oil-free-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "palm oil",
+      "label": "Product palm oil-free",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-palm-oil-absent-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "palm oil",
+      "label": "Product no palm oil",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-palm-oil-reverse-not-yet-supported",
+      "operator": "NO_ADDITION",
+      "operand": "palm oil",
+      "label": "Product no palm oil added",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-palm-oil-contradiction",
+      "operator": "NO_ADDITION",
+      "operand": "palm oil",
+      "label": "Product no added palm oil, added palm oil",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-palm-oil-silent",
+      "operator": "NO_ADDITION",
+      "operand": "palm oil",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-preservatives-free",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product preservatives-free",
+      "allowed": true
+    },
+    {
+      "id": "absent-preservatives-no",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product no preservatives",
+      "allowed": true
+    },
+    {
+      "id": "absent-preservatives-without",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product without preservatives",
+      "allowed": true
+    },
+    {
+      "id": "absent-preservatives-zero",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product 0% preservatives",
+      "allowed": true
+    },
+    {
+      "id": "absent-preservatives-no-added",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product no added preservatives",
+      "allowed": false
+    },
+    {
+      "id": "absent-preservatives-post-added",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product no preservatives added",
+      "allowed": false
+    },
+    {
+      "id": "absent-preservatives-low",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product low preservatives",
+      "allowed": false
+    },
+    {
+      "id": "absent-preservatives-negated",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product not preservatives-free",
+      "allowed": false
+    },
+    {
+      "id": "absent-preservatives-qualified",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product maybe no preservatives",
+      "allowed": false
+    },
+    {
+      "id": "absent-preservatives-contradiction",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product no preservatives, contains preservatives",
+      "allowed": false
+    },
+    {
+      "id": "absent-preservatives-silent",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-preservatives-alternative",
+      "operator": "ABSENT",
+      "operand": "preservatives",
+      "label": "Product no preservatives or regular",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-preservatives-no-added",
+      "operator": "NO_ADDITION",
+      "operand": "preservatives",
+      "label": "Product no added preservatives",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-preservatives-zero-added",
+      "operator": "NO_ADDITION",
+      "operand": "preservatives",
+      "label": "Product 0% added preservatives",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-preservatives-free-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "preservatives",
+      "label": "Product preservatives-free",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-preservatives-absent-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "preservatives",
+      "label": "Product no preservatives",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-preservatives-reverse-not-yet-supported",
+      "operator": "NO_ADDITION",
+      "operand": "preservatives",
+      "label": "Product no preservatives added",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-preservatives-contradiction",
+      "operator": "NO_ADDITION",
+      "operand": "preservatives",
+      "label": "Product no added preservatives, added preservatives",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-preservatives-silent",
+      "operator": "NO_ADDITION",
+      "operand": "preservatives",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-sugar-free",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product sugar-free",
+      "allowed": true
+    },
+    {
+      "id": "absent-sugar-no",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product no sugar",
+      "allowed": true
+    },
+    {
+      "id": "absent-sugar-without",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product without sugar",
+      "allowed": true
+    },
+    {
+      "id": "absent-sugar-zero",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product 0% sugar",
+      "allowed": true
+    },
+    {
+      "id": "absent-sugar-no-added",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product no added sugar",
+      "allowed": false
+    },
+    {
+      "id": "absent-sugar-post-added",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product no sugar added",
+      "allowed": false
+    },
+    {
+      "id": "absent-sugar-low",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product low sugar",
+      "allowed": false
+    },
+    {
+      "id": "absent-sugar-negated",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product not sugar-free",
+      "allowed": false
+    },
+    {
+      "id": "absent-sugar-qualified",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product maybe no sugar",
+      "allowed": false
+    },
+    {
+      "id": "absent-sugar-contradiction",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product no sugar, contains sugar",
+      "allowed": false
+    },
+    {
+      "id": "absent-sugar-silent",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-sugar-alternative",
+      "operator": "ABSENT",
+      "operand": "sugar",
+      "label": "Product no sugar or regular",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-sugar-no-added",
+      "operator": "NO_ADDITION",
+      "operand": "sugar",
+      "label": "Product no added sugar",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-sugar-zero-added",
+      "operator": "NO_ADDITION",
+      "operand": "sugar",
+      "label": "Product 0% added sugar",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-sugar-free-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "sugar",
+      "label": "Product sugar-free",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-sugar-absent-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "sugar",
+      "label": "Product no sugar",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-sugar-reverse-not-yet-supported",
+      "operator": "NO_ADDITION",
+      "operand": "sugar",
+      "label": "Product no sugar added",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-sugar-contradiction",
+      "operator": "NO_ADDITION",
+      "operand": "sugar",
+      "label": "Product no added sugar, added sugar",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-sugar-silent",
+      "operator": "NO_ADDITION",
+      "operand": "sugar",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-artificial-colours-free",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product artificial colours-free",
+      "allowed": true
+    },
+    {
+      "id": "absent-artificial-colours-no",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product no artificial colours",
+      "allowed": true
+    },
+    {
+      "id": "absent-artificial-colours-without",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product without artificial colours",
+      "allowed": true
+    },
+    {
+      "id": "absent-artificial-colours-zero",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product 0% artificial colours",
+      "allowed": true
+    },
+    {
+      "id": "absent-artificial-colours-no-added",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product no added artificial colours",
+      "allowed": false
+    },
+    {
+      "id": "absent-artificial-colours-post-added",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product no artificial colours added",
+      "allowed": false
+    },
+    {
+      "id": "absent-artificial-colours-low",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product low artificial colours",
+      "allowed": false
+    },
+    {
+      "id": "absent-artificial-colours-negated",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product not artificial colours-free",
+      "allowed": false
+    },
+    {
+      "id": "absent-artificial-colours-qualified",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product maybe no artificial colours",
+      "allowed": false
+    },
+    {
+      "id": "absent-artificial-colours-contradiction",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product no artificial colours, contains artificial colours",
+      "allowed": false
+    },
+    {
+      "id": "absent-artificial-colours-silent",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product ordinary",
+      "allowed": false
+    },
+    {
+      "id": "absent-artificial-colours-alternative",
+      "operator": "ABSENT",
+      "operand": "artificial colours",
+      "label": "Product no artificial colours or regular",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-artificial-colours-no-added",
+      "operator": "NO_ADDITION",
+      "operand": "artificial colours",
+      "label": "Product no added artificial colours",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-artificial-colours-zero-added",
+      "operator": "NO_ADDITION",
+      "operand": "artificial colours",
+      "label": "Product 0% added artificial colours",
+      "allowed": true
+    },
+    {
+      "id": "no-addition-artificial-colours-free-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "artificial colours",
+      "label": "Product artificial colours-free",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-artificial-colours-absent-not-inferred",
+      "operator": "NO_ADDITION",
+      "operand": "artificial colours",
+      "label": "Product no artificial colours",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-artificial-colours-reverse-not-yet-supported",
+      "operator": "NO_ADDITION",
+      "operand": "artificial colours",
+      "label": "Product no artificial colours added",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-artificial-colours-contradiction",
+      "operator": "NO_ADDITION",
+      "operand": "artificial colours",
+      "label": "Product no added artificial colours, added artificial colours",
+      "allowed": false
+    },
+    {
+      "id": "no-addition-artificial-colours-silent",
+      "operator": "NO_ADDITION",
+      "operand": "artificial colours",
+      "label": "Product ordinary",
+      "allowed": false
+    }
+  ]
+}

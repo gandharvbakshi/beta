@@ -1,6 +1,21 @@
 package com.example.beta.automation
 
 import java.util.Locale
+import com.example.beta.sourceHasUnresolvedContentsBoundary
+import com.example.beta.withDeterministicSourceEvidence
+import com.example.beta.sourcePacketCountSyntax
+import com.example.beta.sourceNamedRetailCountReceipt
+import com.example.beta.sourceCompositeRetailReceipt
+import com.example.beta.sourceArticleMeasure
+import com.example.beta.literalQuery
+import com.example.beta.groceryIntentParserClauseScopeProven
+import com.example.beta.groceryIntentSourceClauseContextProven
+import com.example.beta.GROCERY_FIRST_PERSON_REQUEST
+import com.example.beta.groceryIntentMeasuredMetadata
+import com.example.beta.groceryPackMeasures
+import com.example.beta.sourceRetailIdentityConstraint
+import com.example.beta.sourceLocalAmount
+import com.example.beta.standardGroceryRequestBody
 
 sealed class Quantity {
     data object Default : Quantity()
@@ -8,6 +23,8 @@ sealed class Quantity {
     data class Weight(val grams: Int) : Quantity()
     data class Volume(val ml: Int) : Quantity()
 }
+
+enum class IntentCartQuantityMode { TARGET, INCREMENT }
 
 data class ParsedItem(
     val rawText: String,
@@ -18,6 +35,19 @@ data class ParsedItem(
     val avoidPhrases: List<String> = emptyList(),
     val strictMatchPhrase: String? = null,
     val retailPackCount: Boolean = false,
+    // Explicit v2 logical pieces, not a retail-cart count. Requires exact catalogue conversion.
+    val logicalPieceCount: Boolean = false,
+    // Local, non-serialized source evidence, independent of model/provider flags.
+    val requiresIntentQuantityProof: Boolean = false,
+    val intentQuantityProvenance: IntentQuantityProvenance? = null,
+    val intentQuantityCatalogueCheck: IntentQuantityCatalogueCheck? = null,
+    val cartQuantityMode: IntentCartQuantityMode = IntentCartQuantityMode.TARGET,
+    val ingredientProvenance: com.example.beta.IntentIngredientProvenance? = null,
+    val containerContentsProof: IntentContainerContentsProof? = null,
+    // Local source-scope outcome, not a provider flag or a quantity ambiguity.
+    val unprovenIdentityScope: Boolean = false,
+    // Local category bound to a complete measured source. Adds a seller-offer restriction only.
+    val measuredProduceSubject: String? = null,
 )
 
 fun Quantity.requestedCount(): Int = when (this) {
@@ -37,22 +67,18 @@ fun ParsedItem.backendInputText(): String {
 object InstructionParser {
     const val PARSER_VERSION = "2026.09.16.1"
 
+    private const val courtesyWord = "(?:please|kindly)"
     private val leadingCommandRegex = Regex(
-        "^(?:\\s*(?:please\\s+|kindly\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
+        "^(?:\\s*(?:$courtesyWord\\s+)?(?:get\\s+me|pick\\s+up|order|buy|add|get|fetch|bring)\\b[\\s,]*)+",
         RegexOption.IGNORE_CASE
     )
     private val leadingConversationWrapperRegex = Regex(
-        "^(?:\\s*(?:i\\s+(?:want|need)|i\\s+would\\s+like|can\\s+you\\s+please|could\\s+you\\s+please)\\b\\s*)+",
+        "^(?:\\s*(?:$GROCERY_FIRST_PERSON_REQUEST|can\\s+you\\s+please|could\\s+you\\s+please)\\b\\s*)+",
         RegexOption.IGNORE_CASE,
     )
     private val primarySplitterRegex = Regex("\\s*(?:[,;\\r\\n]+)\\s*")
-    // The numeral belongs to this product name, not an extra two-pack request.
-    private val maggiMinuteDescriptorRegex = Regex(
-        "\\bmaggi\\s+(?:2|two)[\\s-]+minutes?\\b",
-        RegexOption.IGNORE_CASE
-    )
     private val secondarySplitterRegex = Regex(
-        "\\s*(?:\\s+&\\s+|\\s+and\\s+|\\s+aur\\s+|\\s+plus\\s+|\\s+और\\s+|\\s+ಮತ್ತು\\s+|\\s+ಹಾಗೂ\\s+)\\s*",
+        "(?:^|\\s+)(?:&|and|aur|plus|और|ಮತ್ತು|ಹಾಗೂ)\\s+",
         RegexOption.IGNORE_CASE
     )
     private val noisySplitterRegex = Regex("\\s+(?:&|and|aur|plus|और|ಮತ್ತು|ಹಾಗೂ)\\s+", RegexOption.IGNORE_CASE)
@@ -95,11 +121,11 @@ object InstructionParser {
     )
     private val fractionalMeasureRegexes = listOf(
         Regex(
-            "\\b(?:one\\s*(?:-\\s*)?and\\s*(?:-\\s*)?a\\s*(?:-\\s*)?half|one\\s*(?:-\\s*)?and\\s*(?:-\\s*)?half)\\s*(kg|kgs|g|gm|gms|gram|grams|ml|l|ltr|liter|litre|liters|litres)\\b",
+            "\\b(?:one\\s*(?:-\\s*)?and\\s*(?:-\\s*)?a\\s*(?:-\\s*)?half|one\\s*(?:-\\s*)?and\\s*(?:-\\s*)?half)\\s*(kilo|kilograms?|kilogramme|kg|kgs|g|gm|gms|gram|grams|ml|l|ltr|liter|litre|liters|litres)\\b",
             RegexOption.IGNORE_CASE
         ) to "1.5",
         Regex(
-            "\\bhalf\\s*(kg|kgs|g|gm|gms|gram|grams|ml|l|ltr|liter|litre|liters|litres)\\b",
+            "\\bhalf\\s*(kilo|kilograms?|kilogramme|kg|kgs|g|gm|gms|gram|grams|ml|l|ltr|liter|litre|liters|litres)\\b",
             RegexOption.IGNORE_CASE
         ) to "0.5"
     )
@@ -111,11 +137,6 @@ object InstructionParser {
     private val leadingMeasuredMultipackRegex = Regex(
         "^[1-9]\\d?\\s*[x×]\\s*\\d+(?:\\.\\d+)?\\s*(?:kg|kgs|g|gm|gms|grams?|ml|l|ltr|liters?|litres?)\\b\\s+.+$",
         RegexOption.IGNORE_CASE,
-    )
-    private val numericBrandPrefixTokens = listOf(
-        listOf("7", "up"),
-        listOf("5", "star"),
-        listOf("24", "mantra"),
     )
     private val leadingWeightRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(g|gm|gms|gram|grams|kg|kgs)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
     private val leadingVolumeRegex = Regex("^(\\d+(?:\\.\\d+)?)\\s*(ml|l|ltr|liter|litre|liters|litres)\\b\\s*(.+)$", RegexOption.IGNORE_CASE)
@@ -142,6 +163,18 @@ object InstructionParser {
         "^\\d+(?:\\.\\d+)?\\s*(?:ml|l|ltr|liter|litre|liters|litres|g|gm|gms|gram|grams|kg|kgs)$",
         RegexOption.IGNORE_CASE,
     )
+    // Only a complete, explicitly separated courtesy/sentence terminator is neutral.
+    // A question, dash, combining mark, amount or unit alone cannot name a product
+    // and must not silently disappear from an otherwise valid shopping list.
+    private val neutralDetached = Regex("(?:$courtesyWord[ \\t]*)?[.!।]|$courtesyWord", RegexOption.IGNORE_CASE)
+    private val fragmentCourtesy = Regex("^$courtesyWord(?:[ \\t]+|$)", RegexOption.IGNORE_CASE)
+    private fun lacksProductSubject(fragment: String): Boolean {
+        val value = fragment.trim().trimEnd('.', '!', '?', '।', ':').trimEnd()
+            .replaceFirst(fragmentCourtesy, "").trim()
+        return !value.codePoints().anyMatch(Character::isLetter) ||
+            standaloneMeasureRegex.matches(value) || standaloneMeasuredValueRegex.matches(value) ||
+            normalizeCountToken(value.lowercase(Locale.ROOT)) != null
+    }
     private val noOpRegex = Regex("^(?:i\\s+want\\s+)?(?:nothing|none|no\\s+items?)$", RegexOption.IGNORE_CASE)
     private val spokenCountWords = mapOf(
         "one" to 1,
@@ -204,10 +237,29 @@ object InstructionParser {
     )
     private val spokenCountConjunctionWords = setOf("and", "aur", "plus", "&", "और", "ಮತ್ತು", "ಹಾಗೂ")
 
-    fun parse(input: String): List<ParsedItem> {
-        val normalized = input.trim()
-            .replace(Regex("^mujhe\\s+", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("\\s+(?:chahiye|chaahiye|mangao|lao|le\\s+aao)\\s*$", RegexOption.IGNORE_CASE), "")
+    fun parse(input: String): List<ParsedItem> = parse(input, null)
+
+    /** Denial-analysis only, for an already projected row. OFF lookup never receives
+     * this exception: it otherwise omits a detached size from its product query. */
+    internal fun parseSourceCountWitness(input: String, row: ParsedItem): List<ParsedItem> {
+        val qty = row.quantity as? Quantity.Count ?: return parse(input)
+        val comma = input.indexOf(',')
+        if (input != row.rawText || row.query != row.strictMatchPhrase || comma <= 0 || comma != input.lastIndexOf(',')) return parse(input)
+        val prefix = input.substring(0, comma).trim()
+        val suffix = input.substring(comma + 1).trim()
+        val owner = sourceRetailIdentityConstraint(prefix)?.literalQuery() ?: sourceNamedRetailCountReceipt(prefix)?.literalQuery()
+            ?: return parse(input)
+        val size = groceryPackMeasures(suffix).singleOrNull() ?: return parse(input)
+        if (sourceLocalAmount(prefix, qty.n.toBigDecimal(), "count")?.startUtf16 != 0 ||
+            !groceryIntentMeasuredMetadata(input, suffix) || suffix.endsWith('?') ||
+            groceryPackMeasures(row.query) != setOf(size) ||
+            !ProductLexicon.tokenize(row.query).containsAll(ProductLexicon.tokenize(owner))) return parse(input)
+        return parse(input, suffix)
+    }
+
+    private fun parse(input: String, ownedRetailSizeSuffix: String?): List<ParsedItem> {
+        val normalized = standardGroceryRequestBody(input.trim()
+            .replace(Regex("^mujhe\\s+", RegexOption.IGNORE_CASE), ""))
         if (normalized.isEmpty()) return emptyList()
 
         val withoutPrefix = stripLeadingCommands(normalized)
@@ -218,70 +270,105 @@ object InstructionParser {
         val hasNoisySplitters = noisySplitterRegex.containsMatchIn(withoutPrefix)
         val parsedItems = mutableListOf<ParsedItem>()
 
-        primarySplitterRegex.split(withoutPrefix)
-            .flatMap { explicitSegment ->
-                // Preserve fractional "and" and the OnePlus brand before
-                // splitting the list. Each item's trailing measure stays local.
-                secondarySplitterRegex.split(normalizeFractionalMeasures(explicitSegment)
-                    .replace(Regex("\\bone\\s+plus\\b", RegexOption.IGNORE_CASE), "oneplus"))
+        val (neutral, literal) = primarySplitterRegex.split(withoutPrefix).partition { neutralDetached.matches(it.trim()) }
+        val (subjectless, sourceClauses) = literal
+            .flatMap { splitOriginalClauses(it, secondarySplitterRegex) }
+            .partition(::lacksProductSubject)
+        // A uniquely bound, explicitly separated courtesy owns only its own words.
+        // Preserve original scope accounting without inventing a corresponding SKU.
+        val courtesies = neutral.map(String::trim).filter { it.codePoints().anyMatch(Character::isLetter) }
+        val originalClauses = sourceClauses.map(::stripLeadingCommands).filter(String::isNotBlank) + courtesies
+        val representedClauses = courtesies.toMutableList()
+        var orphanedExclusion = false
+        var hasMeasuredRetailSource = false
+        val retailClauseScopeProven by lazy {
+            groceryIntentParserClauseScopeProven(input, originalClauses)
+        }
+        sourceClauses.forEach { sourceClause ->
+            // Strip requests for retrieval on original characters. Receipt
+            // construction separately proves that prefix; ordinary evidence
+            // retains the full clause, including command-like product names.
+            val originalSource = stripLeadingCommands(sourceClause)
+            val rowStart = parsedItems.size
+            val compositeSource = sourceCompositeRetailReceipt(originalSource)
+            // Unsized named phrases retain their existing descriptor/ambiguity
+            // handling. Only a proven count-plus-size needs this projection.
+            val measuredRetailSource = sourceNamedRetailCountReceipt(originalSource)?.takeIf { it.size != null }
+            hasMeasuredRetailSource = hasMeasuredRetailSource || compositeSource != null || measuredRetailSource != null
+            if ((compositeSource != null || measuredRetailSource != null) && (!retailClauseScopeProven ||
+                    !groceryIntentSourceClauseContextProven(input, originalSource, originalSource.length))) {
+                // Preserve the whole failed clause. Falling through to implicit
+                // splits could erase its factor or governing condition.
+                parsedItems += ParsedItem(originalSource, compositeSource?.literalQuery() ?: measuredRetailSource!!.literalQuery(),
+                    Quantity.Count((compositeSource?.requestedCount ?: measuredRetailSource!!.count).value.intValueExact()),
+                    quantitySignal = "instruction context needs review", retailPackCount = true,
+                    requiresIntentQuantityProof = true, unprovenIdentityScope = true)
+                representedClauses += originalSource
+                return@forEach
             }
-            .flatMap { segment ->
-                val productSegment = segment.replace(maggiMinuteDescriptorRegex, "maggi 2-minute")
-                val packInput = stripLeadingCommands(productSegment)
-                val retailPackCount = hasExplicitRetailPackCount(packInput)
-                val spoken = normalizeSpokenQuantitySegment(normalizeTrailingSpokenPackCount(packInput))
-                    .copy(ambiguousPackQuantities = hasConflictingPackCounts(packInput))
-                    .copy(retailPackCount = retailPackCount)
-                val quantityInput = normalizeTrailingMeasure(normalizePacketUnitCountSegment(spoken.text))
-                val milkTetraNormalization = normalizeMilkTetraPackSegment(quantityInput)
-                val quantityText = milkTetraNormalization.normalized ?: quantityInput
-                val ambiguousPackQuantities = spoken.ambiguousPackQuantities || milkTetraNormalization.ambiguous
-                var segmentStart = 0
-                val splitSegment = if (ambiguousPackQuantities) {
-                    quantityText
-                } else {
-                    quantityText.replace(quantityBoundaryRegex) { boundary ->
-                        val rest = quantityText.substring(boundary.range.last + 1)
-                        val prefix = quantityText.substring(segmentStart, boundary.range.first).trim()
-                        val countedPack = Regex("^[1-9]\\d?$").matches(prefix) &&
-                            (isMeasuredDescriptorPrefix(rest) || leadingMeasuredMultipackRegex.matches(rest))
-                        val descriptorPrefix = prefix.replaceFirst(Regex("^[1-9]\\d?\\s+"), "")
-                        val measuredMultipack = (
-                            Regex("^[1-9]\\d?\\s*[x×]$", RegexOption.IGNORE_CASE).matches(prefix) ||
-                                Regex("^[1-9]\\d?\\s+[1-9]\\d?\\s*[x×]$", RegexOption.IGNORE_CASE).matches(prefix) ||
-                                Regex("^[1-9]\\d?\\s*[x×]$", RegexOption.IGNORE_CASE).matches(descriptorPrefix)
-                            ) &&
-                            isMeasuredDescriptorPrefix(rest)
-                        if (isNumericBrandPrefix(rest) || countedPack || measuredMultipack) boundary.value else {
-                            segmentStart = boundary.range.last + 1
-                            ","
-                        }
-                    }
-                }
-                val mixedRetailPackSource = retailPackCount && splitSegment.contains(",")
-                primarySplitterRegex.split(splitSegment).map {
-                    spoken.copy(
-                        text = it,
-                        ambiguousMilkTetraPack = milkTetraNormalization.ambiguous,
-                        ambiguousPackQuantities = ambiguousPackQuantities,
-                        // An implicit quantity boundary can otherwise copy a
-                        // pack flag onto a later plain item (for example
-                        // "1 milk pack 2 samosa"). Fail closed for the whole
-                        // mixed source so no later item is treated as packed.
-                        quantitySignal = if (mixedRetailPackSource) {
-                            "ambiguous mixed retail-pack source"
-                        } else {
-                            spoken.quantitySignal
-                        },
-                        retailPackCount = if (mixedRetailPackSource) false else retailPackCount,
-                    )
-                }
+            val packInput = originalSource
+                .replace(ProductLexicon.maggiMinuteDescriptorRegex, "maggi 2-minute")
+                .replace(ProductLexicon.onePlusPhraseRegex, "oneplus")
+            val retailPackCount = hasExplicitRetailPackCount(packInput)
+            val spoken = normalizeSpokenQuantitySegment(normalizeTrailingSpokenPackCount(packInput))
+                .copy(ambiguousPackQuantities = hasConflictingPackCounts(packInput))
+                .copy(retailPackCount = retailPackCount, sourceText = sourceClause)
+            val quantityInput = normalizeTrailingMeasure(normalizePacketUnitCountSegment(spoken.text))
+            val milkTetraNormalization = normalizeMilkTetraPackSegment(quantityInput)
+            // The closed original source separates a generic purchase unit
+            // from product identity before descriptor preservation. This is an
+            // ephemeral parser view; sourceText and amount spans stay original.
+            val packetSource = sourcePacketCountSyntax(originalSource)?.takeIf {
+                !spoken.ambiguousPackQuantities && spoken.quantitySignal == null &&
+                    groceryIntentSourceClauseContextProven(input, originalSource, originalSource.length)
             }
-            .filter { it.text.isNotEmpty() }
-            .forEach { spokenNormalized ->
+            val namedRetailSource = measuredRetailSource?.takeIf {
+                !spoken.ambiguousPackQuantities && spoken.quantitySignal == null &&
+                    groceryIntentSourceClauseContextProven(input, originalSource, originalSource.length)
+            }
+            val articleMeasure = sourceArticleMeasure(originalSource)?.takeIf {
+                groceryIntentSourceClauseContextProven(input, originalSource, originalSource.length)
+            }
+            hasMeasuredRetailSource = hasMeasuredRetailSource || articleMeasure != null
+            val quantityText = articleMeasure?.let { (amount, noun) -> "1 ${amount.unit} $noun" } ?: compositeSource?.let {
+                // Size/factor have original source owners, not implicit item
+                // boundaries. Restore them only after validating this projection.
+                "${it.requestedCount.value.stripTrailingZeros().toPlainString()} ${originalSource.substring(it.identity)}"
+            } ?: (namedRetailSource ?: packetSource)?.let {
+                "${it.count.value.stripTrailingZeros().toPlainString()} ${originalSource.substring(it.identity)}"
+            } ?: milkTetraNormalization.normalized ?: quantityInput
+            // Quantity normalization may move an explicit purchase count
+            // ahead of its pack size. Derive metadata from that same
+            // normalized phrase rather than retaining an earlier false flag.
+            val normalizedRetailPackCount = compositeSource != null || namedRetailSource != null || retailPackCount || hasExplicitRetailPackCount(quantityText)
+            val ambiguousPackQuantities = compositeSource == null && (spoken.ambiguousPackQuantities || milkTetraNormalization.ambiguous)
+            // Bind the exact original quote whose neutral prefix was proved,
+            // so later clauses retain the same final packet-review guards.
+            val sourceBoundSpoken = if (compositeSource != null) spoken.copy(
+                sourceText = compositeSource.source, quantitySignal = null, ambiguousPackQuantities = false,
+            ) else if (namedRetailSource != null || packetSource != null)
+                spoken.copy(sourceText = (namedRetailSource ?: packetSource)!!.source) else spoken
+            val implicitParts = splitImplicitQuantityBoundaries(sourceBoundSpoken, quantityText, ambiguousPackQuantities)
+            val mixedRetailPackSource = normalizedRetailPackCount && implicitParts.size > 1
+            implicitParts.filter { it.text.isNotEmpty() }.forEach implicitPartLoop@{ part ->
+                val spokenNormalized = part.copy(
+                    ambiguousMilkTetraPack = milkTetraNormalization.ambiguous,
+                    ambiguousPackQuantities = ambiguousPackQuantities,
+                    // An implicit quantity boundary can otherwise copy a
+                    // pack flag onto a later plain item (for example
+                    // "1 milk pack 2 samosa"). Fail closed for the whole
+                    // mixed source so no later item is treated as packed.
+                    quantitySignal = if (mixedRetailPackSource) {
+                        "ambiguous mixed retail-pack source"
+                    } else {
+                        part.quantitySignal
+                    },
+                    retailPackCount = if (mixedRetailPackSource) false else normalizedRetailPackCount,
+                )
                 val segment = spokenNormalized.text
-                val quantitySignal = if (spokenNormalized.ambiguousPackQuantities) "conflicting pack quantities" else spokenNormalized.quantitySignal
-                val ambiguousPackQuantities = spokenNormalized.ambiguousPackQuantities
+                val quantitySignal = if (spokenNormalized.ambiguousPackQuantities) {
+                    "conflicting pack quantities"
+                } else spokenNormalized.quantitySignal
                 val normalizedSegment = normalizeTrailingMeasure(normalizeTrailingPackCount(segment))
                 val (withoutQuantity, quantity) = if (ambiguousPackQuantities) {
                     normalizedSegment to Quantity.Default
@@ -303,41 +390,70 @@ object InstructionParser {
                     Regex("^(?:\\d+\\s+)?(?:packs?|packets?|units?)$", RegexOption.IGNORE_CASE).matches(cleaned) ||
                     noOpRegex.matches(cleaned.lowercase(Locale.US))
                 ) {
-                    return@forEach
+                    if (avoidPhrases.isNotEmpty()) orphanedExclusion = true
+                    return@implicitPartLoop
                 }
 
                 val expanded = expandKnownProductSequence(cleaned)
+                val holdExpandedQuantity = expanded.size > 1 &&
+                    (quantity != Quantity.Default || avoidPhrases.isNotEmpty() || quantitySignal != null)
+                val outputProducts = if (holdExpandedQuantity) listOf(cleaned) else expanded
+                val rowQuantitySignal = if (holdExpandedQuantity) {
+                    quantitySignal ?: "ambiguous quantity across multiple products"
+                } else quantitySignal
                 val confidence = when {
-                    quantitySignal != null -> 0.60f
+                    rowQuantitySignal != null -> 0.60f
                     expanded.size > 1 -> 0.70f
                     hasNoisySplitters || !cleaned.equals(segment.trim(), ignoreCase = false) -> 0.85f
                     else -> 1.0f
                 }
 
-                expanded.forEach { item ->
-                    val itemQuantity = if (expanded.size == 1) quantity else Quantity.Default
+                outputProducts.forEach productLoop@{ item ->
+                    val itemQuantity = if (holdExpandedQuantity || expanded.size == 1) quantity else Quantity.Default
                     val exactMeasuredPack = (itemQuantity is Quantity.Count && isMeasuredDescriptorPrefix(item)) ||
                         leadingMeasuredMultipackRegex.matches(item)
                     val productText = if (exactMeasuredPack) normalizeMeasuredPackPrefix(item) else item
                     val query = ProductLexicon.canonicalizeProductText(productText).lowercase(Locale.US)
-                    if (query.isBlank()) {
-                        return@forEach
-                    }
+                    if (query.isBlank()) return@productLoop
                     val strictMatchPhrase = if (exactMeasuredPack) query else null
                     val candidate = ParsedItem(
-                        rawText = item,
+                        // An unresolved split has no independently owned source
+                        // span. Keep the whole clause, not a plausible fragment
+                        // whose other amounts were dropped by normalization.
+                        rawText = if (rowQuantitySignal != null) sourceClause else item,
                         query = query,
                         quantity = itemQuantity,
-                        quantitySignal = quantitySignal,
+                        quantitySignal = rowQuantitySignal,
                         retailPackCount = spokenNormalized.retailPackCount,
                         parserConfidence = if (!query.equals(item, ignoreCase = true)) minOf(confidence, 0.85f) else confidence,
-                        avoidPhrases = if (expanded.size == 1) avoidPhrases else emptyList(),
+                        avoidPhrases = if (holdExpandedQuantity || expanded.size == 1) avoidPhrases else emptyList(),
                         strictMatchPhrase = strictMatchPhrase,
                     )
-                    addParsedItem(parsedItems, candidate)
+                    val sourceText = if (rowQuantitySignal != null) sourceClause else spokenNormalized.sourceText
+                    parsedItems.add(if (sourceText == null) {
+                        candidate.copy(
+                            quantitySignal = rowQuantitySignal ?: "source evidence missing",
+                            requiresIntentQuantityProof = true,
+                        )
+                    } else {
+                        candidate.withDeterministicSourceEvidence(
+                            sourceText, input,
+                            ownsClause = outputProducts.size == 1 && implicitParts.size == 1 &&
+                                !holdExpandedQuantity && !mixedRetailPackSource && !ambiguousPackQuantities,
+                            receiptSource = stripLeadingCommands(sourceText),
+                            compositeScopeProven = compositeSource != null && retailClauseScopeProven,
+                        )
+                    })
                 }
             }
+            if (parsedItems.size > rowStart) representedClauses += originalSource
+        }
 
+        if (orphanedExclusion || subjectless.any { it != ownedRetailSizeSuffix } ||
+            hasMeasuredRetailSource && !groceryIntentParserClauseScopeProven(input, originalClauses, representedClauses)) {
+            return parsedItems.map { it.copy(quantitySignal = it.quantitySignal ?: "instruction context needs review",
+                requiresIntentQuantityProof = true, unprovenIdentityScope = true, intentQuantityCatalogueCheck = null) }
+        }
         return parsedItems
     }
 
@@ -355,38 +471,80 @@ object InstructionParser {
         return normalizeLeadingSpokenCount(fractionalNormalized) ?: SpokenQuantityNormalization(fractionalNormalized)
     }
 
-    private fun addParsedItem(items: MutableList<ParsedItem>, candidate: ParsedItem) {
-        val lastIndex = items.indexOfLast { it.query == candidate.query }
-        if (lastIndex < 0) {
-            items.add(candidate)
-            return
+    private fun splitOriginalClauses(text: String, splitter: Regex): List<String> {
+        val protectedRanges = mutableListOf<IntRange>()
+        fractionalMeasureRegexes.forEach { (pattern, _) ->
+            pattern.findAll(text).forEach { protectedRanges += it.range }
         }
+        ProductLexicon.onePlusPhraseRegex.findAll(text).forEach { protectedRanges += it.range }
 
-        val existing = items[lastIndex]
-        val merged = mergeParsedItems(existing, candidate)
-        if (merged != null) {
-            items[lastIndex] = merged
-            return
+        val clauses = mutableListOf<String>()
+        var start = 0
+        for (match in splitter.findAll(text)) {
+            val overlapsProtected = protectedRanges.any { protected ->
+                match.range.first <= protected.last && protected.first <= match.range.last
+            }
+            if (overlapsProtected) continue
+            text.substring(start, match.range.first).trim().takeIf { it.isNotEmpty() }?.let { clauses.add(it) }
+            start = match.range.last + 1
         }
-
-        items.add(candidate)
+        text.substring(start).trim().takeIf { it.isNotEmpty() }?.let { clauses.add(it) }
+        return clauses
     }
 
-    private fun mergeParsedItems(existing: ParsedItem, candidate: ParsedItem): ParsedItem? {
-        if (existing.query != candidate.query) return null
-        if (existing.quantitySignal != null || candidate.quantitySignal != null) return null
-        if (existing.retailPackCount != candidate.retailPackCount) return null
-        if (existing.avoidPhrases != candidate.avoidPhrases) return null
+    private fun splitImplicitQuantityBoundaries(
+        spoken: SpokenQuantityNormalization,
+        text: String,
+        skipSplitting: Boolean,
+    ): List<SpokenQuantityNormalization> {
+        if (skipSplitting) return listOf(spoken.copy(text = text))
 
-        return when {
-            existing.quantity is Quantity.Count && candidate.quantity is Quantity.Count -> {
-                existing.copy(
-                    quantity = Quantity.Count(existing.quantity.n + candidate.quantity.n),
-                    parserConfidence = minOf(existing.parserConfidence, candidate.parserConfidence)
-                )
+        val parts = mutableListOf<String>()
+        var start = 0
+        var didSplit = false
+        for (boundary in quantityBoundaryRegex.findAll(text)) {
+            val rest = text.substring(boundary.range.last + 1)
+            // Existing numeric product identities are not contents amounts.
+            if (isNumericBrandPrefix(rest)) continue
+            val prefixText = text.substring(start, boundary.range.first)
+            if (Regex("\\bof[ \\t]*$", RegexOption.IGNORE_CASE).containsMatchIn(prefixText) ||
+                !isMeasuredDescriptorPrefix(rest) && sourceHasUnresolvedContentsBoundary(prefixText)) {
+                // A boundary through a possible contents relation is not an
+                // independent grocery. Keep the whole clause for review; do
+                // not guess outer/inner counts, including in a longer list.
+                return listOf(spoken.copy(text = text,
+                    quantitySignal = spoken.quantitySignal ?: "nested container quantity needs review"))
             }
-            existing.quantity is Quantity.Default && candidate.quantity is Quantity.Default -> existing
-            else -> null
+            val prefix = text.substring(start, boundary.range.first).trim()
+            val countedPack = Regex("^[1-9]\\d?$").matches(prefix) &&
+                (isMeasuredDescriptorPrefix(rest) || leadingMeasuredMultipackRegex.matches(rest))
+            val descriptorPrefix = prefix.replaceFirst(Regex("^[1-9]\\d?\\s+"), "")
+            val measuredMultipack = (
+                Regex("^[1-9]\\d?\\s*[x×]$", RegexOption.IGNORE_CASE).matches(prefix) ||
+                    Regex("^[1-9]\\d?\\s+[1-9]\\d?\\s*[x×]$", RegexOption.IGNORE_CASE).matches(prefix) ||
+                    Regex("^[1-9]\\d?\\s*[x×]$", RegexOption.IGNORE_CASE).matches(descriptorPrefix)
+                ) && isMeasuredDescriptorPrefix(rest)
+            if (countedPack || measuredMultipack) continue
+
+            parts += text.substring(start, boundary.range.first)
+            start = boundary.range.last + 1
+            didSplit = true
+        }
+        if (!didSplit) return listOf(spoken.copy(text = text))
+        parts += text.substring(start)
+
+        val originalSource = spoken.sourceText
+        val sourceMappingIsExact = originalSource != null && text == originalSource
+        return parts.map { part ->
+            spoken.copy(
+                text = part,
+                sourceText = if (sourceMappingIsExact) part else originalSource,
+                quantitySignal = spoken.quantitySignal ?: when {
+                    sourceMappingIsExact -> null
+                    originalSource == null -> "source evidence missing"
+                    else -> "ambiguous quantity split after normalization"
+                },
+            )
         }
     }
 
@@ -569,20 +727,41 @@ object InstructionParser {
         log: (String) -> Unit = {}
     ): List<ParsedItem> {
         return items.map { item ->
-            val preference = lookup(item.query)
+            // Stored test seeds and inference are not user instructions. Keep
+            // them inert here; live order history ranks catalogue candidates
+            // independently and must not rewrite the source-owned request.
+            val preference = lookup(item.query)?.takeIf { it.source == PreferenceSource.USER_OVERRIDE }
             if (preference != null) {
+                val avoided = (item.avoidPhrases + preference.avoidPhrases)
+                    .map(::cleanAvoidPhrase)
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                // Source-owned identities remain authoritative. History can
+                // rank candidates, not rewrite the receipt. Exclusions still
+                // survive; changed constraints must pass revalidation.
                 val preferred = preference.preferredPhrase.trim().lowercase(Locale.US)
-                log("PREFERENCE_APPLIED token=\"${item.query}\" -> \"$preferred\" conf=${"%.2f".format(Locale.US, preference.confidence)}")
+                val sourceLabels = com.example.beta.groceryIntentOpaqueNumericLabels(item.query)
+                // A saved refinement cannot replace a source-owned product/model
+                // identifier. Keep the original search, not a permanently held rewrite.
+                if (item.intentQuantityProvenance?.sourceCountRole != null ||
+                    (sourceLabels.isNotEmpty() && sourceLabels != com.example.beta.groceryIntentOpaqueNumericLabels(preferred))) {
+                    return@map item.copy(avoidPhrases = avoided, intentQuantityCatalogueCheck = null)
+                }
+                log("PREFERENCE_APPLIED source=USER_OVERRIDE")
                 item.copy(
                     query = preferred,
-                    avoidPhrases = (item.avoidPhrases + preference.avoidPhrases)
-                        .map(::cleanAvoidPhrase)
-                        .filter { it.isNotBlank() }
-                        .distinct(),
+                    avoidPhrases = avoided,
                     strictMatchPhrase = preferred,
+                    intentQuantityProvenance = item.intentQuantityProvenance?.let { proof ->
+                        if (proof.origin == IntentQuantityOrigin.SOURCE_NUMERIC) proof.copy(
+                            query = preferred, strictMatchPhrase = preferred,
+                            opaqueNumericLabels = com.example.beta.groceryIntentOpaqueNumericLabels(preferred),
+                        ) else proof
+                    },
+                    intentQuantityCatalogueCheck = null,
                 )
             } else {
-                log("PREFERENCE_NONE token=\"${item.query}\"")
+                log("PREFERENCE_NONE")
                 item
             }
         }
@@ -655,12 +834,7 @@ object InstructionParser {
         }
     }
 
-    internal fun isNumericBrandPrefix(text: String): Boolean {
-        val tokens = ProductLexicon.tokenize(text.trim())
-        return numericBrandPrefixTokens.any { prefix ->
-            tokens.size >= prefix.size && tokens.subList(0, prefix.size) == prefix
-        }
-    }
+    internal fun isNumericBrandPrefix(text: String): Boolean = ProductLexicon.isNumericBrandPrefix(text)
 
     private fun isMeasuredDescriptorPrefix(text: String): Boolean {
         val normalized = text.trim()
@@ -884,4 +1058,5 @@ data class SpokenQuantityNormalization(
     val ambiguousMilkTetraPack: Boolean = false,
     val ambiguousPackQuantities: Boolean = false,
     val retailPackCount: Boolean = false,
+    val sourceText: String? = null,
 )

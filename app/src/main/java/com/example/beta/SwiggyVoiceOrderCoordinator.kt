@@ -9,6 +9,7 @@ import com.example.beta.SwiggyMcpClient.RequestedItem
 import com.example.beta.SwiggyMcpClient.SwiggyAddress
 import com.example.beta.SwiggyMcpClient.SwiggyMcpResult
 import com.example.beta.automation.InstructionParser
+import com.example.beta.automation.IntentCartQuantityMode
 import com.example.beta.automation.ParsedItem
 import com.example.beta.automation.Preference
 import com.example.beta.automation.PreferenceStore
@@ -18,11 +19,13 @@ import com.example.beta.automation.backendInputText
 internal const val MAX_SWIGGY_MCP_ITEMS = 50
 internal const val SWIGGY_RECOMMENDATION_BATCH_SIZE = 25
 internal const val SWIGGY_ADDRESS_PAGE_SIZE = 8
+private const val WHOLE_EDIT_PROMPT = "Your whole message is in the box. Move to the part you want to change, or say 'read my message'."
 
 internal fun prepareSwiggyMcpItems(
     instruction: String,
     lookup: (String) -> Preference?,
 ): List<ParsedItem> {
+    if (hasExplicitGroceryIntentProductOperationCue(instruction)) return emptyList()
     val sanitized = CommerceProviderRouter.sanitizeOrderInstruction(instruction)
     return InstructionParser.applyPreferences(
         InstructionParser.parse(sanitized),
@@ -37,9 +40,22 @@ internal fun swiggyMcpItemValidationMessage(
     if (items.size > MAX_SWIGGY_MCP_ITEMS) {
         return "Swiggy supports up to $MAX_SWIGGY_MCP_ITEMS items in one Beta cart run. Please split this list so nothing is skipped."
     }
+    // Inner package contents are not actionable cart units. Exempt only the
+    // exact source span owned by a currently valid receipt, never all numbers
+    // in a row or an unbound model-provided pack label.
+    val ownedContents = items.flatMap { item ->
+        val amounts = listOfNotNull(item.validContainerContentsProof()?.inner, item.validSourcePieceAmount(),
+            item.validCompositeRetailReceipt()?.skuFactor)
+        val offset = instruction.indexOf(item.rawText)
+        if (offset < 0 || offset != instruction.lastIndexOf(item.rawText)) return@flatMap emptyList()
+        amounts.map { amount -> (offset + amount.startUtf16) until (offset + amount.endUtf16) }
+    }
     val oversizedCountQuery = Regex("\\b([1-9]\\d+)\\s+([A-Za-z][\\w-]*)", RegexOption.IGNORE_CASE)
         .findAll(instruction)
         .mapNotNull { match ->
+            if (ownedContents.any { it.first == match.range.first && it.last + 1 >= match.range.first + match.groupValues[1].length }) {
+                return@mapNotNull null
+            }
             if (InstructionParser.isNumericBrandPrefix(instruction.substring(match.range.first))) {
                 return@mapNotNull null
             }
@@ -59,7 +75,9 @@ internal fun swiggyMcpItemValidationMessage(
     if (items.any { it.quantitySignal != null }) {
         return "Please write the quantity using digits, for example 2 milk or 500 g rice. Beta could not safely understand a quantity; nothing was changed."
     }
-    if (items.any { (it.quantity as? Quantity.Count)?.n?.let { n -> n !in 1..20 } == true }) {
+    if (items.any { item -> (item.quantity as? Quantity.Count)?.n?.let { n ->
+            n !in 1..(if (item.logicalPieceCount) 1000 else 20)
+        } == true }) {
         return "Swiggy supports quantity 1 to 20 per item, including repeated items. Please reduce the quantity; nothing was changed."
     }
     if (items.groupBy { it.query }.any { (_, repeated) -> repeated.size > 1 }) {
@@ -74,6 +92,7 @@ internal fun swiggyMcpItemValidationMessage(
 internal fun swiggyNoCandidateMessage(
     item: ParsedItem,
     address: SwiggyAddress,
+    hasUnverifiedResults: Boolean = false,
 ): String {
     val strictMatchPhrase = item.strictMatchPhrase?.trim().takeIf { !it.isNullOrBlank() }
     val identity = swiggyIdentityTokens(item.query)
@@ -86,6 +105,9 @@ internal fun swiggyNoCandidateMessage(
     if ("lowfat" in identity) {
         return "I could not verify lower-fat milk from the product label. I have not swapped it for regular or full-cream milk. You can edit this item or leave it out."
     }
+    if (hasUnverifiedResults) {
+        return "Beta could not confirm the product or pack you asked for from Swiggy's results. Edit this item or leave it out. Nothing was added."
+    }
     return if (strictMatchPhrase != null) {
         "I could not verify this exact product and pack: $strictMatchPhrase. You can edit it or leave it out."
     } else {
@@ -97,23 +119,79 @@ internal fun isSafeSwiggyCartPlan(
     plan: SwiggyMcpClient.CartPlan,
     selected: List<RequestedItem>,
 ): Boolean {
-    val requestedQuantities = selected
-        .groupBy { it.spinId }
-        .mapValues { (_, items) -> items.maxOf { it.quantity } }
+    if (selected.isEmpty() || plan.changes.isEmpty()) return false
+    val requested = linkedMapOf<String, Pair<Int, IntentCartQuantityMode>>()
+    val requestedSkus = mutableMapOf<String, String?>()
+    val knownLimits = mutableMapOf<String, Int>()
+    for ((spinId, items) in selected.groupBy { it.spinId.trim() }) {
+        if (items.any { row -> row.cataloguePurchaseLimit?.validFor(row.spinId, row.skuId) == false }) return false
+        items.mapNotNull { it.cataloguePurchaseLimit?.maxUnits }.minOrNull()?.let { knownLimits[spinId] = it }
+        if (spinId.isBlank() || items.any { it.quantity !in 1..20 } ||
+            items.map { it.quantityMode }.distinct().size != 1 ||
+            items.mapNotNull { it.skuId?.trim()?.takeIf { sku -> sku.isNotEmpty() } }.distinct().size > 1) return false
+        if (items.first().quantityMode == IntentCartQuantityMode.INCREMENT && items.size != 1) return false
+        val total = if (items.first().quantityMode == IntentCartQuantityMode.TARGET) {
+            items.maxOf { it.quantity }.toLong()
+        } else {
+            items.fold(0L) { sum, item -> sum + item.quantity.toLong() }
+        }
+        if (total !in 1L..20L) return false
+        requested[spinId] = total.toInt() to items.first().quantityMode
+        requestedSkus[spinId] = items.mapNotNull { it.skuId?.trim()?.takeIf(String::isNotEmpty) }.firstOrNull()
+    }
     val seen = mutableSetOf<String>()
     val safeKinds = setOf("add", "increase", "change", "update")
-    return plan.changes.isNotEmpty() && plan.changes.all { change ->
+    val validChanges = plan.changes.all { change ->
         val spinId = change.spinId?.trim().orEmpty()
         val kind = change.kind.trim().lowercase()
-        val requestedQuantity = requestedQuantities[spinId]
+        val request = requested[spinId]
         val from = change.fromQuantity
         val to = change.toQuantity
         spinId.isNotBlank() &&
             kind in safeKinds &&
             seen.add(spinId) &&
-            requestedQuantity != null &&
+            request != null &&
             from != null && from >= 0 &&
-            to != null && to > from && to == requestedQuantity
+            to != null && to > from && to <= (knownLimits[spinId] ?: Int.MAX_VALUE) && when (request.second) {
+                IntentCartQuantityMode.TARGET -> to == request.first
+                IntentCartQuantityMode.INCREMENT -> {
+                    val expected = from.toLong() + request.first.toLong()
+                    expected <= 20L && to.toLong() == expected
+                }
+            }
+    }
+    if (!validChanges || !requested.all { (spinId, request) ->
+        request.second != IntentCartQuantityMode.INCREMENT || spinId in seen
+    }) return false
+    // Older responses have no full snapshot. Preserve their existing flow, but
+    // they cannot provide the basis required for future optional-row choices.
+    val snapshot = plan.snapshot ?: return true
+    fun byId(rows: List<SwiggyMcpClient.CartPlanItem>): Map<String, SwiggyMcpClient.CartPlanItem>? {
+        if (rows.any { it.spinId.isBlank() || it.spinId != it.spinId.trim() || it.quantity <= 0 ||
+                it.skuId?.let { sku -> sku.isBlank() || sku != sku.trim() } == true } ||
+            rows.map { it.spinId }.distinct().size != rows.size) return null
+        return rows.associateBy { it.spinId }
+    }
+    val existing = byId(snapshot.existingItems) ?: return false
+    val proposed = byId(snapshot.proposedItems) ?: return false
+    if (plan.existingItemCount != null && plan.existingItemCount != existing.size) return false
+    val expected = existing.toMutableMap()
+    for ((spinId, request) in requested) {
+        val current = existing[spinId]
+        val sku = requestedSkus[spinId]
+        if (current?.skuId != null && sku != null && current.skuId != sku) return false
+        val quantity = when (request.second) {
+            IntentCartQuantityMode.TARGET -> maxOf(current?.quantity ?: 0, request.first).toLong()
+            IntentCartQuantityMode.INCREMENT -> (current?.quantity ?: 0).toLong() + request.first
+        }
+        if (quantity !in 1L..20L) return false
+        expected[spinId] = SwiggyMcpClient.CartPlanItem(spinId, quantity.toInt(), sku ?: current?.skuId)
+    }
+    if (proposed != expected) return false
+    val expectedChanges = proposed.filter { (id, item) -> item.quantity != (existing[id]?.quantity ?: 0) }
+    return seen == expectedChanges.keys && plan.changes.all { change ->
+        change.fromQuantity == (existing[change.spinId]?.quantity ?: 0) &&
+            change.toQuantity == proposed[change.spinId]?.quantity
     }
 }
 
@@ -200,7 +278,7 @@ internal fun swiggyMatchedWithoutQuestionMessage(matchedCount: Int): String? = w
 
 internal fun swiggyCandidateDetail(candidate: RecommendationCandidate): String? {
     val label = candidate.label.trim()
-    return listOfNotNull(candidate.variant, candidate.subtitle)
+    return swiggyRawCatalogueFields(candidate).drop(1)
         .map(String::trim)
         .filter { it.isNotBlank() && !label.contains(it, ignoreCase = true) }
         .distinctBy(String::lowercase)
@@ -210,7 +288,7 @@ internal fun swiggyCandidateDetail(candidate: RecommendationCandidate): String? 
 
 internal fun swiggyCandidateLabel(candidate: RecommendationCandidate): String {
     val label = candidate.label.trim()
-    val extras = listOfNotNull(candidate.variant, candidate.subtitle)
+    val extras = swiggyRawCatalogueFields(candidate).drop(1)
         .map(String::trim)
         .filter { it.isNotBlank() && !label.contains(it, ignoreCase = true) }
         .distinctBy(String::lowercase)
@@ -227,8 +305,14 @@ internal fun swiggyRecommendationQuery(item: ParsedItem): String {
     }
 }
 
+private const val candidatePieceUnits = "(?:pieces?|pcs?|eggs?)"
+private val candidatePieceUnitRegex = Regex("\\b$candidatePieceUnits\\b", RegexOption.IGNORE_CASE)
 private val candidatePieceCountRegex = Regex(
-    "\\b([1-9]\\d?)\\s*(?:pieces?|pcs?|eggs?)\\b",
+    "\\b([1-9]\\d?)\\s*$candidatePieceUnits\\b",
+    RegexOption.IGNORE_CASE,
+)
+private val candidatePieceCompositionRegex = Regex(
+    "[×+]|\\b(?:x|times|each|per|extra|bonus|additional|pack\\s+of|packs|trays|sleeves|boxes|bundles?|combos?|multipacks?)\\b",
     RegexOption.IGNORE_CASE,
 )
 
@@ -238,83 +322,385 @@ private fun swiggyExplicitPieceCount(candidate: RecommendationCandidate): Int? {
     return if (counts.isEmpty()) null else counts.singleOrNull() ?: 0
 }
 
-private fun swiggyRetailMultipackCount(candidate: RecommendationCandidate): Int? {
-    val text = swiggyCandidateLabel(candidate)
-    val unit = "(?:kg|kgs|g|gm|gms|grams?|ml|l|ltr|litres?|liters?)"
+/** Logical pieces require one evidenced total, not a guessed nested bundle. */
+private fun swiggyLogicalPieceCartQuantity(item: ParsedItem, candidate: RecommendationCandidate): Int? {
+    val requested = (item.quantity as? Quantity.Count)?.n ?: return null
+    if (requested !in 1..1000) return null
+    val label = swiggyCandidateLabel(candidate)
+    // "6 pcs x 2" and "pack of 2, 6 eggs each" do not mean six pieces per
+    // cart unit. Do not reuse the retail-package divisor for logical pieces.
+    val directTotalLabel = label.replace(Regex(
+        "\\b(?:pack|tray)\\s+of\\s+(?=[1-9]\\d?\\s*(?:pieces?|pcs?|eggs?)\\b)",
+        RegexOption.IGNORE_CASE,
+    ), "")
+    if (candidatePieceCountRegex.findAll(directTotalLabel).count() != 1) return null
+    val remaining = candidatePieceCountRegex.replace(directTotalLabel, " ")
+    if (remaining.any(Char::isDigit) || candidatePieceCompositionRegex.containsMatchIn(remaining)) return null
+    val pieces = swiggyExplicitPieceCount(candidate) ?: return null
+    return if (pieces > 0 && requested % pieces == 0) (requested / pieces).takeIf { it in 1..20 } else null
+}
+
+/** A validated literal pack total is not brand identity. Mask only that exact
+ * closed piece-unit grammar, never arbitrary numbers or product words. */
+internal fun swiggyQuantityIdentityTitle(item: ParsedItem, candidate: RecommendationCandidate, title: String): String {
+    if (item.retailPackCount || swiggyLogicalPieceCartQuantity(item, candidate) == null) return title
+    return candidatePieceCountRegex.replace(title, " ")
+}
+
+private fun swiggyRetailMultipackCount(candidate: RecommendationCandidate, includeInnerPieces: Boolean): Int? {
+    if (swiggyCatalogueHasUnresolvedBundle(swiggyRawCatalogueFields(candidate))) return 0
+    // Signs must not be ignored as punctuation before an apparently valid count.
+    val label = swiggyCandidateLabel(candidate).replace('\u2212', '-').replace('\uFF0D', '-').replace('\uFF0B', '+')
+    // A catalogue count of containers is a bundle in every interpretation mode,
+    // not just V2. Missing cup/jar/etc. units silently turned three into one.
+    val packageUnit = "(?:tetra[\\s-]*packs?|packs?|packets?|bags?|bottles?|cartons?|cups?|cans?|tins?|tubs?|jars?|" +
+        "box(?:es)?|bars?|blocks?|pouch(?:es)?|sachets?|tubes?|loaf|loaves|refills?|rolls?|sprays?|bunch(?:es)?|matchbox(?:es)?" +
+        (if (includeInnerPieces) "|pieces?|pcs?|eggs?" else "") + ")"
+    val text = label.replace(Regex(
+        "\\b(?:pack|tray)\\s+of\\s+(?=[1-9]\\d{0,2}\\s*$packageUnit\\b)", RegexOption.IGNORE_CASE,
+    ), "")
+    // Inner and outer counts cannot be collapsed just because they agree:
+    // "3 pcs x 3" is nine pieces, not three. No nesting is inferred here.
+    val directUnits = Regex("\\b[0-9]+\\s*[-‐‑‒–—]*\\s*$packageUnit\\b", RegexOption.IGNORE_CASE)
+    val hasDirectUnits = directUnits.containsMatchIn(text)
+    if (hasDirectUnits && (Regex("\\b$packageUnit\\s*(?:[x×]|each\\b)", RegexOption.IGNORE_CASE).containsMatchIn(text) ||
+            Regex("\\bpack\\s+of\\b|(?:(?<![\\p{L}])x|×)\\s*[0-9]", RegexOption.IGNORE_CASE).containsMatchIn(text))) return 0
+    if (hasDirectUnits) {
+        if (directUnits.findAll(text).count() != 1) return 0
+        val remainder = directUnits.replace(text, " ")
+            .replace(Regex("\\b[0-9]+(?:\\.[0-9]+)?\\s*(?:kg|kgs|g|gm|gms|grams?|ml|l|ltr|litres?|liters?)\\b", RegexOption.IGNORE_CASE), " ")
+        // Do not guess which leftover number is an outer bundle multiplier.
+        // Physical weight/volume metadata is independent, but nested counts,
+        // offers and 'per'/'each' descriptions need an authoritative total.
+        if (groceryIntentContainsNumericAtom(remainder) || Regex("[×+]|\\b(?:x|times|each|per|extra|bonus|additional|plus|sets?|bundles?|combos?|multipacks?|sleeves|packs|trays|boxes)\\b", RegexOption.IGNORE_CASE)
+                .containsMatchIn(remainder)) return 0
+    }
+    // Consume malformed numeric clusters as a whole so a valid-looking suffix
+    // (e.g. the 2 in 1.5.2) cannot become an outer count.
+    val number = "[+-]?(?:\\d+(?:[.,/+\\-]+\\d+)*|[.,]\\d+)(?:[eE][+-]?\\d+)?"
+    val countStart = "(?<![\\p{L}\\p{N}.,/+\\-])"
+    val countEnd = "(?![\\p{L}\\p{N}./+\\-]|,(?!\\s))"
+    val size = "\\d+(?:\\.\\d+)?"
+    val measure = "(?:kg|kgs|g|gm|gms|grams?|ml|l|ltr|litres?|liters?)"
+    // Offers and additive units need an authoritative whole-bundle total;
+    // identical '1 bar + 1 bar' counts must not collapse to a single unit.
+    if (Regex(
+            "\\bbuy\\s*[0-9]+\\s*get\\s*[0-9]+\\b|\\b[0-9]+\\s*(?:free|extra|bonus|additional)\\b|" +
+                "\\+\\s*$number\\s*$packageUnit\\b",
+            RegexOption.IGNORE_CASE,
+        ).containsMatchIn(text)) return 0
     val patterns = listOf(
-        Regex("\\b([1-9]\\d?)\\s*[x×]\\s*\\d+(?:\\.\\d+)?\\s*$unit\\b", RegexOption.IGNORE_CASE),
-        Regex("\\b\\d+(?:\\.\\d+)?\\s*$unit\\s*[x×]\\s*([1-9]\\d?)\\b", RegexOption.IGNORE_CASE),
-        Regex("\\bpack\\s+of\\s+([1-9]\\d?)\\b", RegexOption.IGNORE_CASE),
+        Regex("$countStart($number)\\s*[x×]\\s*$size\\s*$measure\\b", RegexOption.IGNORE_CASE),
+        Regex("\\b$size\\s*$measure\\s*[x×]\\s*($number)$countEnd", RegexOption.IGNORE_CASE),
+        Regex("\\bpack\\s+of\\s+$countStart($number)$countEnd", RegexOption.IGNORE_CASE),
+        Regex("$countStart($number)\\s*[-‐‑‒–—]*\\s*$packageUnit\\b", RegexOption.IGNORE_CASE),
+        Regex("\\b$packageUnit\\s*[x×]\\s*($number)$countEnd", RegexOption.IGNORE_CASE),
     )
-    val counts = patterns.flatMap { it.findAll(text).map { match -> match.groupValues[1].toInt() }.toList() }
-        .distinct()
+    val matches = patterns.flatMap { it.findAll(text).toList() }
+    // Equal suffix counts can still be additive or nested: "cups x 3 and
+    // cups x 3" is not three cups. Never deduplicate unproved totals.
+    if (matches.size > 1) return 0
+    // A recognizable bundle marker with an unsupported number/size is not
+    // evidence of one unit. Do not fall through after a partial numeric parse.
+    val bundleCues = Regex(
+        "\\bpack\\s+of\\b|\\b[0-9]+\\s*[x×](?=\\s*[+-]?[0-9])|\\b$measure\\s*[x×](?=\\s*[+-]?[0-9])|\\b$packageUnit\\s*[x×]",
+        RegexOption.IGNORE_CASE,
+    ).findAll(text)
+    if (bundleCues.any { cue -> matches.none { it.range.first <= cue.range.first && it.range.last >= cue.range.last } }) return 0
+    val counts = matches.map { match ->
+        val raw = match.groupValues[1]
+        // Explicit malformed, nonpositive, out-of-range, or overflowing counts
+        // are a fail-closed sentinel, never an unknown single retail unit.
+        raw.takeIf { it.matches(Regex("[0-9]+")) }
+            ?.toIntOrNull()?.takeIf { it in 1..999 } ?: 0
+    }.distinct()
     // Conflicting multipliers are unknown, not evidence of a single unit.
     return if (counts.isEmpty()) null else counts.singleOrNull() ?: 0
 }
 
-private fun swiggyCountsRetailPackages(item: ParsedItem, candidate: RecommendationCandidate): Boolean {
-    if (!item.retailPackCount) return false
-    // One tetra pack means one carton, not a bundle of six cartons. Counting
-    // entire bundles requires an explicitly requested multipack descriptor.
-    if (swiggyRetailMultipackCount(candidate) == null) return true
-    return !item.strictMatchPhrase.isNullOrBlank() && Regex(
-        "\\b(?:[1-9]\\d?\\s*[x×]\\s*\\d|pack\\s+of\\s+[1-9]\\d?|\\d+(?:\\.\\d+)?\\s*(?:ml|l|g|kg)\\s*[x×]\\s*[1-9]\\d?)",
-        RegexOption.IGNORE_CASE,
-    ).containsMatchIn(item.strictMatchPhrase.orEmpty())
+/** One decision feeds discovery, review and the final cart boundary. A numeric
+ * count without a proved retail/piece relationship is an offer, not an exact match. */
+internal sealed class SwiggyCartQuantityResolution {
+    data class Exact(val cartUnits: Int) : SwiggyCartQuantityResolution()
+    data class RetailProposal(val cartUnits: Int, val contents: SwiggyRetailOfferContents) : SwiggyCartQuantityResolution() {
+        constructor(cartUnits: Int, packSize: String) : this(cartUnits, SwiggyRetailOfferContents.DisplayOnly(packSize))
+        val packSize: String get() = contents.display
+    }
+    data class Held(val reason: String) : SwiggyCartQuantityResolution()
 }
 
-internal fun isSwiggyCandidateCountCompatible(
+internal fun resolveSwiggyCartQuantity(
     item: ParsedItem,
     candidate: RecommendationCandidate,
-): Boolean {
-    if (item.quantity is Quantity.Weight || item.quantity is Quantity.Volume) {
-        return swiggyMeasuredPackQuantity(item, candidate) != null
+): SwiggyCartQuantityResolution {
+    val resolved = resolveSwiggyCartQuantityRules(item, candidate)
+    val units = when (resolved) {
+        is SwiggyCartQuantityResolution.Exact -> resolved.cartUnits
+        is SwiggyCartQuantityResolution.RetailProposal -> resolved.cartUnits
+        is SwiggyCartQuantityResolution.Held -> return resolved
     }
-    val requested = item.quantity as? Quantity.Count ?: return true
-    if (swiggyCountsRetailPackages(item, candidate)) return requested.n in 1..20
+    candidate.purchaseLimitHold(units)?.let { return SwiggyCartQuantityResolution.Held(it) }
+    val subject = item.measuredProduceSubject ?: return resolved
+    val grams = (item.quantity as? Quantity.Weight)?.grams
+    val pack = swiggyProvenRetailOfferContents(candidate, subject)?.measure
+    return if (resolved is SwiggyCartQuantityResolution.Exact && subject == item.query && subject == item.strictMatchPhrase &&
+        swiggyMeasuredProduceSubjectMatches(subject, candidate) && grams != null && pack?.dimension == GroceryPackDimension.WEIGHT &&
+        pack.baseValue.multiply(resolved.cartUnits.toBigDecimal()).compareTo(grams.toBigDecimal()) == 0) resolved
+    else SwiggyCartQuantityResolution.Held("measured_produce_offer_unproven")
+}
+
+internal fun RecommendationCandidate.purchaseLimitHold(cartUnits: Int): String? = when {
+    cataloguePurchaseLimitInvalid || cataloguePurchaseLimit?.validFor(spinId, skuId) == false -> "seller_limit_invalid"
+    cataloguePurchaseLimit != null && cartUnits > cataloguePurchaseLimit.maxUnits -> "seller_limit_exceeded"
+    else -> null
+}
+
+private fun resolveSwiggyCartQuantityRules(
+    item: ParsedItem,
+    candidate: RecommendationCandidate,
+): SwiggyCartQuantityResolution {
+    fun held(reason: String) = SwiggyCartQuantityResolution.Held(reason)
+    fun exact(units: Int?) = units?.takeIf { it in 1..20 }
+        ?.let { SwiggyCartQuantityResolution.Exact(it) } ?: held("quantity_not_proven")
+    if (!swiggyIntentQuantityCandidateChecked(item, candidate)) return held("catalogue_evidence_not_proven")
+    if (item.hasAuditedIntent()) return resolveAuditedSwiggyQuantity(item, candidate)
+    // A missing or stale local receipt must not downgrade a measured product-first
+    // order to the ordinary outer-unit path. This only denies, never promotes a role.
+    if (requiresProductFirstRetailProof(item.rawText) && item.validNamedRetailReceipt() == null)
+        return held("named_retail_provenance_missing")
+    if (!swiggyNamedRetailSizeConfirmed(item, candidate)) return held("named_retail_seller_size_unproven")
+    if (!swiggySourceRetailIdentityMatches(item, candidate)) return held("source_retail_identity_not_proven")
+    if ((item.intentQuantityProvenance?.sourceCountRole == com.example.beta.automation.IntentSourceCountRole.NAMED_RETAIL ||
+            sourceNamedRetailCountReceipt(item.rawText) != null) &&
+        !isSwiggyCandidateAllowed(item, candidate)) return held("named_retail_identity_not_proven")
+    if (item.containerContentsProof != null && item.validContainerContentsProof() == null) return held("source_contents_not_proven")
+    if (item.requiresGenericContainerOffer()) {
+        val receipt = item.validGenericContainerReceipt() ?: return held("generic_wrapper_not_proven")
+        val offer = swiggyProvenRetailOfferContents(candidate, receipt.literalIdentity())
+            ?: return held("generic_wrapper_offer_not_proven")
+        val requestedSize = receipt.size?.let { GroceryPackMeasure.of(it.value, it.unit) }
+        if (requestedSize != null && (offer.measure.dimension != requestedSize.dimension ||
+                offer.measure.baseValue.compareTo(requestedSize.baseValue) != 0)) return held("generic_wrapper_offer_not_proven")
+        if (!isSwiggyCandidateAllowed(item, candidate)) return held("generic_wrapper_identity_not_proven")
+        val form = receipt.literalFormNoun()
+        if (form != null && !intentEvidenceTokens(swiggyCandidateLabel(candidate)).containsAll(intentEvidenceTokens(form)))
+            return held("generic_wrapper_form_not_proven")
+        // Exclusive proposal path: never inherit an Exact result from model pack
+        // flags, a catalogue multipack or the piece-division fallback below.
+        return SwiggyCartQuantityResolution.RetailProposal(receipt.count.value.intValueExact(), offer)
+    }
+    if (item.requiresCompositeRetailOffer()) {
+        val receipt = item.validCompositeRetailReceipt() ?: return held("composite_retail_source_not_proven")
+        // A physical multipack shape cannot prove that one SKU is one named
+        // bar/bottle/carton. Generic pack requests can review that SKU's offer.
+        if (receipt.containerKey !in setOf("pack", "packet")) return held("composite_named_unit_not_proven")
+        val offer = swiggyCatalogueCompositeShape(candidate) ?: return held("composite_retail_offer_not_proven")
+        if (offer.shape != receipt.shape() || !isSwiggyCandidateAllowed(item, candidate))
+            return held("composite_retail_offer_mismatch")
+        return SwiggyCartQuantityResolution.RetailProposal(receipt.requestedCount.value.intValueExact(), offer)
+    }
+    if (item.requiresSourcePieceConversion()) {
+        // Exclusive source role: never fall through to a title-only piece guess
+        // or an outer-package proposal if the catalogue lacks an exact divisor.
+        val amount = item.validSourcePieceAmount() ?: return held("source_pieces_not_proven")
+        if (!isSwiggyCandidateAllowed(item, candidate)) return held("piece_identity_not_proven")
+        val perSku = swiggyCatalogueSourcePieceCount(candidate) ?: return held("catalogue_piece_contents_not_proven")
+        val pieces = amount.value.intValueExact()
+        return exact(if (pieces % perSku == 0) pieces / perSku else null)
+    }
+    sourcePacketOfferSyntax(item.rawText, item.intentQuantityProvenance?.terminalContext)?.let { syntax ->
+        // A recognized source packet may only become an explicitly reviewed
+        // offer. Damaged evidence cannot fall through to one-piece/size guesses.
+        if (!item.packetOfferProofMatches(syntax)) return held("packet_offer_source_not_proven")
+        if (!isSwiggyCandidateAllowed(item, candidate)) return held("packet_offer_identity_not_proven")
+        // Preserve the existing physical-size proposal/acknowledgement contract;
+        // typed contents add support for piece-count offers, not a new exact path.
+        val contents = swiggyRetailProposalPackSize(candidate)?.let(SwiggyRetailOfferContents::DisplayOnly)
+            ?: swiggyProvenRetailOfferContents(candidate, item.rawText.substring(syntax.identity))
+            ?: return held("packet_offer_contents_not_proven")
+        return SwiggyCartQuantityResolution.RetailProposal(syntax.count.value.intValueExact(), contents)
+    }
+    if (item.quantity is Quantity.Default) {
+        // No stated amount means one sellable SKU on every producer route.
+        // Proof flags validate provenance; they must not choose whether the
+        // same catalogue count means inner contents or an outer bundle.
+        val source = item.intentQuantityProvenance?.primaryText ?: item.rawText
+        if (item.copy(rawText = source).untypedSourceNumericIssue() != null)
+            return held("default_source_quantity_not_proven")
+        // Retrieval may be loose; one-SKU finalization may not discard a
+        // remaining variant measure just because no strict marker was set.
+        // Typed physical totals use the separate conversion path below.
+        if (!isSwiggyCandidateAllowed(item, candidate) ||
+            !swiggyStrictPackMatches(item.query, swiggyCandidateLabel(candidate), candidate))
+            return held("default_identity_not_proven")
+        // A default cart count means one SKU, not an unspecified physical size.
+        // Display text can rule a size out, but only this SKU's own quantity
+        // evidence can establish the requested weight/volume. Do not infer a
+        // divisible purchase total, or apply this to a nutrient claim.
+        val sizes = (groceryPackMeasures(item.query) + groceryPackMeasures(item.strictMatchPhrase.orEmpty()))
+            .filter { it.dimension == GroceryPackDimension.WEIGHT || it.dimension == GroceryPackDimension.VOLUME }
+        if (sizes.isNotEmpty() && (sizes.size != 1 || swiggyCatalogueSourcePhysicalMeasure(candidate, defaultVariant = true) != sizes.single()))
+            return held("default_physical_size_not_proven")
+        return if (swiggySingleSkuDefaultAllowed(candidate)) exact(1) else held("default_bundle_not_proven")
+    }
+    item.validContainerContentsProof()?.takeIf { it.container in setOf("pack", "packet") }?.let { source ->
+        val literal = item.containerContentsLiteralIdentity()
+        val analysis = swiggyCatalogueContents(candidate, literal)
+        // A generic wrapper may use this SKU's proven inner count as a reviewed
+        // offer. Preserve the outer count, never divide by the inner pieces.
+        // Explicit relations (and contradictions) stay on the existing path.
+        if (!analysis.issue && analysis.contents == null) {
+            if (literal == null || swiggyCatalogueContainerRelationConflicts(candidate, source.container, literal))
+                return held("contents_identity_not_proven")
+            val count = (item.quantity as? Quantity.Count)?.n?.takeIf { it in 1..20 }
+            val offer = swiggyProvenRetailOfferContents(candidate, literal)
+            return if (count != null && item.cartQuantityMode == IntentCartQuantityMode.TARGET &&
+                item.intentQuantityProvenance?.corrected == null &&
+                offer?.measure?.dimension == GroceryPackDimension.PIECES &&
+                offer.measure.baseValue.compareTo(source.inner.value) == 0 && isSwiggyCandidateAllowed(item, candidate))
+                SwiggyCartQuantityResolution.RetailProposal(count, offer)
+            else held("contents_offer_not_proven")
+        }
+    }
+    swiggyCatalogueRetailCartQuantity(item, candidate)?.let { return exact(it) }
+    if (item.quantity is Quantity.Weight || item.quantity is Quantity.Volume) {
+        return exact(swiggyMeasuredPackQuantity(item, candidate))
+    }
+    if (swiggyRetailMultipackCount(candidate, true) == 0) return held("bundle_not_proven")
+    val requested = item.quantity as? Quantity.Count ?: return held("quantity_not_proven")
+    // Only a revalidated source receipt can establish an exact outer count.
+    // A model/parser flag or a query containing a pack size is not that receipt.
+    // Explicit nested contents were resolved by the typed path above; here the
+    // candidate must retain that container identity and affirm one such unit.
+    // An absent bundle count is unknown, not proof of a single unit: a physical
+    // size (for example 400 g) cannot establish a bar/bottle/etc. count.
+    item.intentQuantityProvenance?.takeIf { it.retailContainer != null }?.let { proof ->
+        return if (groceryIntentSourceRetailReceiptValid(proof) &&
+            swiggyCatalogueHasSingleRetailUnit(candidate, requireNotNull(proof.retailContainer)) &&
+            swiggyRetailMultipackCount(candidate, true) == 1 &&
+            isSwiggyCandidateAllowed(item, candidate))
+            exact(requested.n) else held("retail_container_not_proven")
+    }
+    if (item.retailPackCount && item.intentQuantityProvenance == null)
+        return held("retail_count_source_not_proven")
     // A count of prepared snacks is a piece count, not an unknown frozen bag.
     // Explicit retail-pack requests are handled separately from individual food.
-    if ("samosa" in swiggyIdentityTokens(item.query)) {
-        val tokens = swiggyIdentityTokens(swiggyCandidateLabel(candidate))
-        if (tokens.any { it in setOf("frozen", "readytocook", "raw") } ||
-            "readytoeat" !in tokens ||
-            !candidatePieceCountRegex.containsMatchIn(swiggyCandidateLabel(candidate)) &&
-            swiggyRetailMultipackCount(candidate) == null) return false
-    }
-    swiggyRetailMultipackCount(candidate)?.let { pieces ->
-        return pieces > 0 && requested.n % pieces == 0 && requested.n / pieces in 1..20
-    }
-    val explicitPackCount = swiggyExplicitPieceCount(candidate)
-    return explicitPackCount == null || explicitPackCount > 0 &&
-        requested.n % explicitPackCount == 0 && requested.n / explicitPackCount in 1..20
+    if (!swiggyPreparedPieceOfferMatches(item, candidate)) return held("prepared_piece_not_proven")
+    if (item.logicalPieceCount) return exact(swiggyLogicalPieceCartQuantity(item, candidate))
+    val offer = swiggyOrdinaryRetailOfferContents(candidate)
+    return if (requested.n in 1..20 && offer != null && isSwiggyCandidateAllowed(item, candidate))
+        SwiggyCartQuantityResolution.RetailProposal(requested.n, offer)
+    else held("retail_offer_not_proven")
 }
+
+/** Shared seller-only default policy. One suggested SKU is not a claim about
+ * its physical contents and must never be used as a piece/measure divisor. */
+internal fun swiggySingleSkuDefaultAllowed(candidate: RecommendationCandidate): Boolean {
+    val contents = swiggyCatalogueContents(candidate)
+    if (contents.issue) return false
+    if (contents.contents != null) return true
+    val rawFields = swiggyRawCatalogueFields(candidate).joinToString(" ")
+    if (candidatePieceUnitRegex.containsMatchIn(rawFields) && candidatePieceCompositionRegex.containsMatchIn(rawFields)) return false
+    if (swiggyRetailMultipackCount(candidate, true) == 0) return false
+    return swiggyRetailMultipackCount(candidate, false).let { it == null || it == 1 }
+}
+
+/** Shared existing prepared-piece veto; never infers a product-specific count. */
+internal fun swiggyPreparedPieceOfferMatches(item: ParsedItem, candidate: RecommendationCandidate): Boolean {
+    if ("samosa" !in swiggyIdentityTokens(item.query)) return true
+    val tokens = swiggyIdentityTokens(swiggyCandidateLabel(candidate))
+    return tokens.none { it in setOf("frozen", "readytocook", "raw") } && "readytoeat" in tokens &&
+        (candidatePieceCountRegex.containsMatchIn(swiggyCandidateLabel(candidate)) ||
+            swiggyRetailMultipackCount(candidate, item.requiresIntentQuantityProof) != null)
+}
+
+/** Concrete SKU contents only. This pure fact never establishes how the user
+ * meant their count, authorises a divisor, or returns an executable quantity. */
+internal fun swiggyOrdinaryRetailOfferContents(candidate: RecommendationCandidate): SwiggyRetailOfferContents? {
+    if (swiggyCatalogueQuantityConflict(candidate) || swiggyRetailMultipackCount(candidate, true) == 0) return null
+    // Exactly one proven piece per SKU conserves N for either interpretation
+    // of a bare count. This is still an offer, never proof of a source count role.
+    val singlePieceOffer = swiggyProvenRetailOfferContents(candidate, null)?.takeIf {
+        it.measure.dimension == GroceryPackDimension.PIECES && it.measure.baseValue.compareTo(java.math.BigDecimal.ONE) == 0
+    }
+    if (singlePieceOffer != null) return singlePieceOffer
+    // Catalogue contents do not establish the source's count role. In
+    // particular, "2 milk" + "2 x 500 ml" must not silently become one SKU.
+    // Only the explicit/proven source roles above authorize a divisor.
+    // No product-name inference: a bare count is not proof of what one SKU
+    // contains. Keep a concrete ordinary retail offer for an explicit review,
+    // but never let the exact/action conversion below return its quantity.
+    return swiggyRetailProposalPackSize(candidate)?.let(SwiggyRetailOfferContents::DisplayOnly)
+}
+
+/** An offer needs one ordinary, directly stated pack measure. No estimates,
+ * joined-field inference, unknown contents or complicated bundles are offered. */
+private fun swiggyHasAffirmativePhysicalMeasures(
+    fields: List<String>, evidence: List<NutritionMeasureEvidence>,
+): Boolean {
+    if (fields.any { field ->
+            field.any { it in "~≈±<>≤≥" } || Regex(
+                "\\b(?:approx(?:imately)?|about|up\\s*to|estimated|at\\s+least|at\\s+most|less\\s+than|more\\s+than|not|never|neither|nor|unless|if|whether|instead)\\b",
+                RegexOption.IGNORE_CASE,
+            ).containsMatchIn(field) || Regex(
+                "\\b(?:no|without|min(?:imum)?|max(?:imum)?)\\s*[:=]?\\s+(?=${groceryPackMeasurePattern.pattern})|${groceryPackMeasurePattern.pattern}\\s+(?:min(?:imum)?|max(?:imum)?)\\b",
+                RegexOption.IGNORE_CASE,
+            ).containsMatchIn(field)
+        }) return false
+    // A numeric substring inside a signed, comma-formatted or fractional value
+    // is not affirmative pack evidence, even when another field repeats it.
+    return evidence.none { field -> groceryPackMeasurePattern.findAll(field.physicalText).any { match ->
+        val prefix = field.physicalText.substring(0, match.range.first)
+        val previous = prefix.trimEnd().lastOrNull()
+        previous != null && previous !in setOf('(', '·') &&
+            !(previous.isLetter() && prefix.lastOrNull()?.isWhitespace() == true)
+    } }
+}
+
+private fun swiggyRetailProposalPackSize(candidate: RecommendationCandidate): String? {
+    val fields = swiggyRawCatalogueFields(candidate)
+    val evidence = fields.map(::nutritionMeasureEvidence)
+    if (evidence.any { it.unsupported } || nutritionClaimsConflict(evidence.flatMap { it.claims }.toSet())) return null
+    if (!swiggyHasAffirmativePhysicalMeasures(fields, evidence)) return null
+    if (swiggyRetailMultipackCount(candidate, true) != null) return null
+    val joined = nutritionMeasureEvidence(evidence.joinToString(" ") { it.physicalText })
+    if (joined.unsupported || joined.claims.isNotEmpty()) return null
+    val measures = fields.flatMap(::groceryPackMeasures).toSet()
+    val measure = measures.singleOrNull() ?: return null
+    if (measure.dimension !in setOf(GroceryPackDimension.WEIGHT, GroceryPackDimension.VOLUME) ||
+        measure.baseValue.signum() <= 0) return null
+    return evidence.asSequence().flatMap { groceryPackMeasurePattern.findAll(it.physicalText) }
+        .firstOrNull()?.value
+}
+
+internal fun isSwiggyCandidateCountCompatible(item: ParsedItem, candidate: RecommendationCandidate): Boolean =
+    resolveSwiggyCartQuantity(item, candidate) is SwiggyCartQuantityResolution.Exact
 
 internal fun swiggyRequestedCartQuantity(
     item: ParsedItem,
     candidate: RecommendationCandidate,
 ): Int {
-    if (item.quantity is Quantity.Weight || item.quantity is Quantity.Volume) {
-        return requireNotNull(swiggyMeasuredPackQuantity(item, candidate)) { "Unverified pack measure" }
-    }
-    val requested = item.quantity as? Quantity.Count ?: return 1
-    if (swiggyCountsRetailPackages(item, candidate)) {
-        require(requested.n in 1..20) { "Unverified retail pack count" }
-        return requested.n
-    }
-    swiggyRetailMultipackCount(candidate)?.let { pieces ->
-        require(pieces > 0 && requested.n % pieces == 0 && requested.n / pieces in 1..20) { "Unverified multipack count" }
-        return requested.n / pieces
-    }
-    swiggyExplicitPieceCount(candidate)?.let { pieces ->
-        require(pieces > 0 && requested.n % pieces == 0 && requested.n / pieces in 1..20) { "Unverified piece count" }
-        return requested.n / pieces
-    }
-    return requested.n
+    val result = resolveSwiggyCartQuantity(item, candidate)
+    require(result is SwiggyCartQuantityResolution.Exact) { "Quantity requires explicit retail-offer review" }
+    return result.cartUnits
 }
 
 /** Exact, divisible measures only. An unknown or mixed multipack is not guessed. */
 internal fun swiggyMeasuredPackQuantity(item: ParsedItem, candidate: RecommendationCandidate): Int? {
-    val text = listOfNotNull(candidate.label, candidate.variant, candidate.subtitle).joinToString(" ")
+    val fields = swiggyRawCatalogueFields(candidate)
+    val evidence = fields.map(::nutritionMeasureEvidence)
+    if (!swiggyHasAffirmativePhysicalMeasures(fields, evidence)) return null
+    if (evidence.any { it.unsupported }) return null
+    if (nutritionClaimsConflict(evidence.flatMap { it.claims }.toSet())) return null
+    val text = evidence.joinToString(" ") { it.physicalText }
+    // Joining independent provider fields may reveal a fragmented nutrition
+    // claim. Such a join supplies negative evidence only, never a pack size.
+    val combinedEvidence = nutritionMeasureEvidence(text)
+    if (combinedEvidence.unsupported || combinedEvidence.claims.isNotEmpty()) return null
+    // This path converts physical totals only. Incidental inner pieces are
+    // neither the divisor nor outer packages, regardless of producer/proof.
+    val outerCount = swiggyRetailMultipackCount(candidate, false)
+    if (outerCount != null && outerCount != 1) return null
     val trueMultipackPrefix = Regex("\\b\\d+(?:\\.\\d+)?\\s*[x×]\\s*(?=\\d)", RegexOption.IGNORE_CASE)
     val trueMultipackSuffix = Regex(
         "\\b\\d+(?:\\.\\d+)?\\s*(?:kg|kgs|g|gm|gms|grams?|ml|l|ltr|litres?|liters?)\\s*[x×]\\s*\\d+\\b",
@@ -323,23 +709,20 @@ internal fun swiggyMeasuredPackQuantity(item: ParsedItem, candidate: Recommendat
     if (trueMultipackPrefix.containsMatchIn(text) || trueMultipackSuffix.containsMatchIn(text) ||
         Regex("\\bpack\\s+of\\s+(?:[2-9]|[1-9]\\d+)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
     ) return null
-    val measureRegex = Regex("\\b(\\d+(?:\\.\\d+)?)\\s*(kg|kgs|g|gm|gms|grams?|ml|l|ltr|litres?|liters?)\\b", RegexOption.IGNORE_CASE)
-    val weight = item.quantity is Quantity.Weight
-    val packSizes = measureRegex.findAll(text).mapNotNull { match ->
-        val unit = match.groupValues[2].lowercase()
-        val isWeight = unit in setOf("kg", "kgs", "g", "gm", "gms", "gram", "grams")
-        if (isWeight != weight) return@mapNotNull null
-        val factor = if (unit in setOf("kg", "kgs", "l", "ltr", "litre", "litres", "liter", "liters")) 1000 else 1
-        val amount = match.groupValues[1].toDouble() * factor
-        amount.toInt().takeIf { it > 0 && it.toDouble() == amount }
-    }.distinct().toList()
-    if (packSizes.size != 1) return null
+    // Compare all eligible same-dimension fields exactly before validating an
+    // integral pack. Discarding fractional/overflowing fields first can hide
+    // contradictory seller evidence; floating point can manufacture equality.
+    val dimension = if (item.quantity is Quantity.Weight) GroceryPackDimension.WEIGHT else GroceryPackDimension.VOLUME
+    val size = evidence.asSequence().flatMap { groceryPackMeasurePattern.findAll(it.physicalText) }
+        .map { GroceryPackMeasure.of(it.groupValues[1].toBigDecimal(), it.groupValues[2]) }
+        .filter { it.dimension == dimension }.distinct().singleOrNull() ?: return null
+    val packSize = try { size.baseValue.intValueExact() } catch (_: ArithmeticException) { return null }
+    if (packSize <= 0) return null
     val requested = when (val quantity = item.quantity) {
         is Quantity.Weight -> quantity.grams
         is Quantity.Volume -> quantity.ml
         else -> return null
     }
-    val packSize = packSizes.single()
     return (requested / packSize).takeIf { requested % packSize == 0 && it in 1..20 }
 }
 
@@ -355,10 +738,152 @@ internal fun swiggyNeedsExactHealthProduct(item: ParsedItem): Boolean {
         words.any { it in setOf("woh", "wo", "wali", "waali", "wala", "goli", "medicine", "dawai", "dawa", "something") }
 }
 
-internal fun consolidateSwiggyRequestedItems(selected: List<RequestedItem>): List<RequestedItem> =
-    selected.groupBy { it.spinId }.values.map { sameProduct ->
-        sameProduct.first().copy(quantity = sameProduct.sumOf { it.quantity })
+internal fun consolidateSwiggyRequestedItems(selected: List<RequestedItem>): List<RequestedItem> {
+    if (selected.isEmpty()) return emptyList()
+    val consolidated = mutableListOf<RequestedItem>()
+    for ((spinId, sameProduct) in selected.groupBy { it.spinId.trim() }) {
+        if (spinId.isBlank() || sameProduct.any { it.quantity !in 1..20 } ||
+            sameProduct.map { it.quantityMode }.distinct().size != 1) return emptyList()
+        val skuIds = sameProduct.mapNotNull { it.skuId?.trim()?.takeIf { sku -> sku.isNotEmpty() } }.distinct()
+        if (skuIds.size > 1) return emptyList()
+        val total = sameProduct.fold(0L) { sum, item -> sum + item.quantity.toLong() }
+        if (total !in 1L..20L) return emptyList()
+        if (sameProduct.any { row -> row.cataloguePurchaseLimit?.validFor(row.spinId, row.skuId) == false }) return emptyList()
+        val limit = sameProduct.mapNotNull { it.cataloguePurchaseLimit }.minByOrNull { it.maxUnits }
+        if (limit != null && total > limit.maxUnits) return emptyList()
+        consolidated += sameProduct.first().copy(
+            spinId = spinId,
+            quantity = total.toInt(),
+            skuId = skuIds.singleOrNull() ?: sameProduct.first().skuId,
+            cataloguePurchaseLimit = limit,
+        )
     }
+    return consolidated
+}
+
+internal fun swiggyRequestedItemFromParsedItem(
+    candidate: RecommendationCandidate,
+    item: ParsedItem,
+): RequestedItem = RequestedItem(
+    spinId = candidate.spinId,
+    skuId = candidate.skuId,
+    quantity = swiggyRequestedCartQuantity(item, candidate),
+    displayName = swiggyCandidateLabel(candidate),
+    quantityMode = item.cartQuantityMode,
+    cataloguePurchaseLimit = candidate.cataloguePurchaseLimit,
+)
+
+/** Read-only plan input. This must never bypass the review-bound gate in applyPlan. */
+internal fun swiggyPreviewItemFromParsedItem(candidate: RecommendationCandidate, item: ParsedItem): RequestedItem {
+    val quantity = when (val result = resolveSwiggyCartQuantity(item, candidate)) {
+        is SwiggyCartQuantityResolution.Exact -> result.cartUnits
+        is SwiggyCartQuantityResolution.RetailProposal -> result.cartUnits
+        is SwiggyCartQuantityResolution.Held -> error("Unresolved quantity cannot enter a cart preview")
+    }
+    return RequestedItem(candidate.spinId, quantity, swiggyCandidateLabel(candidate), candidate.skuId, item.cartQuantityMode,
+        candidate.cataloguePurchaseLimit)
+}
+
+internal const val SWIGGY_MAX_CANDIDATES = 5
+
+internal fun swiggyUsableCandidates(item: ParsedItem, recommendation: Recommendations): List<RecommendationCandidate> {
+    if (swiggyIntentQuantityIssue(item, recommendation) != null || swiggyNeedsExactHealthProduct(item)) return emptyList()
+    return recommendation.candidates.filter {
+        it.spinId.isNotBlank() && resolveSwiggyCartQuantity(item, it) !is SwiggyCartQuantityResolution.Held && isSwiggyCandidateAllowed(item, it)
+    }.take(SWIGGY_MAX_CANDIDATES)
+}
+
+internal fun swiggyQuantityProposalBinding(
+    rowIndex: Int, item: ParsedItem, candidate: RecommendationCandidate,
+): SwiggyQuantityProposalBinding? {
+    val proposal = resolveSwiggyCartQuantity(item, candidate) as? SwiggyCartQuantityResolution.RetailProposal ?: return null
+    // Consent identity uses typed field equality, never diagnostic toString().
+    val version = when (proposal.contents) {
+        is SwiggyRetailOfferContents.DisplayOnly -> "retail-offer-v1"
+        is SwiggyRetailOfferContents.Proven -> "retail-offer-v2"
+        is SwiggyRetailOfferContents.ProvenComposite -> "retail-offer-v3"
+    }
+    val evidence = SwiggyQuantityProposalEvidence.snapshot(item, candidate, version, proposal.packSize, proposal.contents)
+    return SwiggyQuantityProposalBinding(rowIndex, swiggyIntentQuantitySource(item) ?: item.rawText,
+        proposal.cartUnits, candidate.spinId, candidate.skuId, evidence)
+}
+
+internal fun swiggyQuantityProposalReviewRow(
+    item: ParsedItem, candidate: RecommendationCandidate,
+    proposal: SwiggyCartQuantityResolution.RetailProposal, cartChange: String,
+): SwiggyStepRow {
+    val source = swiggyIntentQuantitySource(item) ?: item.rawText
+    val statedAmount = item.intentQuantityProvenance?.corrected?.atom
+        ?: item.intentQuantityProvenance?.local?.atom ?: (item.quantity as Quantity.Count).n.toString()
+    return SwiggyStepRow(
+        title = "You said: “$source”",
+        detail = "${swiggyCandidateLabel(candidate)}\n" +
+            "Beta suggests: ${proposal.cartUnits} pack(s) of ${proposal.packSize}\n" +
+            "You asked for $statedAmount. This product is sold as ${proposal.packSize} packs.\n$cartChange",
+        badge = "Suggested pack amount", tone = SwiggyStepTone.AMBER,
+    )
+}
+
+/** Review the original requests in their original order, even when the backend
+ * consolidates several requests into one SKU or omits an unchanged line. */
+internal fun swiggyOrderedCartReviewRows(
+    items: List<ParsedItem>,
+    candidates: Map<Int, RecommendationCandidate>,
+    skipped: Set<Int>,
+    changes: List<SwiggyMcpClient.CartPlanChange>,
+    resolve: (Int, ParsedItem, RecommendationCandidate) -> SwiggyCartQuantityResolution = { _, item, candidate ->
+        resolveSwiggyCartQuantity(item, candidate)
+    },
+    onChange: (Int) -> Unit,
+): List<SwiggyStepRow> = items.indices.mapNotNull { index ->
+    val item = items[index]
+    if (index in skipped) return@mapNotNull SwiggyStepRow(
+        title = item.rawText, detail = "You chose to leave this item out.",
+        badge = "Not added", tone = SwiggyStepTone.AMBER,
+    )
+    val candidate = candidates[index] ?: return@mapNotNull if (item.hasAuditedIntent()) SwiggyStepRow(
+        title = item.rawText, detail = "Beta could not verify this amount. Edit your list before adding it.",
+        badge = "Not verified", tone = SwiggyStepTone.AMBER,
+        action = SwiggyStepAction("Change ${item.query}") { onChange(index) },
+    ) else null
+    val change = changes.singleOrNull { it.spinId == candidate.spinId }
+    val from = change?.fromQuantity ?: 0
+    val to = change?.toQuantity ?: from
+    val sharedLine = candidates.entries.count { it.key !in skipped && it.value.spinId == candidate.spinId } > 1
+    val cartChange = if (change == null) "No quantity change shown in this plan"
+        else (if (sharedLine) "Combined cart line: " else "Cart line: ") + "$from → $to packs"
+    val action = SwiggyStepAction("Change ${item.query}") { onChange(index) }
+    when (val resolution = resolve(index, item, candidate)) {
+        is SwiggyCartQuantityResolution.RetailProposal ->
+            swiggyQuantityProposalReviewRow(item, candidate, resolution, cartChange).copy(action = action)
+        is SwiggyCartQuantityResolution.Exact -> SwiggyStepRow(
+            title = swiggyCandidateLabel(candidate),
+            detail = "You asked: ${item.rawText}\n$cartChange" + swiggyDefaultQuantityReviewNote(listOf(item)),
+            badge = if (change == null) "No change shown" else "$from → $to packs",
+            action = action,
+        )
+        is SwiggyCartQuantityResolution.Held -> SwiggyStepRow(
+            title = item.rawText, detail = "Beta could not verify this amount. Edit your list before adding it.",
+            badge = "Not verified", tone = SwiggyStepTone.AMBER, action = action,
+        )
+    }
+}
+
+/** Keep suggestion provenance even when multiple requests consolidate into one SKU. */
+internal fun swiggyDefaultQuantityReviewNote(items: List<ParsedItem>): String {
+    val defaults = items.filter { it.quantity is Quantity.Default }
+    if (defaults.isEmpty()) return ""
+    return "\nSuggested quantity: 1 pack for each request without a quantity: " +
+        defaults.joinToString("; ") { it.rawText } + ". Check the combined total above."
+}
+
+/** A hint identifies an eligible offer, but never supplies its current catalogue evidence. */
+internal fun swiggyCurrentChoice(usable: List<RecommendationCandidate>, hint: RecommendationCandidate?): RecommendationCandidate? {
+    if (hint == null || hint.spinId.isBlank() || hint.spinId != hint.spinId.trim()) return null
+    val sku = hint.skuId ?: return usable.singleOrNull { it.spinId == hint.spinId }?.takeIf { it == hint }
+    if (sku.isBlank() || sku != sku.trim()) return null
+    return usable.singleOrNull { it.spinId == hint.spinId && it.skuId == sku }
+}
 
 internal fun swiggyDefaultSuggestion(
     item: ParsedItem,
@@ -367,17 +892,52 @@ internal fun swiggyDefaultSuggestion(
 ): RecommendationCandidate {
     // The backend applies the same history-first identity policy to all items.
     // This list has already passed exact quantity and explicit-intent checks.
-    return usable.firstOrNull { it.spinId == preferred?.spinId } ?: usable.first()
+    return swiggyCurrentChoice(usable, preferred) ?: usable.first()
 }
 
-internal fun isSwiggyCandidateAllowed(item: ParsedItem, candidate: RecommendationCandidate): Boolean {
-    if (!swiggyMatchesProductIdentity(item, swiggyCandidateLabel(candidate))) return false
-    val label = swiggyCandidateLabel(candidate).lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+internal fun isSwiggyCandidateAllowed(item: ParsedItem, candidate: RecommendationCandidate): Boolean =
+    swiggyCatalogueContentMatches(item, candidate) && swiggyIntentProduceConstraintMatches(item, candidate) &&
+        swiggyIntentNumericCodeMatches(item, candidate)
+
+/** Pure product/form/exclusion comparison. This is not quantity or execution
+ * authority; the ordinary wrapper above retains those independent checks. */
+internal fun swiggyCatalogueContentMatches(item: ParsedItem, candidate: RecommendationCandidate): Boolean {
+    // Undo only our exact name/variant display join. Raw fields remain separate
+    // when interpreting claims; all other constraints still use original text.
+    val primaryIdentity = candidate.variant?.takeIf { it.isNotBlank() }
+        ?.let { candidate.label.removeSuffix(" · $it") } ?: candidate.label
+    if (!swiggyDietaryFormsAgree(item, candidate, primaryIdentity)) return false
+    if (listOf(item.query, item.strictMatchPhrase.orEmpty()).any {
+            swiggyClaimOnlyIdentityConflict(it, primaryIdentity)
+        }) return false
+    if (!swiggySourceRetailIdentityMatches(item, candidate)) return false
+    if (!swiggyTypedIngredientsMatch(item, candidate)) return false
+    val sellerProperties = validatedSellerPropertyRequirement(item)
+    if (sellerProperties != null) {
+        if (candidate.sellerAssessment?.matches(sellerProperties, candidate) != true) return false
+    }
+    if (swiggyCatalogueQuantityConflict(candidate)) return false
+    if (swiggyCatalogueHasUnresolvedBundle(swiggyRawCatalogueFields(candidate))) return false
+    // Inspect raw fields before display de-duplication can hide an exact form
+    // word that is only a substring of a brand in another field.
+    if (!swiggyProductFormsAllowed(listOf(item.query, item.strictMatchPhrase.orEmpty()), item.avoidPhrases,
+            swiggyRawCatalogueFields(candidate))) return false
+    if (!swiggyMatchesProductIdentity(item, swiggyCandidateLabel(candidate),
+            listOf(primaryIdentity) + swiggyRawCatalogueFields(candidate).drop(1), candidate)) return false
+    val rawLabel = swiggyCandidateLabel(candidate)
+    val label = rawLabel.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ")
     return item.avoidPhrases.none { phrase ->
         val words = phrase.lowercase().trim().replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+        // This exact source-owned restriction was checked against raw SKU fields above.
+        if (validatedIngredientPredicates(item)?.any { it.literalExclusion() == words } == true) return@none false
         if (words == "sugar") {
-            val evidence = swiggyIdentityTokens(swiggyCandidateLabel(candidate))
-            return@none evidence.none { it in setOf("unsweetened", "sugarfree") } || swiggyHasSugarContradiction(swiggyCandidateLabel(candidate))
+            val evidence = swiggyIdentityTokens(rawLabel)
+            return@none evidence.none { it in setOf("unsweetened", "sugarfree") } ||
+                swiggyHasSugarContradiction(rawLabel) || !swiggyHasExplicitIngredientAbsence(rawLabel, "sugar")
+        }
+        val predicate = IngredientPredicate.fromProtectedExclusion(words)
+        if (predicate != null) {
+            return@none !swiggyHasIngredientPredicate(rawLabel, predicate)
         }
         // Explicit "lactose free" / "sugar free" is not the excluded ingredient.
         // Do not infer ingredient safety from an otherwise silent catalog label.
@@ -385,6 +945,37 @@ internal fun isSwiggyCandidateAllowed(item: ParsedItem, candidate: Recommendatio
         words.isNotBlank() && Regex("(?:^| )${Regex.escape(words)}(?: |$)").containsMatchIn(unnegated)
     }
 }
+
+/** Recomputed from source at discovery AND final resolution; editable query
+ * copies cannot remove the obligation. This cannot grant a quantity role. */
+private fun swiggySourceRetailIdentityMatches(item: ParsedItem, candidate: RecommendationCandidate): Boolean {
+    if (sellerVesselConflicts(item, candidate)) return false
+    if (item.hasAuditedIntent()) return item.auditedIntent()?.let { swiggyOwnsMerchandise(it, candidate) } == true
+    val label = swiggyCandidateLabel(candidate)
+    // The editable query cannot remove literal source forms. This is a deny
+    // gate only: it neither proves a retail quantity nor upgrades a proposal.
+    val positive = item.query + " " + item.strictMatchPhrase.orEmpty()
+    if (groceryIntentTerminalExcludedPropertyMatch(item.rawText) != null &&
+        (groceryIntentRetainedTerminalPropertyView(item.rawText, positive, item.avoidPhrases) == null ||
+            !groceryIntentTerminalPropertyScopeProven(item.rawText, item.rawText))) return false
+    val sourceForms = groceryIntentPositiveSourceFormTokens(item.rawText, positive, item.avoidPhrases) ?: run {
+        // A verified V2 correction can change amount/size while leaving form
+        // unchanged. Reuse its bound primary, not the appended review prose.
+        // All source forms must survive; quantity proof never supplies a form.
+        if (!swiggyIntentQuantityCandidateChecked(item, candidate)) return false
+        val primary = swiggyIntentQuantitySource(item) ?: return false
+        val forms = groceryIntentPositiveSourceFormTokens(primary, positive, item.avoidPhrases) ?: return false
+        if (forms != groceryIntentSpecificSourceFormTokens(item.rawText)) return false
+        forms
+    }
+    if (!intentEvidenceTokens(label).containsAll(sourceForms)) return false
+    val constraint = sourceRetailIdentityConstraint(item.rawText) ?: return true
+    if (!constraint.hasRepresentableSize()) return false
+    val literal = constraint.literalQuery()
+    return swiggyMatchesProductIdentity(item.copy(query = literal, strictMatchPhrase = literal),
+        label, offer = candidate) && swiggyMatchesProductIdentity(item, label, offer = candidate)
+}
+
 
 internal fun swiggyQuestionPosition(
     needsQuestion: List<Boolean>,
@@ -410,26 +1001,33 @@ internal fun swiggyProviderAddedMessage(message: String?): String? {
 }
 
 /** Coordinates the user-visible, no-checkout Swiggy voice flow. */
-class SwiggyVoiceOrderCoordinator(
+class SwiggyVoiceOrderCoordinator internal constructor(
     private val activity: Activity,
     private val announce: (String) -> Unit,
     private val onReconnectRequired: () -> Unit,
     private val onAddressChanged: (String?) -> Unit = {},
-    private val onTerminal: () -> Unit = {},
+    private val onTerminal: (retainStatus: Boolean) -> Unit = {},
     private val onVerified: (Int) -> Unit = {},
     private val onEditRequest: () -> Unit = {},
+    private val onInstructionEdited: (String, String) -> Boolean = { _, _ -> false },
+    private val onRecoveryVoiceRequested: () -> Unit = {},
     private val beforeApply: () -> Boolean = { true },
     private val onCheckoutRequested: (String) -> Unit = {},
     private val isCheckoutActive: () -> Boolean = { false },
+    private val planCartRequest: (String, List<RequestedItem>, SwiggyCallback<SwiggyMcpClient.CartPlan>) -> Unit = { addressId, requested, callback ->
+        SwiggyMcpClient.planCart(activity, addressId, requested, callback)
+    },
     private val checkReviewedCart: (String, (SwiggyMcpResult<Boolean>) -> Unit) -> Unit = { token, callback ->
         SwiggyMcpClient.checkCartPlan(activity, token, callback)
     },
+    private val readIntentSelection: () -> GroceryIntentSelection = { GroceryIntentPreferences.getSelection(activity) },
 ) {
     private var running = false
     private var operationGeneration = 0L
     private var mutationInFlight = false
     private val pendingCartStore = SwiggyPendingCartStore(activity.applicationContext)
     private val cartReviewStore = SwiggyCartReviewStore(activity.applicationContext)
+    private val fulfillmentStore = GroceryIntentConstraintStore(activity.applicationContext)
     private var hostResumed = false
     private var interruptedDuringRequest = false
     private var preparationInterrupted = false
@@ -440,15 +1038,83 @@ class SwiggyVoiceOrderCoordinator(
     private var addressLocationAssessments: Map<String, SwiggyLocationAssessment> = emptyMap()
     private var selectedAddressId: String? = null
     private var selectedAddressAtElapsedRealtime = 0L
+    private var selectedAddressNeedsRevalidation = false
     private val draftCandidates = mutableMapOf<Int, RecommendationCandidate>()
     private val draftSkipped = mutableSetOf<Int>()
     private var draftRecommendations: List<Recommendations> = emptyList()
     private val intentReviewGate = GroceryIntentReviewGate()
+    private val quantityProposalGate = SwiggyQuantityProposalGate()
+    private val cartPlanRefresh = SwiggyCartPlanRefresh()
+    private var reviewedRequest: SwiggyCartReviewRequest? = null
+    // Interpretation survives an address change; catalogue evidence and consent do not.
+    private var contextPreparation: GroceryIntentContextPreparation? = null
+    private var contextHeldDraft: GroceryIntentContextAssessment.Held? = null
+    private var contextBasket: GroceryIntentContextBasket? = null
+    private var auditedBasket: AuditedIntentBasket? = null
+    private var contextProvider: GroceryIntentProvider? = null
+    // Provider and processing scope are one consent decision for this operation.
+    private var activeIntentSelection: GroceryIntentSelection.Enabled? = null
+    // Opaque interpretation identity only; both review contracts share disclosure.
+    private var spokenContext: Any? = null
+    private var recoverySession: GroceryIntentRecoverySession? = null
+    private val recoveryStore = SwiggyDraftStore(activity.applicationContext)
+    private var scopedRecovery: GroceryIntentScopedRecoverySession? = null
+    private var scopedProvider: GroceryIntentProvider? = null
+    private var scopedQuotes: List<GroceryIntentReviewV2Quote> = emptyList()
+    private var scopedDecision: androidx.appcompat.app.AlertDialog? = null
+    private var scopedLegacyOrigin: GroceryIntentRecoverySnapshot? = null
+    internal var onScopedInstructionEdited: (GroceryIntentRecoveryRecord, GroceryIntentRecoveryRecord) -> Boolean = { _, _ -> false }
+    internal var onScopedVoiceRequested: ((String?) -> Unit) -> Unit = { it(null) }
+    private var inputRepairReview: GroceryIntentInputRepairReview? = null
+    private var interruptedDraftSaveFailed = false
+    private var restoringRecoveryAfterSaveFailure = false
+    internal data class RecoveryCheckpoint(
+        val instruction: String, val provider: GroceryIntentProvider,
+        val snapshot: GroceryIntentRecoverySnapshot?, val text: String, val lastSavedText: String,
+    )
+    internal class RecoveryDraftHolder : androidx.lifecycle.ViewModel() {
+        var checkpoint: RecoveryCheckpoint? = null
+        var scoped: ScopedRecoveryCheckpoint? = null
+    }
+    internal data class ScopedRecoveryCheckpoint(
+        val record: GroceryIntentRecoveryRecord, val quote: GroceryIntentReviewV2Quote,
+        val text: String, val provider: GroceryIntentProvider, val quotes: List<GroceryIntentReviewV2Quote>,
+        val kind: GroceryIntentEditKind, val legacyOrigin: GroceryIntentRecoverySnapshot?,
+    ) {
+        override fun toString() = "ScopedRecoveryCheckpoint(<redacted>)"
+    }
+    private val retainedRecovery = (activity as? androidx.lifecycle.ViewModelStoreOwner)?.let { owner ->
+        androidx.lifecycle.ViewModelProvider(owner)[RecoveryDraftHolder::class.java]
+    } ?: RecoveryDraftHolder()
+    private var activeRecovery: RecoveryCheckpoint? = null
+    private var pausedRecovery: RecoveryCheckpoint? = retainedRecovery.checkpoint
+
+    init {
+        if (pausedRecovery != null) {
+            preparationInterrupted = true
+            interruptedDraftSaveFailed = true
+        }
+    }
 
     private fun clearDraft() {
+        cartPlanRefresh.invalidate()
+        reviewedRequest = null
+        quantityProposalGate.clear()
         draftCandidates.clear()
         draftSkipped.clear()
         draftRecommendations = emptyList()
+        contextBasket = null
+    }
+
+    private fun clearInterpretation() {
+        auditedBasket = null
+        contextPreparation = null
+        contextHeldDraft = null
+        contextBasket = null
+        contextProvider = null
+        activeIntentSelection = null
+        spokenContext = null
+        intentReviewGate.clear()
     }
 
     fun start(instruction: String) {
@@ -458,8 +1124,7 @@ class SwiggyVoiceOrderCoordinator(
         }
         if (restorePendingCartWarning()) return
         if (SwiggyCartMutationGuard.isInFlight()) {
-            announce("Swiggy is still checking the last confirmed cart update. Please wait.")
-            notifyTerminal()
+            stopWithVisibleStatus("Swiggy is still checking the last confirmed cart update. Please wait.")
             return
         }
         if (running) {
@@ -467,33 +1132,47 @@ class SwiggyVoiceOrderCoordinator(
             return
         }
         val provider = GroceryIntentPreferences.getMode(activity).providerOrNull()
-        if (provider != null) {
-            startIntentPreparation(instruction, provider)
+        val saved = recoveryStore.loadRecovery()?.takeIf { it.instruction == instruction && it.dirty != null }
+        if (saved != null) {
+            running = true
+            // Restoring words is local and independent of the enabled provider.
+            // Save below re-reads the current mode before starting any inference.
+            showScopedRecoveryRecord(saved, provider ?: GroceryIntentProvider.GEMINI,
+                listOfNotNull(saved.dirty!!.quote.takeIf { saved.dirty.kind == GroceryIntentEditKind.PHRASE }),
+                saved.dirty.quote, restored = true, kind = saved.dirty.kind)
             return
         }
-        startStandardPreparation(instruction)
+        startIntentPreparation(instruction)
     }
 
     private fun startStandardPreparation(instruction: String) {
-        intentReviewGate.clear()
+        clearPausedRecovery()
+        clearScopedRecovery()
+        recoverySession?.invalidate()
+        recoverySession = null
+        inputRepairReview?.invalidate()
+        inputRepairReview = null
+        running = true
+        clearDraft()
+        clearInterpretation()
+        val operationId = ++operationGeneration
+        if (hasExplicitGroceryIntentProductOperationCue(instruction)) {
+            completeAndDismiss(operationId, "This list includes a product replacement. Standard matching cannot safely preserve which item replaces which, so edit the list or use enhanced understanding. Nothing was added.", retainStatus = true)
+            return
+        }
         val items = prepareSwiggyMcpItems(
             instruction = instruction,
             lookup = { PreferenceStore.lookup(activity, it) },
         )
         if (items.isEmpty()) {
-            announce("I could not find a grocery item in that request. Please try again.")
-            notifyTerminal()
+            completeAndDismiss(operationId, "I could not find a grocery item in that request. Please try again.", retainStatus = true)
             return
         }
         swiggyMcpItemValidationMessage(instruction, items)?.let { message ->
-            announce(message)
-            notifyTerminal()
+            completeAndDismiss(operationId, message, retainStatus = true)
             return
         }
 
-        running = true
-        clearDraft()
-        val operationId = ++operationGeneration
         val addressCaption = "Checking your saved Swiggy delivery addresses."
         showYourList(operationId, items, addressCaption)
         announce(addressCaption)
@@ -507,64 +1186,182 @@ class SwiggyVoiceOrderCoordinator(
         }
     }
 
-    private fun startIntentPreparation(instruction: String, provider: GroceryIntentProvider) {
+    private fun startIntentPreparation(instruction: String, allowQuickRepair: Boolean = true) {
+        // Every explicit retry/save gets a fresh selection. A retained editor's
+        // provider label is not permission to send a new request to that provider.
+        val selection = readIntentSelection()
+        if (selection == GroceryIntentSelection.Disabled) {
+            startStandardPreparation(instruction)
+            return
+        }
+        clearPausedRecovery()
+        clearScopedRecovery()
+        recoverySession?.invalidate()
+        recoverySession = null
+        inputRepairReview?.invalidate()
+        inputRepairReview = null
         running = true
         clearDraft()
-        intentReviewGate.clear()
+        clearInterpretation()
         val operationId = ++operationGeneration
+        if (selection !is GroceryIntentSelection.Enabled) {
+            // Revoked, obsolete or disabled receipts require an explicit choice;
+            // never silently fall back to a different processing contract.
+            showIntentRecovery(operationId, instruction, ambiguous = false)
+            return
+        }
+        activeIntentSelection = selection
+        val provider = selection.provider
         val started = SystemClock.elapsedRealtime()
-        val join = GroceryPreparationJoin<List<ParsedItem>, List<SwiggyAddress>> { items, addresses ->
+        val contract = selection.contract
+        val editHintBase = if (contract == GroceryIntentContract.V1) recoveryStore.editHintGeneration() else null
+        val revisionBinding = recoveryStore.loadRecovery()?.takeIf { it.instruction == instruction }
+        fun revisionStillCurrent(): Boolean = revisionBinding == null || recoveryStore.loadRecovery()?.let {
+            it.requestId == revisionBinding.requestId && it.revision == revisionBinding.revision && it.instruction == instruction
+        } == true
+        val join = GroceryPreparationJoin<List<ParsedItem>, SwiggyMcpResult<List<SwiggyAddress>>> { items, addresses ->
             Log.i("BetaAgent", "INTENT_PREPARATION_READY provider=${provider.requestValue} items=${items.size} elapsed_ms=${SystemClock.elapsedRealtime() - started}")
-            showYourList(operationId, items, "Checking your delivery address.")
-            rankAndChooseAddress(operationId, addresses, items)
+            when (addresses) {
+                is SwiggyMcpResult.Success -> {
+                    showYourList(operationId, items, "Checking your delivery address.")
+                    rankAndChooseAddress(operationId, addresses.value, items)
+                }
+                is SwiggyMcpResult.Failure -> fail(operationId, addresses)
+            }
         }
         stepDialog.show(SwiggyStepScreen(
             eyebrow = "Your list",
             title = "Understanding your whole list",
             message = "Checking your items and saved delivery addresses together. Nothing is being added.",
             caption = "You can stop at any time. Your list will be kept.",
-            cancel = { cancelAndDismiss(operationId, "Your list is saved. Nothing was changed.") },
+            cancel = { cancelAndDismiss(operationId, if (contract == GroceryIntentContract.INTERPRETED)
+                "Stopped. We can’t recall anything already sent, and we won’t use ${provider.displayName}’s results for this list."
+                else "Your list is saved. Nothing was changed.") },
         ))
         announce("Understanding your list. Nothing is being added.")
         // Independent reads overlap; matching still waits for BOTH results and explicit address confirmation.
         SwiggyMcpClient.fetchAddresses(activity) { result ->
             onUi(operationId) {
-                when (result) {
-                    is SwiggyMcpResult.Success -> join.second(result.value)
-                    is SwiggyMcpResult.Failure -> fail(operationId, result)
-                }
+                if (!hasCurrentIntentConsent(operationId, selection)) return@onUi
+                if (!revisionStillCurrent()) return@onUi
+                // Buffer even a failed address read until interpretation has passed.
+                // It must never dismiss an editor for a genuinely held list.
+                join.second(result)
             }
         }
-        SwiggyMcpClient.fetchIntentDraft(activity, instruction, provider) { result ->
+        if (contract == GroceryIntentContract.CONTEXT) {
+            SwiggyMcpClient.fetchIntentContextPreparation(activity, instruction, provider) { result ->
+                onUi(operationId) {
+                    if (!hasCurrentIntentConsent(operationId, selection)) return@onUi
+                    if (!revisionStillCurrent()) return@onUi
+                    when (result) {
+                        is SwiggyMcpResult.Success -> {
+                            val assessment = result.value
+                            if (assessment is GroceryIntentContextAssessment.Held) {
+                                // No executable preparation is retained and no legacy fallback
+                                // is allowed. Keep every original row for the existing review UI.
+                                clearInterpretation()
+                                contextHeldDraft = assessment
+                                showContextIssues(operationId, assessment.draft.instruction, assessment.blockingIssues, provider)
+                                return@onUi
+                            }
+                            val preparation = (assessment as GroceryIntentContextAssessment.Prepared).preparation
+                            contextPreparation = preparation
+                            contextProvider = provider
+                            val legacy = preparation.legacyPreparation
+                            if (preparation.blockingIssues.isNotEmpty()) {
+                                showContextIssues(operationId, preparation, provider)
+                            } else if (legacy.items.isEmpty()) {
+                                completeAndDismiss(operationId, "There are no items to add from this list. Nothing was added.", retainStatus = true)
+                            } else if (swiggyMcpItemValidationMessage("", legacy.items) != null) {
+                                showIntentEditor(operationId, instruction, provider)
+                            } else {
+                                // Context has its own typed issues; legacy uncovered prose is not
+                                // an acknowledgement bypass and must not be fed back into routing.
+                                intentReviewGate.prepare(emptyList(), legacy.excludedText,
+                                    legacy.sharedGroupNotes, preparation.fulfillmentConstraints)
+                                join.first(legacy.items)
+                            }
+                        }
+                        is SwiggyMcpResult.Failure -> {
+                            if (result.reconnectRequired) fail(operationId, result)
+                            else if (result.intentNeedsReview) showIntentEditor(operationId, instruction, provider)
+                            else showIntentRecovery(operationId, instruction, ambiguous = false,
+                                unavailableForInstallation = result.intentUnavailable)
+                            // A disabled/new contract never changes the saved provider choice.
+                        }
+                    }
+                }
+            }
+            return
+        }
+        SwiggyMcpClient.fetchIntentPreparation(activity, instruction, provider, contract) { result ->
             onUi(operationId) {
+                if (!hasCurrentIntentConsent(operationId, selection)) return@onUi
+                if (!revisionStillCurrent()) return@onUi
                 when (result) {
                     is SwiggyMcpResult.Success -> {
-                        val preparation = try {
-                            result.value.draft.prepareForReview()
-                        } catch (review: IntentNeedsReviewException) {
-                            showIntentRecovery(operationId, instruction, ambiguous = true, affectedText = review.affectedSourceText)
-                            return@onUi
-                        } catch (_: IllegalArgumentException) {
-                            showIntentRecovery(operationId, instruction, ambiguous = true)
+                        val preparation = result.value
+                        val items = preparation.items
+                        auditedBasket = preparation.auditedBasket
+                        if (auditedBasket != null) contextProvider = provider
+                        if (!auditedIntentBasketMatches(items, instruction, auditedBasket)) {
+                            showIntentEditor(operationId, instruction, provider)
                             return@onUi
                         }
-                        val items = preparation.items
-                        intentReviewGate.prepare(preparation.unresolvedText)
+                        if (preparation.inputRepair == null) {
+                            intentReviewGate.prepare(preparation.unresolvedText, preparation.excludedText,
+                                preparation.sharedGroupNotes, preparation.fulfillmentConstraints)
+                        }
                         // Typed quantities already passed exact numeric validation. Raw correction text
                         // must not be reparsed by the legacy heuristic (e.g. a cancelled quantity).
-                        val validation = swiggyMcpItemValidationMessage("", items)
-                        if (items.isEmpty() || validation != null) {
-                            showIntentRecovery(operationId, instruction, ambiguous = true)
-                        } else {
-                            Log.i("BetaAgent", "INTENT_DRAFT_VALIDATED provider=${provider.requestValue} items=${items.size} elapsed_ms=${SystemClock.elapsedRealtime() - started}")
-                            join.first(items)
+                        val validation = if (preparation.inputRepair == null) swiggyMcpItemValidationMessage("", items) else null
+                        val route = groceryIntentPreparationRoute(
+                            inputRepairPresent = preparation.inputRepair != null,
+                            allowQuickRepair = allowQuickRepair,
+                            recoverySnapshotPresent = preparation.recoverySnapshot != null,
+                            unresolvedTextPresent = preparation.unresolvedText.isNotEmpty(),
+                            validationMessagePresent = validation != null,
+                            itemsEmpty = items.isEmpty(),
+                        )
+                        when (route) {
+                            GroceryIntentPreparationRoute.INPUT_REPAIR -> {
+                                showIntentInputRepair(operationId, instruction, provider,
+                                    requireNotNull(preparation.inputRepair))
+                                return@onUi
+                            }
+                            GroceryIntentPreparationRoute.EDITOR -> {
+                                // Disabled input-repair keeps its original no-snapshot editor path.
+                                showIntentEditor(operationId, instruction, provider,
+                                    preparation.recoverySnapshot.takeIf { preparation.inputRepair == null })
+                            }
+                            GroceryIntentPreparationRoute.EMPTY ->
+                                // Deliberately cancelled/excluded items are not unresolved purchases.
+                                completeAndDismiss(operationId, "There are no items to add from this list. Nothing was added.", retainStatus = true)
+                            GroceryIntentPreparationRoute.DISCOVERY -> {
+                                Log.i("BetaAgent", "INTENT_DRAFT_VALIDATED provider=${provider.requestValue} items=${items.size} elapsed_ms=${SystemClock.elapsedRealtime() - started}")
+                                join.first(items)
+                            }
                         }
                     }
                     is SwiggyMcpResult.Failure -> {
                         if (result.reconnectRequired) fail(operationId, result)
                         else {
-                            if (result.intentUnavailable) GroceryIntentPreferences.setMode(activity, GroceryIntentPreferences.Mode.OFF)
-                            showIntentRecovery(operationId, instruction, ambiguous = result.intentNeedsReview, unavailableForInstallation = result.intentUnavailable)
+                            if (result.intentUnavailable && contract.disablesProviderOnUnavailable())
+                                GroceryIntentPreferences.setMode(activity, GroceryIntentPreferences.Mode.OFF)
+                            if (result.intentNeedsReview) {
+                                val quotes = if (contract == GroceryIntentContract.V1 && editHintBase != null)
+                                    GroceryIntentEditHints.fromRanges(instruction, result.intentEditRanges) else emptyList()
+                                if (quotes.isEmpty()) showIntentEditor(operationId, instruction, provider)
+                                else {
+                                    val record = recoveryStore.openEditHintRecovery(instruction, requireNotNull(editHintBase))
+                                    if (record != null && GroceryIntentPreferences.getMode(activity).providerOrNull() == provider)
+                                        showScopedRecoveryRecord(record, provider, quotes)
+                                    else cancelAndDismiss(operationId, "Your draft changed. Nothing was added.")
+                                }
+                            }
+                            else showIntentRecovery(operationId, instruction, ambiguous = false,
+                                unavailableForInstallation = result.intentUnavailable && contract.disablesProviderOnUnavailable())
                         }
                     }
                 }
@@ -572,13 +1369,360 @@ class SwiggyVoiceOrderCoordinator(
         }
     }
 
+    private fun showContextIssues(
+        operationId: Long,
+        preparation: GroceryIntentContextPreparation,
+        provider: GroceryIntentProvider,
+    ) = showContextIssues(operationId, preparation.instruction, preparation.blockingIssues, provider)
+
+    private fun showContextIssues(
+        operationId: Long,
+        instruction: String,
+        issues: List<GroceryIntentContextIssue>,
+        provider: GroceryIntentProvider,
+    ) {
+        if (!isCurrent(operationId)) return
+        val record = recoveryStore.openRecovery(instruction)
+        if (record == null) {
+            cancelAndDismiss(operationId, GroceryIntentScopedRecoverySession.FAILED_SAVE)
+            return
+        }
+        val quotes = issues.mapNotNull { it.source }.distinct().filter { record.withDirty(it, it.text) != null }
+            .ifEmpty { listOf(GroceryIntentReviewV2Quote(instruction, 0, instruction.length)) }
+        showScopedRecoveryRecord(record, provider, quotes)
+    }
+
+    /** Corrections are source edits, never a waiver for an unresolved obligation. */
+    private fun showScopedRecoveryRecord(
+        record: GroceryIntentRecoveryRecord,
+        provider: GroceryIntentProvider,
+        quotes: List<GroceryIntentReviewV2Quote>,
+        selected: GroceryIntentReviewV2Quote? = null,
+        restored: Boolean = false,
+        unsavedText: String? = null,
+        kind: GroceryIntentEditKind = GroceryIntentEditKind.PHRASE,
+        legacyOrigin: GroceryIntentRecoverySnapshot? = null,
+        returnFocus: Pair<GroceryIntentEditKind, GroceryIntentReviewV2Quote>? = null,
+    ) {
+        val currentQuotes = (quotes + listOfNotNull(record.dirty?.takeIf { it.kind == GroceryIntentEditKind.PHRASE }?.quote)).distinct()
+        val editingQuote = if (selected == null) null else record.dirty?.quote ?: selected
+        val editingKind = if (editingQuote != null) record.dirty?.kind ?: kind else kind
+        scopedDecision?.dismiss()
+        scopedRecovery?.invalidate()
+        recoverySession?.invalidate()
+        recoverySession = null
+        activeRecovery = null
+        inputRepairReview?.invalidate()
+        inputRepairReview = null
+        clearDraft()
+        clearInterpretation()
+        running = true
+        val recoveryId = ++operationGeneration
+        scopedProvider = provider
+        scopedQuotes = currentQuotes
+        scopedLegacyOrigin = legacyOrigin
+        val session = editingQuote?.let { quote -> GroceryIntentScopedRecoverySession(record, quote,
+            isCurrent = { isCurrent(recoveryId) && !activity.isFinishing && !activity.isDestroyed },
+            persist = { expected, updated -> recoveryStore.compareAndSetRecovery(expected, updated) },
+            commit = onScopedInstructionEdited,
+            kind = editingKind,
+        ).also { if (unsavedText != null) it.edit(unsavedText) } }
+        scopedRecovery = session
+        lateinit var view: GroceryIntentScopedRecoveryView
+        fun reportFailure() {
+            view.updateStatus(session?.message ?: GroceryIntentScopedRecoverySession.FAILED_SAVE, saveFailed = true)
+            view.focusStatus()
+        }
+        var voiceEpoch = 0L
+        fun ask(title: String, yes: String, no: String, onYes: () -> Unit, onNo: () -> Unit = {}) {
+            voiceEpoch++
+            val witness = session?.generation
+            recoveryDecision(recoveryId, title, yes, no, { scopedRecovery === session && session?.generation == witness }, onYes, onNo)
+        }
+        fun commit(confirmedRemoval: Boolean) {
+            if (!isCurrent(recoveryId)) return
+            val updated = session?.save(confirmedRemoval) ?: run { reportFailure(); return }
+            retainedRecovery.scoped = null
+            announce("Saved. Checking your whole request again…")
+            startIntentPreparation(updated.instruction)
+        }
+        fun save() {
+            if (session?.requiresRemovalConfirmation == true && session.canSave)
+                ask("This removes most of your message. Save anyway?", "Save", "Keep editing", { commit(true) })
+            else commit(false)
+        }
+        fun overview(base: GroceryIntentRecoveryRecord) {
+            if (legacyOrigin != null && base.dirty == null && base.revision == 0) {
+                showIntentEditor(recoveryId, base.instruction, provider, legacyOrigin, returnFromWhole = true)
+            } else {
+                showScopedRecoveryRecord(base, provider, currentQuotes, legacyOrigin = legacyOrigin,
+                    returnFocus = editingQuote?.let { editingKind to it })
+            }
+        }
+        fun discardEdit() {
+            if (!isCurrent(recoveryId) || session == null) return
+            if (!session.cancel()) { reportFailure(); return }
+            retainedRecovery.scoped = null
+            overview(session.record)
+        }
+        fun cancelEdit() {
+            if (session?.kind == GroceryIntentEditKind.WHOLE_MESSAGE && session.hasChanges)
+                ask("Discard your changes? Your message stays as it was.", "Discard", "Keep editing", ::discardEdit)
+            else discardEdit()
+        }
+        fun choose(quote: GroceryIntentReviewV2Quote, targetKind: GroceryIntentEditKind) {
+            if (!isCurrent(recoveryId)) return
+            if (session?.kind == targetKind && session.quote == quote) return // Already editing this exact buffer.
+            if (session != null && !session.checkpoint()) { reportFailure(); return }
+            val base = session?.record ?: record
+            fun open(next: GroceryIntentRecoveryRecord, q: GroceryIntentReviewV2Quote, k: GroceryIntentEditKind) {
+                showScopedRecoveryRecord(next, provider, currentQuotes, q, kind = k, legacyOrigin = legacyOrigin)
+                announce(if (k == GroceryIntentEditKind.WHOLE_MESSAGE) WHOLE_EDIT_PROMPT
+                    else "Change your words. Your words: '${q.text}'. Say the new words, then say save.")
+            }
+            val pending = base.dirty
+            if (pending != null && (pending.kind != targetKind || pending.quote != quote)) {
+                ask("You have an unsaved change.", "Continue editing", "Discard", {
+                    open(base, pending.quote, pending.kind)
+                }, {
+                    val clean = base.withoutDirty()
+                    if (clean == null || !recoveryStore.compareAndSetRecovery(base, clean)) reportFailure()
+                    else open(clean, quote, targetKind)
+                })
+            } else open(base, quote, targetKind)
+        }
+        view = stepDialog.showScopedRecovery(
+            originalInstruction = record.originalInstruction, currentInstruction = record.instruction,
+            changedRanges = record.changedRanges, quotes = currentQuotes, selectedQuote = editingQuote,
+            editorText = session?.text, restored = restored, pendingQuote = record.dirty?.quote,
+            editKind = editingKind, pendingEditKind = record.dirty?.kind ?: GroceryIntentEditKind.PHRASE,
+            focusEditorOnOpen = editingQuote != null && editingKind == GroceryIntentEditKind.WHOLE_MESSAGE,
+            onChoose = { choose(it, GroceryIntentEditKind.PHRASE) },
+            onChooseWholeMessage = { choose(GroceryIntentReviewV2Quote(record.instruction, 0, record.instruction.length),
+                GroceryIntentEditKind.WHOLE_MESSAGE) },
+            onTextChanged = { session?.edit(it) }, onSave = ::save, onCancelEdit = ::cancelEdit,
+            onVoice = {
+                if (session != null && isCurrent(recoveryId)) {
+                    val request = ++voiceEpoch
+                    val generation = session.generation
+                    val selection = view.editorSelection()
+                    onScopedVoiceRequested voiceResult@{ result ->
+                        if (!isCurrent(recoveryId) || scopedRecovery !== session || request != voiceEpoch ||
+                            session.generation != generation || selection != view.editorSelection()) return@voiceResult
+                        voiceEpoch++ // A late or duplicate recognition result must not become a second command.
+                        val prior = session.text
+                        val cursor = selection?.second ?: -1
+                        if (result == null) view.updateStatus("Type or say something.")
+                        else when (session.voice(result, cursor)) {
+                            GroceryIntentScopedRecoverySession.VoiceAction.SAVE -> save()
+                            GroceryIntentScopedRecoverySession.VoiceAction.CANCEL -> cancelEdit()
+                            GroceryIntentScopedRecoverySession.VoiceAction.READ -> session.message?.let(announce)
+                            GroceryIntentScopedRecoverySession.VoiceAction.CONFIRM -> {
+                                view.updateText(session.text)
+                                view.updateStatus(session.message)
+                                session.message?.let(announce)
+                            }
+                            GroceryIntentScopedRecoverySession.VoiceAction.NONE -> {
+                                if (session.kind == GroceryIntentEditKind.WHOLE_MESSAGE && prior != session.text)
+                                    view.updateText(session.text, cursor + session.text.length - prior.length)
+                                view.updateStatus(session.message)
+                            }
+                        }
+                    }
+                }
+            },
+            onBack = {
+                if (isCurrent(recoveryId)) {
+                    if (session == null) cancelAndDismiss(recoveryId, "Your list is saved. Nothing was changed.")
+                    else if (!session.hasChanges) discardEdit()
+                    else if (!session.checkpoint()) reportFailure()
+                    else overview(session.record)
+                }
+            },
+        )
+        returnFocus?.let { (k, q) -> view.post { if (isCurrent(recoveryId)) view.focusOrigin(k, q) } }
+    }
+
+    private fun showContextQuestion(
+        operationId: Long, preparation: GroceryIntentContextPreparation, proposalIndex: Int?,
+        address: SwiggyAddress, items: List<ParsedItem>, selected: List<RequestedItem>,
+    ) = showInterpretationQuestion(operationId, preparation.instruction, preparation.proposals, proposalIndex,
+        address, items, selected, { contextPreparation === preparation }, { contextPreparation = preparation.disputeBackground(it) })
+
+    private fun showAuditedQuestion(
+        operationId: Long, basket: AuditedIntentBasket, proposalIndex: Int?,
+        address: SwiggyAddress, items: List<ParsedItem>, selected: List<RequestedItem>,
+    ) = showInterpretationQuestion(operationId, basket.instruction, basket.backgroundProposals, proposalIndex,
+        address, items, selected, { auditedBasket === basket }, { auditedBasket = null })
+
+    private fun showInterpretationQuestion(
+        operationId: Long, instruction: String, proposals: List<GroceryIntentContextProposal>, proposalIndex: Int?,
+        address: SwiggyAddress, items: List<ParsedItem>, selected: List<RequestedItem>,
+        sameInterpretation: () -> Boolean, disputeBackground: (Int) -> Unit,
+    ) {
+        if (!isCurrent(operationId) || mutationInFlight || !sameInterpretation()) return
+        val proposal = proposalIndex?.let { proposals.getOrNull(it) }
+        if (proposalIndex != null && proposal?.kind != GroceryIntentContextKind.BACKGROUND) return
+        val questionId = ++operationGeneration
+        cartPlanRefresh.invalidate()
+        reviewedRequest = null
+        quantityProposalGate.clear()
+        val originalOnly = proposalIndex == null
+        stepDialog.show(SwiggyStepScreen(
+            eyebrow = "How Beta understood your request",
+            title = if (originalOnly) "Your original request" else "Does this change an item?",
+            message = if (originalOnly) recoveryStore.loadRecovery()?.takeIf { it.instruction == instruction }
+                ?.originalInstruction ?: instruction else "“${proposal?.source?.text}”",
+            caption = if (originalOnly) "Nothing has been added." else "Used as background, not as an item",
+            primary = SwiggyStepAction(if (originalOnly) "Edit your list" else "Change this item") {
+                if (isCurrent(questionId)) {
+                    val provider = contextProvider
+                    if (provider == null) cancelAndDismiss(questionId, "Your list is saved. Please check it again. Nothing was changed.")
+                    else {
+                        if (proposalIndex != null) disputeBackground(proposalIndex)
+                        showIntentEditor(questionId, instruction, provider)
+                    }
+                }
+            },
+            secondary = SwiggyStepAction(if (originalOnly) "Back to review" else "It's fine as background") {
+                if (isCurrent(questionId) && sameInterpretation())
+                    planCart(questionId, address, items, selected)
+            },
+            cancel = { cancelAndDismiss(questionId, "Your list is saved. Nothing was changed.") },
+        ))
+        announce(if (originalOnly) "Your original request. Nothing has been added." else
+            "Does this change an item? ${proposal?.source?.text}")
+    }
+
+    private fun showIntentEditor(
+        operationId: Long,
+        instruction: String,
+        provider: GroceryIntentProvider,
+        snapshot: GroceryIntentRecoverySnapshot? = null,
+        editorText: String = instruction,
+        lastSavedText: String = instruction,
+        returnFromWhole: Boolean = false,
+    ) {
+        if (!isCurrent(operationId)) return
+        if (!returnFromWhole && (activeIntentSelection?.contract == GroceryIntentContract.CONTEXT ||
+            recoveryStore.loadRecovery()?.instruction == instruction)) {
+            val record = recoveryStore.openRecovery(instruction)
+            if (record == null) cancelAndDismiss(operationId, GroceryIntentScopedRecoverySession.FAILED_SAVE)
+            else {
+                val quote = GroceryIntentReviewV2Quote(instruction, 0, instruction.length)
+                showScopedRecoveryRecord(record, provider, listOf(quote), quote)
+            }
+            return
+        }
+        clearScopedRecovery() // A cancelled whole editor must not reappear on the next host resume.
+        val recoveryId = ++operationGeneration
+        recoverySession?.invalidate()
+        inputRepairReview?.invalidate()
+        inputRepairReview = null
+        clearDraft()
+        clearInterpretation()
+        val session = GroceryIntentRecoverySession(instruction,
+            isCurrent = { isCurrent(recoveryId) && !activity.isFinishing && !activity.isDestroyed },
+            persist = onInstructionEdited, blankMessage = activity.getString(R.string.order_input_required),
+            initialText = editorText, initiallySavedText = lastSavedText)
+        recoverySession = session
+        activeRecovery = RecoveryCheckpoint(instruction, provider, snapshot, editorText, lastSavedText)
+        lateinit var view: GroceryIntentRecoveryView
+        fun handle(outcome: GroceryIntentRecoverySession.Outcome) {
+            when (outcome) {
+                GroceryIntentRecoverySession.Outcome.None -> view.updateStatus(session.message, session.canLeaveWithoutSaving)
+                is GroceryIntentRecoverySession.Outcome.Recheck -> startIntentPreparation(outcome.text)
+                is GroceryIntentRecoverySession.Outcome.Voice -> {
+                    cancel()
+                    onRecoveryVoiceRequested()
+                }
+                is GroceryIntentRecoverySession.Outcome.Exit -> {
+                    // The Home composer always contains the last successfully saved text.
+                    cancel()
+                }
+            }
+        }
+        val display = (snapshot ?: GroceryIntentRecoverySnapshot.generic(instruction)).toDisplay().copy(editorText = editorText)
+        view = stepDialog.showRecovery(display,
+            onTextChanged = { text -> session.edit(text); view.updateStatus(session.message, session.canLeaveWithoutSaving) },
+            onRecheck = { handle(session.attempt(GroceryIntentRecoverySession.Action.RECHECK)) },
+            onVoice = { handle(session.attempt(GroceryIntentRecoverySession.Action.VOICE)) },
+            onCancel = { handle(session.attempt(GroceryIntentRecoverySession.Action.EXIT)) },
+            onLeaveWithoutSaving = { handle(session.leaveWithoutSaving()) },
+            allowDirtyWholeChoice = lastSavedText == instruction,
+            onEditWholeMessage = if (lastSavedText != instruction) null else ({
+                fun openFromLegacy() {
+                    if (!isCurrent(recoveryId) || session.lastSavedText != instruction) return
+                    val base = recoveryStore.openRecovery(instruction)
+                    if (base == null || base.dirty != null) view.updateStatus(GroceryIntentScopedRecoverySession.FAILED_SAVE, false)
+                    else {
+                        showScopedRecoveryRecord(base, provider, emptyList(), GroceryIntentReviewV2Quote(instruction, 0, instruction.length),
+                            kind = GroceryIntentEditKind.WHOLE_MESSAGE, legacyOrigin = snapshot ?: GroceryIntentRecoverySnapshot.generic(instruction))
+                        announce(WHOLE_EDIT_PROMPT)
+                    }
+                }
+                if (session.text == instruction) openFromLegacy()
+                else {
+                    val draftAtPrompt = session.text
+                    recoveryDecision(recoveryId, "You have an unsaved change.", "Continue editing", "Discard",
+                        { recoverySession === session && session.text == draftAtPrompt && session.lastSavedText == instruction },
+                        {}, ::openFromLegacy)
+                }
+            }))
+        if (returnFromWhole) view.post { if (isCurrent(recoveryId)) view.focusWholeMessageAction() }
+        if (restoringRecoveryAfterSaveFailure) {
+            view.updateStatus(GroceryIntentRecoverySession.FAILED_SAVE, false)
+        }
+        announce(if (restoringRecoveryAfterSaveFailure) GroceryIntentRecoverySession.FAILED_SAVE else display.spokenPrompt)
+    }
+
+    private fun showIntentInputRepair(
+        operationId: Long,
+        instruction: String,
+        provider: GroceryIntentProvider,
+        repair: GroceryIntentInputRepair,
+    ) {
+        if (!isCurrent(operationId)) return
+        if (repair.originalInstruction != instruction || recoveryStore.loadRecovery()?.instruction == instruction) {
+            showIntentEditor(operationId, instruction, provider)
+            return
+        }
+        // Reject the outstanding address callback and any earlier preparation before asking.
+        val repairId = ++operationGeneration
+        clearDraft()
+        clearInterpretation()
+        var updateStatus: (String?, Boolean) -> Unit = { _, _ -> }
+        val review = GroceryIntentInputRepairReview(
+            repair = repair,
+            isCurrent = { isCurrent(repairId) && !activity.isFinishing && !activity.isDestroyed },
+            persist = onInstructionEdited,
+            recheck = { edited ->
+                // This is new user-confirmed text, not a ready row or an approved cart.
+                startIntentPreparation(edited, allowQuickRepair = false)
+            },
+            failed = {}, // The same screen exposes an inline retry; never dismiss a failed save.
+            edit = {
+                showIntentEditor(repairId, instruction, provider)
+            },
+            cancel = { cancelAndDismiss(repairId, "Your list is saved. Nothing was added.") },
+            onStatusChanged = { message, canLeave -> updateStatus(message, canLeave) },
+            onUnsavedExit = { cancel() },
+        )
+        inputRepairReview = review
+        updateStatus = stepDialog.showInputRepair(review.screen(), review::leaveWithoutSaving)
+        announce(review.question)
+    }
+
     private fun showIntentRecovery(operationId: Long, instruction: String, ambiguous: Boolean, affectedText: List<String> = emptyList(), unavailableForInstallation: Boolean = false) {
         // Invalidate outstanding preparation callbacks before showing a recovery choice.
         if (!isCurrent(operationId)) return
         operationGeneration += 1
         val recoveryId = operationGeneration
+        val named = activeIntentSelection?.takeIf { !ambiguous && it.contract == GroceryIntentContract.INTERPRETED }?.provider
         val message = if (ambiguous) {
             "I could not safely understand the whole list. Please check the item names and amounts together. Your list is saved; nothing was added."
+        } else if (named != null) {
+            "${named.displayName} isn’t available. Nothing was switched."
         } else if (unavailableForInstallation) {
             "Enhanced understanding is not available for this connection yet, so it has been turned off. Your list is saved. You can choose standard matching below."
         } else {
@@ -592,13 +1736,13 @@ class SwiggyVoiceOrderCoordinator(
             rows = affectedText.distinct().map { text ->
                 SwiggyStepRow(title = text, detail = "Please check this part of your list", badge = "Needs review")
             },
-            primary = SwiggyStepAction("Edit your list") {
+            primary = SwiggyStepAction(if (named != null) "Edit my list" else "Edit your list") {
                 if (isCurrent(recoveryId)) {
                     cancelAndDismiss(recoveryId, "Your list is ready to edit.")
                     onEditRequest()
                 }
             },
-            secondary = if (ambiguous) null else SwiggyStepAction("Try standard matching") {
+            secondary = if (ambiguous) null else SwiggyStepAction(if (named != null) "Use standard matching for this list" else "Try standard matching") {
                 if (isCurrent(recoveryId)) {
                     cancelAndDismiss(recoveryId, "Using standard matching. Please check every suggestion.")
                     startStandardPreparation(instruction)
@@ -609,12 +1753,60 @@ class SwiggyVoiceOrderCoordinator(
         announce(message)
     }
 
-    fun cancel(): Boolean {
+    fun cancel(): Boolean = cancelInternal(preservePausedRecovery = false)
+
+    private fun clearPausedRecovery() {
+        pausedRecovery = null
+        retainedRecovery.checkpoint = null
+        retainedRecovery.scoped = null
+        preparationInterrupted = false
+        interruptedDraftSaveFailed = false
+    }
+
+    private fun clearScopedRecovery() {
+        scopedDecision?.dismiss()
+        scopedDecision = null
+        scopedLegacyOrigin = null
+        scopedRecovery?.invalidate()
+        scopedRecovery = null
+        scopedProvider = null
+        scopedQuotes = emptyList()
+    }
+
+    /** Decisions apply only to the displayed edit; Back/rotation never confirm them. */
+    private fun recoveryDecision(id: Long, title: String, yes: String, no: String, stillCurrent: () -> Boolean,
+                                 onYes: () -> Unit, onNo: () -> Unit) {
+        if (!isCurrent(id) || !hostResumed || scopedDecision != null || activity.isFinishing || activity.isDestroyed) return
+        lateinit var dialog: androidx.appcompat.app.AlertDialog
+        fun applyChoice(action: () -> Unit) {
+            if (scopedDecision === dialog && isCurrent(id) && hostResumed && !activity.isDestroyed &&
+                !activity.isFinishing && stillCurrent()) action()
+        }
+        dialog = androidx.appcompat.app.AlertDialog.Builder(activity).setTitle(title)
+            .setPositiveButton(yes) { _, _ -> applyChoice(onYes) }
+            .setNegativeButton(no) { _, _ -> applyChoice(onNo) }.create()
+        scopedDecision = dialog
+        dialog.setOnDismissListener { if (scopedDecision === dialog) scopedDecision = null }
+        dialog.show()
+    }
+
+    internal fun detachForConfigurationChange() {
+        cancelInternal(preservePausedRecovery = true)
+    }
+
+    private fun cancelInternal(preservePausedRecovery: Boolean): Boolean {
         if (mutationInFlight) return false
+        if (!preservePausedRecovery) clearPausedRecovery()
+        recoverySession?.invalidate()
+        recoverySession = null
+        clearScopedRecovery()
+        inputRepairReview?.invalidate()
+        inputRepairReview = null
+        activeRecovery = null
         operationGeneration += 1
         running = false
         clearDraft()
-        intentReviewGate.clear()
+        clearInterpretation()
         dismissActiveDialog()
         notifyTerminal()
         return true
@@ -624,8 +1816,14 @@ class SwiggyVoiceOrderCoordinator(
         if (mutationInFlight) return false
         selectedAddressId = null
         selectedAddressAtElapsedRealtime = 0L
+        selectedAddressNeedsRevalidation = false
         onAddressChanged(null)
         return true
+    }
+
+    /** Keep the local choice through auth/network recovery, never treat it as fresh consent. */
+    fun requireRememberedAddressRevalidation() {
+        if (selectedAddressId != null) selectedAddressNeedsRevalidation = true
     }
 
     fun isMutationInFlight(): Boolean = mutationInFlight
@@ -634,12 +1832,28 @@ class SwiggyVoiceOrderCoordinator(
 
     /** Detects Beta leaving the foreground, not which other app the user opened. */
     fun onHostPaused() {
+        cartPlanRefresh.invalidate()
+        reviewedRequest = null
+        quantityProposalGate.clear()
         hostResumed = false
         if (mutationInFlight) {
             interruptedDuringRequest = true
         } else if (running) {
             preparationInterrupted = true
-            cancel() // Invalidate the unconfirmed plan; the composer draft is preserved.
+            scopedRecovery?.let { session ->
+                session.checkpoint()
+                scopedProvider?.takeIf { session.hasChanges || session.kind == GroceryIntentEditKind.WHOLE_MESSAGE }?.let { provider ->
+                    retainedRecovery.scoped = ScopedRecoveryCheckpoint(session.record, session.quote, session.text, provider, scopedQuotes, session.kind, scopedLegacyOrigin)
+                }
+            }
+            interruptedDraftSaveFailed = recoverySession?.saveDraft() == false || inputRepairReview?.saveDraft() == false
+            if (interruptedDraftSaveFailed) recoverySession?.let { session ->
+                // Retain failed-save edits in memory across configuration changes,
+                // never on disk and never as an automatically restarted request.
+                pausedRecovery = activeRecovery?.copy(text = session.text, lastSavedText = session.lastSavedText)
+                retainedRecovery.checkpoint = pausedRecovery
+            }
+            cancelInternal(preservePausedRecovery = true) // Never resume the unconfirmed request.
         }
     }
 
@@ -655,9 +1869,44 @@ class SwiggyVoiceOrderCoordinator(
             checkPendingCartOnReturn()
             return true
         }
+        val retainedScoped = retainedRecovery.scoped
+        val savedScoped = recoveryStore.loadRecovery()
+        if (retainedScoped != null && savedScoped != null &&
+            (savedScoped == retainedScoped.record ||
+                savedScoped == retainedScoped.record.withDirty(retainedScoped.quote, retainedScoped.text, retainedScoped.kind))) {
+            retainedRecovery.scoped = null
+            preparationInterrupted = false
+            showScopedRecoveryRecord(savedScoped, retainedScoped.provider, retainedScoped.quotes,
+                retainedScoped.quote, restored = retainedScoped.text != retainedScoped.quote.text, unsavedText = retainedScoped.text,
+                kind = retainedScoped.kind, legacyOrigin = retainedScoped.legacyOrigin)
+            return true
+        }
+        if (savedScoped?.dirty != null) {
+            val provider = GroceryIntentPreferences.getMode(activity).providerOrNull() ?: GroceryIntentProvider.GEMINI
+            preparationInterrupted = false
+            showScopedRecoveryRecord(savedScoped, provider, listOfNotNull(savedScoped.dirty.quote.takeIf { savedScoped.dirty.kind == GroceryIntentEditKind.PHRASE }),
+                savedScoped.dirty.quote, restored = true, kind = savedScoped.dirty.kind)
+            return true
+        }
         if (preparationInterrupted) {
             preparationInterrupted = false
-            announce(activity.getString(R.string.swiggy_preparation_interrupted))
+            pausedRecovery?.let { checkpoint ->
+                pausedRecovery = null
+                retainedRecovery.checkpoint = null
+                interruptedDraftSaveFailed = false
+                running = true
+                restoringRecoveryAfterSaveFailure = true
+                try {
+                    showIntentEditor(operationGeneration, checkpoint.instruction, checkpoint.provider, checkpoint.snapshot,
+                        checkpoint.text, checkpoint.lastSavedText)
+                } finally {
+                    restoringRecoveryAfterSaveFailure = false
+                }
+                return true
+            }
+            announce(if (interruptedDraftSaveFailed) "Your latest changes could not be saved. Please check the list below before continuing. Nothing was added."
+                else activity.getString(R.string.swiggy_preparation_interrupted))
+            interruptedDraftSaveFailed = false
             return true
         }
         return false
@@ -788,7 +2037,8 @@ class SwiggyVoiceOrderCoordinator(
                 rows = items.mapIndexed { index, item ->
                     SwiggyStepRow(
                         title = displayItem(item),
-                        detail = "Item ${index + 1} of ${items.size}",
+                        detail = swiggyIntentQuantitySource(item)?.let { "You said: $it" }
+                            ?: "Item ${index + 1} of ${items.size}",
                         badge = "Ready",
                         tone = SwiggyStepTone.SUCCESS,
                     )
@@ -813,11 +2063,11 @@ class SwiggyVoiceOrderCoordinator(
             return
         }
         if (
-            allowRememberedAddress && isRememberedSwiggyAddressFresh(
+            allowRememberedAddress && (selectedAddressNeedsRevalidation || isRememberedSwiggyAddressFresh(
                 selectedAtElapsedRealtime = selectedAddressAtElapsedRealtime,
                 nowElapsedRealtime = SystemClock.elapsedRealtime(),
                 ttlMillis = ADDRESS_CONFIRMATION_TTL_MS,
-            )
+            ))
         ) {
             rememberedSwiggyAddress(usable, selectedAddressId)?.let { remembered ->
                 onAddressChanged(remembered.shortLabel)
@@ -828,19 +2078,22 @@ class SwiggyVoiceOrderCoordinator(
                 stepDialog.show(
                     SwiggyStepScreen(
                         eyebrow = "Step 1 of 4 · Delivery address",
-                        title = "Use this delivery address?",
+                        title = if (selectedAddressNeedsRevalidation) "Still delivering to ${presentation.title}?" else "Use this delivery address?",
                         message = swiggyAddressSuggestionPrompt(addressLocationAssessments[remembered.id]),
                         caption = "",
                         rows = listOf(
                             SwiggyStepRow(
                                 title = presentation.title,
                                 detail = presentation.detail,
-                                badge = "Confirmed ${ageMinutes} min ago",
+                                badge = if (selectedAddressNeedsRevalidation) "Please confirm again" else "Confirmed ${ageMinutes} min ago",
                                 tone = SwiggyStepTone.SUCCESS,
                             )
                         ),
                         primary = SwiggyStepAction("Deliver here") {
-                            if (isCurrent(operationId)) collectRecommendations(operationId, remembered, items)
+                            if (isCurrent(operationId)) {
+                                rememberAddress(remembered)
+                                collectRecommendations(operationId, remembered, items)
+                            }
                         },
                         secondary = SwiggyStepAction("Change address") {
                             if (isCurrent(operationId)) chooseAddress(operationId, usable, items, allowRememberedAddress = false, showAllAddresses = true)
@@ -982,14 +2235,18 @@ class SwiggyVoiceOrderCoordinator(
         address: SwiggyAddress,
         items: List<ParsedItem>,
     ) {
+        // A retained semantic hold is not an empty context or permission to
+        // fall through to caller-supplied legacy rows, even from a stale UI.
+        if (!isCurrent(operationId) || contextHeldDraft != null) return
         clearDraft()
-        val queries = items.map(::swiggyRecommendationQuery)
-        val strictMatchPhrases = items.map { it.strictMatchPhrase }
-        showRecommendationProgress(operationId, address, items, completedCount = 0)
+        val sourceItems = contextPreparation?.legacyPreparation?.items ?: items
+        val queries = sourceItems.map(::swiggyRecommendationQuery)
+        val strictMatchPhrases = sourceItems.map { it.strictMatchPhrase }
+        showRecommendationProgress(operationId, address, sourceItems, completedCount = 0)
         fetchRecommendationChunk(
             operationId = operationId,
             address = address,
-            items = items,
+            items = sourceItems,
             queries = queries,
             strictMatchPhrases = strictMatchPhrases,
             offset = 0,
@@ -1057,14 +2314,32 @@ class SwiggyVoiceOrderCoordinator(
         accumulated: MutableList<Recommendations>,
     ) {
         if (!isCurrent(operationId)) return
+        val catalogueSelection = activeIntentSelection
+        val interpreted = items.any { it.hasAuditedIntent() }
+        if (interpreted && (catalogueSelection == null || !auditedIntentBasketMatches(items))) {
+            cancelAndDismiss(operationId, "Your list is saved. Nothing was changed.")
+            return
+        }
+        if (!hasCurrentIntentConsent(operationId, catalogueSelection)) return
         if (offset >= queries.size) {
             if (!areSwiggyRecommendationsOrdered(accumulated, queries)) {
                 finish(operationId, "Swiggy returned incomplete or out-of-order choices. Nothing was changed.")
                 return
             }
-            draftRecommendations = accumulated.toList()
+            val catalogue = SwiggyMcpClient.reconcileCatalogueVetoes(accumulated.toList())
+            draftRecommendations = catalogue
             announce("Preparing one suggested basket for you to review.")
-            chooseCandidate(operationId, address, items, accumulated, 0, mutableListOf())
+            val preparation = contextPreparation
+            val assessedItems = if (preparation != null) {
+                val basket = GroceryIntentContextBasket.create(preparation, catalogue)
+                if (basket == null) {
+                    finish(operationId, "Beta could not match these choices to your request. Nothing was changed.")
+                    return
+                }
+                contextBasket = basket
+                basket.items
+            } else items.mapIndexed { index, item -> assessSwiggyIntentQuantity(item, catalogue[index]) }
+            chooseCandidate(operationId, address, assessedItems, catalogue, 0, mutableListOf())
             return
         }
         if (offset > 0) {
@@ -1077,8 +2352,13 @@ class SwiggyVoiceOrderCoordinator(
             addressId = address.id,
             queries = batchQueries,
             strictMatchPhrases = strictMatchPhrases.subList(offset, end),
+            ingredientProofs = items.subList(offset, end).map { it.ingredientProvenance },
+            sourceItems = items.takeIf { interpreted },
+            sourceOffset = offset.takeIf { interpreted && (offset > 0 || end < items.size) },
+            sellerAssessmentProvider = contextProvider,
         ) { result ->
             onUi(operationId) {
+                if (!hasCurrentIntentConsent(operationId, catalogueSelection)) return@onUi
                 when (result) {
                     is SwiggyMcpResult.Success -> {
                         if (!areSwiggyRecommendationsOrdered(result.value, batchQueries)) {
@@ -1112,6 +2392,9 @@ class SwiggyVoiceOrderCoordinator(
         forceQuestion: Boolean = false,
     ) {
         if (!isCurrent(operationId)) return
+        cartPlanRefresh.invalidate()
+        reviewedRequest = null
+        quantityProposalGate.clear()
         if (index >= items.size) {
             planCart(operationId, address, items, selected)
             return
@@ -1122,7 +2405,7 @@ class SwiggyVoiceOrderCoordinator(
         }
         val item = items[index]
         val recommendation = recommendations[index]
-        val usable = usableCandidates(item, recommendation)
+        val usable = usableCandidates(index, item, recommendation)
         if (usable.isEmpty()) {
             showNoSubstitution(
                 operationId = operationId,
@@ -1133,16 +2416,22 @@ class SwiggyVoiceOrderCoordinator(
             return
         }
 
-        val preferred = recommendation.suggested?.takeIf { candidate -> usable.any { it.spinId == candidate.spinId } }
         if (!forceQuestion) {
-            val suggestion = draftCandidates[index]?.takeIf { saved -> usable.any { it.spinId == saved.spinId } }
-                ?: swiggyDefaultSuggestion(item, usable, preferred)
+            val suggestion = swiggyCurrentChoice(usable, draftCandidates[index])
+                ?: swiggyDefaultSuggestion(item, usable, recommendation.suggested)
             draftCandidates[index] = suggestion
-            selected += suggestion.toRequestedItem(item)
+            val preview = if (contextPreparation != null) contextBasket?.preview(index, suggestion)
+                else runCatching { swiggyPreviewItemFromParsedItem(suggestion, item) }.getOrNull()
+            if (preview == null) {
+                finish(operationId, "Beta could not verify this product amount. Nothing was changed.")
+                return
+            }
+            selected += preview
             chooseCandidate(operationId, address, items, recommendations, index + 1, selected)
             return
         }
 
+        val preferred = swiggyDefaultSuggestion(item, usable, recommendation.suggested)
         val caption = "Which ${item.query} do you want?"
         stepDialog.show(
             SwiggyStepScreen(
@@ -1154,7 +2443,7 @@ class SwiggyVoiceOrderCoordinator(
                     SwiggyStepChoice(
                         title = candidate.label,
                         detail = listOfNotNull(swiggyCandidateDetail(candidate), if (item.quantity is Quantity.Weight || item.quantity is Quantity.Volume) "${swiggyRequestedCartQuantity(item, candidate)} pack(s) for your requested amount" else null).joinToString(" · ").ifBlank { null },
-                        badge = if (candidate.spinId == preferred?.spinId) "Suggested" else null,
+                        badge = if (candidate === preferred) "Suggested" else null,
                         onClick = {
                             if (isCurrent(operationId)) {
                                 draftCandidates[index] = candidate
@@ -1168,6 +2457,7 @@ class SwiggyVoiceOrderCoordinator(
                 } else null,
                 secondary = SwiggyStepAction("Keep the suggestion") {
                     if (isCurrent(operationId)) {
+                        draftCandidates[index] = preferred
                         chooseCandidate(++operationGeneration, address, items, recommendations, 0, mutableListOf())
                     }
                 },
@@ -1186,9 +2476,24 @@ class SwiggyVoiceOrderCoordinator(
         items: List<ParsedItem>,
         selected: List<RequestedItem>,
     ) {
-        val combined = consolidateSwiggyRequestedItems(selected)
-        if (combined.isEmpty() || combined.any { it.quantity !in 1..20 }) {
+        if (!isCurrent(operationId) || !hostResumed || mutationInFlight) return
+        cartPlanRefresh.invalidate()
+        reviewedRequest = null
+        quantityProposalGate.clear()
+        val request = currentReviewRequest(items)
+        val combined = request?.requestedItems.orEmpty()
+        if (request != null && combined.isEmpty() && selected.isEmpty()) {
+            finish(operationId, "No items are selected. Nothing was changed.")
+            return
+        }
+        if (request == null || combined.isEmpty() || combined != consolidateSwiggyRequestedItems(selected)) {
             finish(operationId, "Please reduce or clarify the combined quantity for repeated products. Nothing was changed.")
+            return
+        }
+        if (!fulfillmentStore.canAppend(intentReviewGate.fulfillmentConstraints)) {
+            if (fulfillmentStore.read() == GroceryIntentConstraintStore.State.Unreadable)
+                showUnreadableFulfillmentRecovery(operationId)
+            else finish(operationId, "Beta could not safely save your delivery request. Nothing was added. Please edit your list.")
             return
         }
         BetaTelemetry.instance?.logEvent(
@@ -1203,10 +2508,38 @@ class SwiggyVoiceOrderCoordinator(
             caption = "Nothing has been added yet.",
             cancel = { cancelAndDismiss(operationId, "Swiggy cart changes cancelled.") },
         ))
-        SwiggyMcpClient.planCart(activity, address.id, combined) { result ->
-            onUi(operationId) {
+        cartPlanRefresh.select(SwiggyCartPlanRefresh.Input.Plan(operationId, address, request))?.let(::requestCartPlan)
+    }
+
+    private fun requestCartPlan(read: SwiggyCartPlanRefresh.Read) {
+        // This consumer is plan-only. Snapshot scheduling is not connected to
+        // the UI yet and cannot enter the reviewed-plan/apply path.
+        val input = read.input
+        require(input is SwiggyCartPlanRefresh.Input.Plan) { "Expected a cart plan read" }
+        val (operationId, address, request) = input
+        if (!isCurrent(operationId) || !hostResumed || activity.isFinishing || activity.isDestroyed) {
+            // This reserved read was never sent, so it is safe to retire it.
+            cartPlanRefresh.invalidate()
+            cartPlanRefresh.complete(read)
+            return
+        }
+        planCartRequest(address.id, request.requestedItems) { result ->
+            activity.runOnUiThread {
+                // Release even an old operation's call before filtering UI work.
+                // Otherwise a cancel/restart could strand the newest selection.
+                val canRender = !activity.isFinishing && !activity.isDestroyed && hostResumed
+                if (!canRender) cartPlanRefresh.invalidate()
+                val completion = cartPlanRefresh.complete(read)
+                if (!canRender) return@runOnUiThread
+                completion.next?.let(::requestCartPlan)
+                if (completion.current == null || !isCurrent(operationId)) return@runOnUiThread
+                val items = request.sourceItems
+                if (request != currentReviewRequest(items)) {
+                    finish(operationId, "Your list changed while the review was being prepared. Please check it again. Nothing was changed.")
+                    return@runOnUiThread
+                }
                 when (result) {
-                    is SwiggyMcpResult.Success -> reviewPlan(operationId, address, items, combined, result.value)
+                    is SwiggyMcpResult.Success -> reviewPlan(operationId, address, items, request.requestedItems, result.value)
                     is SwiggyMcpResult.Failure -> {
                         if (isAddressMismatch(result.userMessage)) {
                             showAddressMismatch(operationId, address, items, result.userMessage)
@@ -1226,18 +2559,32 @@ class SwiggyVoiceOrderCoordinator(
         selected: List<RequestedItem>,
         plan: SwiggyMcpClient.CartPlan,
     ) {
+        reviewedRequest = null
+        val request = currentReviewRequest(items)
+        if (request == null || request.requestedItems != selected) {
+            finish(operationId, "Beta could not match this review to your current list. Nothing was changed.")
+            return
+        }
         val token = plan.confirmationToken
-        if (plan.changes.isEmpty()) {
-            finish(operationId, "No Swiggy cart change is needed.")
+        val quantityProposals = request.quantityProposals
+        if (plan.changes.isEmpty() && selected.none { it.quantityMode == IntentCartQuantityMode.INCREMENT }) {
+            if (quantityProposals.isEmpty() && contextPreparation == null) finish(operationId, "No Swiggy cart change is needed.")
+            else {
+                cancelAndDismiss(operationId, "Nothing was changed. Please edit your list to specify the pack amounts; Beta has not confirmed that your request is already in the cart.")
+                onEditRequest()
+            }
             return
         }
         if (token.isNullOrBlank() || !isSafeSwiggyCartPlan(plan, selected)) {
             finish(operationId, "Beta could not verify that the Swiggy cart plan only adds your selected items. Nothing was changed.")
             return
         }
+        reviewedRequest = request
         val cartStartsEmpty = swiggyCartStartsEmpty(plan)
         intentReviewGate.beginReview()
         val unmatchedText = intentReviewGate.unresolvedText
+        val excludedText = intentReviewGate.excludedText
+        val fulfillmentConstraints = intentReviewGate.fulfillmentConstraints
         BetaTelemetry.instance?.logEvent(
             "cart_review_viewed",
             mapOf(
@@ -1245,14 +2592,29 @@ class SwiggyVoiceOrderCoordinator(
                 "starts_empty" to cartStartsEmpty,
             ),
         )
+        val preparation = contextPreparation
+        val interpretationRows = preparation?.let {
+            groceryIntentContextReviewRows(it,
+                onBackground = { index -> showContextQuestion(operationId, it, index, address, items, selected) },
+                onOriginal = { showContextQuestion(operationId, it, null, address, items, selected) })
+        } ?: auditedBasket?.let {
+            groceryIntentContextReviewRows(it.backgroundProposals,
+                onBackground = { index -> showAuditedQuestion(operationId, it, index, address, items, selected) },
+                onOriginal = { showAuditedQuestion(operationId, it, null, address, items, selected) })
+        }.orEmpty()
         val rows = listOf(
             SwiggyStepRow(
                 title = "Delivery address · ${address.categoryLabel}",
                 detail = address.label,
                 badge = "Please check",
                 tone = SwiggyStepTone.AMBER,
+                action = SwiggyStepAction("Change address") {
+                    if (isCurrent(operationId) && !mutationInFlight) restartAddressSelection(operationId, items)
+                },
             )
-        ) + unmatchedText.map { text ->
+        ) + interpretationRows + groceryIntentFulfillmentReviewRows(fulfillmentConstraints) + intentReviewGate.sharedGroupNotes.map { note ->
+            SwiggyStepRow(title = "Shared request", detail = note, badge = "Check with the items below")
+        } + unmatchedText.map { text ->
             SwiggyStepRow(
                 title = text,
                 detail = "Beta could not verify how these words were used. Check them against the items below. If anything is missing or wrong, edit your list.",
@@ -1265,28 +2627,20 @@ class SwiggyVoiceOrderCoordinator(
                     }
                 },
             )
-        } + draftSkipped.sorted().map { skipped ->
-            SwiggyStepRow(title = displayItem(items[skipped]), detail = "You chose to leave this item out.", badge = "Not added", tone = SwiggyStepTone.AMBER)
-        } + plan.changes.map { change ->
-            val from = change.fromQuantity ?: 0
-            val to = change.toQuantity ?: from
-            val draftIndex = draftCandidates.entries.firstOrNull { it.value.spinId == change.spinId }?.key
-            val suggestedNote = draftIndex?.let { index ->
-                if (swiggySuggestionNeedsReview(items[index], draftRecommendations[index], true)) "Suggested pack · " else ""
-            }.orEmpty()
-            SwiggyStepRow(
-                title = change.displayName,
-                detail = suggestedNote + (if (from == 0) "Add $to pack(s) of this exact product" else "Keep the existing line and change only this quantity") +
-                    draftIndex?.let { "\nYou asked: ${items[it].rawText}" }.orEmpty(),
-                badge = "$from → $to packs",
-                action = draftIndex?.let { index ->
-                    SwiggyStepAction("Change ${items[index].query}") {
-                        if (isCurrent(operationId) && !mutationInFlight) {
-                            chooseCandidate(++operationGeneration, address, items, draftRecommendations, index, mutableListOf(), forceQuestion = true)
-                        }
-                    }
-                },
-            )
+        } + groceryIntentExcludedReviewRows(excludedText) {
+            if (isCurrent(operationId) && !mutationInFlight) {
+                cancelAndDismiss(operationId, "Your list is ready to edit. Nothing was changed.")
+                onEditRequest()
+            }
+        } + swiggyOrderedCartReviewRows(items, draftCandidates, draftSkipped, plan.changes,
+            resolve = { index, item, candidate ->
+                if (contextPreparation != null) contextBasket?.resolution(index, candidate)
+                    ?: SwiggyCartQuantityResolution.Held("context_basket_missing")
+                else resolveSwiggyCartQuantity(item, candidate)
+            }) { index ->
+            if (isCurrent(operationId) && !mutationInFlight) {
+                chooseCandidate(++operationGeneration, address, items, draftRecommendations, index, mutableListOf(), forceQuestion = true)
+            }
         }
         val caption = "Review everything together. Nothing has been added yet."
         val addressConfirmation = swiggySpokenAddressConfirmation(address)
@@ -1316,25 +2670,46 @@ class SwiggyVoiceOrderCoordinator(
         stepDialog.show(
             SwiggyStepScreen(
                 eyebrow = "Step 4 of 4 · Review",
-                title = "Your suggested basket",
+                title = "Please check these cart changes",
                 message = "$addressConfirmation ${addressLocationNotice(address)} " + activity.getString(
                     if (cartStartsEmpty) R.string.swiggy_step_review_empty else R.string.swiggy_step_review_existing
                 ),
-                caption = caption,
+                caption = if (quantityProposals.isEmpty()) caption else
+                    "${quantityProposals.size} requests use a pack amount Beta suggested — please check those. Nothing has been added yet.",
                 rows = rows,
                 safetyNote = "${activity.getString(R.string.swiggy_keep_closed_warning)} Check the suggested brands and packs together. Use Change only if needed. ${activity.getString(R.string.swiggy_step_no_checkout)}",
-                acknowledgement = if (unmatchedText.isEmpty()) null else SwiggyStepAcknowledgement(
-                    label = "I checked the wording above against my basket. Add only the items shown below.",
+                acknowledgement = if (unmatchedText.isEmpty() && fulfillmentConstraints.isEmpty()) null else SwiggyStepAcknowledgement(
+                    label = if (fulfillmentConstraints.isNotEmpty())
+                        "I checked my request and the items. Prepare this cart now; a delivery time is NOT arranged."
+                    else "I checked the wording above against my basket. Add only the items shown below.",
                     onCheckedChange = { checked ->
                         if (isCurrent(operationId) && !mutationInFlight) intentReviewGate.acknowledge(checked)
                     },
                 ),
-                primary = SwiggyStepAction(
-                    if (cartStartsEmpty) "Add ${plan.changes.size} lines to cart" else "Apply ${plan.changes.size} cart changes"
+                quantityAcknowledgement = if (quantityProposals.isEmpty()) null else SwiggyStepAcknowledgement(
+                    label = "I checked the ${quantityProposals.size} suggested pack amount(s) marked above.",
+                    onCheckedChange = { checked ->
+                        if (isCurrent(operationId) && !mutationInFlight) {
+                            val current = currentReviewRequest(items)
+                            if (current == null || current != reviewedRequest) quantityProposalGate.clear()
+                            else quantityProposalGate.acknowledge(operationId, address.id, token, current.quantityProposals, checked)
+                        }
+                    },
+                ),
+                jumpToQuantityAcknowledgement = quantityProposals.isNotEmpty() && selected.size > 5,
+                primary = groceryIntentCartReviewAction(
+                    ordinaryLabel = if (cartStartsEmpty) "Add ${plan.changes.size} lines to cart" else "Apply ${plan.changes.size} cart changes",
+                    gate = intentReviewGate,
+                    isCurrent = { isCurrent(operationId) && !mutationInFlight },
                 ) {
-                    if (isCurrent(operationId)) applyPlan(operationId, token, address, items, selected)
+                    applyPlan(operationId, token, address, items, selected)
                 },
-                secondary = SwiggyStepAction("Change address") {
+                secondary = if (quantityProposals.isNotEmpty()) SwiggyStepAction("Change amounts — edit my list") {
+                    if (isCurrent(operationId) && !mutationInFlight) {
+                        cancelAndDismiss(operationId, "Your list is ready to edit. Nothing was changed.")
+                        onEditRequest()
+                    }
+                } else SwiggyStepAction("Change address") {
                     if (isCurrent(operationId)) restartAddressSelection(operationId, items)
                 },
                 tertiary = SwiggyStepAction("Cancel - change nothing") {
@@ -1343,9 +2718,27 @@ class SwiggyVoiceOrderCoordinator(
                 cancel = { cancelAndDismiss(operationId, "Swiggy cart changes cancelled.") },
             )
         )
+        // Showing a new screen resets the old screen's callbacks first. Bind the
+        // new consent only after that reset so stale callbacks cannot erase it.
+        quantityProposalGate.prepare(operationId, address.id, token, quantityProposals)
         val skippedNotice = if (draftSkipped.isEmpty()) "" else " ${draftSkipped.size} items you chose to skip are not included."
+        val excludedNotice = if (excludedText.isEmpty()) "" else " These parts will not be added: ${excludedText.joinToString("; ")}. Confirm only if you want to leave them out."
+        val defaultNotice = if (draftCandidates.keys.any { items[it].quantity is Quantity.Default })
+            " Where you did not give a quantity, Beta suggests one pack. Please check that suggestion." else ""
         val unmatchedNotice = if (unmatchedText.isEmpty()) "" else " Some wording needs your review. Check it against the basket, then edit your list if anything is missing or wrong. Check the box only when the items shown are the ones you want."
-        announce("$addressConfirmation ${addressLocationNotice(address)}$skippedNotice$unmatchedNotice Please review the suggested brands and pack quantities together. ${activity.getString(R.string.swiggy_keep_closed_warning)} Nothing is added until you confirm. No order will be placed.")
+        val groupNotice = if (intentReviewGate.sharedGroupNotes.isEmpty()) "" else
+            " Your shared requests were: ${intentReviewGate.sharedGroupNotes.joinToString(". ")}."
+        val fulfillmentNotice = if (fulfillmentConstraints.isEmpty()) "" else
+            " Your delivery request was: ${fulfillmentConstraints.joinToString(". ")}. $FULFILLMENT_LIMITATION Check the box only if you want to prepare this cart now."
+        val quantityNotice = if (quantityProposals.isEmpty()) "" else
+            " ${quantityProposals.size} requests use a pack amount I suggested. Tick the box when you've checked them. Nothing is added until you tap Add."
+        val interpretation = preparation ?: auditedBasket
+        val backgroundCount = (preparation?.proposals ?: auditedBasket?.backgroundProposals)
+            ?.count { it.kind == GroceryIntentContextKind.BACKGROUND } ?: 0
+        val contextNotice = if (interpretation != null && spokenContext !== interpretation && backgroundCount > 0)
+            " Beta used $backgroundCount phrases as background, not as items. Check how Beta understood your request above." else ""
+        spokenContext = interpretation
+        announce("$addressConfirmation ${addressLocationNotice(address)}$contextNotice$skippedNotice$excludedNotice$defaultNotice$groupNotice$unmatchedNotice$fulfillmentNotice$quantityNotice Review all ${selected.size} cart lines and the suggested brands and pack quantities together. ${activity.getString(R.string.swiggy_keep_closed_warning)} Nothing is added until you confirm. No order will be placed.")
     }
 
     private fun restartAddressSelection(
@@ -1370,6 +2763,7 @@ class SwiggyVoiceOrderCoordinator(
     private fun rememberAddress(address: SwiggyAddress) {
         selectedAddressId = address.id
         selectedAddressAtElapsedRealtime = SystemClock.elapsedRealtime()
+        selectedAddressNeedsRevalidation = false
         addressIntelligence.recordSelection(address.id)
         onAddressChanged(address.shortLabel)
         BetaTelemetry.instance?.logEvent(
@@ -1398,6 +2792,23 @@ class SwiggyVoiceOrderCoordinator(
             // The dialog already consumed its one-shot action. Close that screen and
             // release running state instead of leaving all its controls inert.
             cancelAndDismiss(operationId, "Your list is saved. Please review the highlighted wording again. Nothing was added.")
+            return
+        }
+        val currentRequest = currentReviewRequest(items)
+        if (currentRequest == null || currentRequest != reviewedRequest || currentRequest.requestedItems != selected ||
+            !cartPlanRefresh.isCurrentCompletedPlan(SwiggyCartPlanRefresh.Input.Plan(operationId, address, currentRequest)) ||
+            !quantityProposalGate.consumeForApply(operationId, address.id, token, currentRequest.quantityProposals)) {
+            cancelAndDismiss(operationId, "Your list is saved. Please check the suggested pack amounts again. Nothing was added.")
+            return
+        }
+        reviewedRequest = null
+        cartPlanRefresh.invalidate()
+        // Save before any cart mutation or draft clearing. A crash after the
+        // provider write must not let home-screen checkout forget these notes.
+        if (!fulfillmentStore.appendBeforeApply(intentReviewGate.fulfillmentConstraints)) {
+            if (fulfillmentStore.read() == GroceryIntentConstraintStore.State.Unreadable) {
+                showUnreadableFulfillmentRecovery(operationId)
+            } else finish(operationId, "Beta could not safely save your delivery request. Nothing was added. Please try again.")
             return
         }
         if (!pendingCartStore.markPending() || !cartReviewStore.save(token)) {
@@ -1471,14 +2882,38 @@ class SwiggyVoiceOrderCoordinator(
         }
     }
 
+    private fun showUnreadableFulfillmentRecovery(operationId: Long) {
+        stepDialog.show(groceryIntentUnreadableConstraintRecoveryScreen(
+            discard = {
+                if (isCurrent(operationId) && hostResumed && !mutationInFlight) {
+                    if (fulfillmentStore.discardUnreadableAfterConfirmation()) {
+                        android.util.Log.i("BetaAgent", "Unreadable fulfillment record discarded after confirmation")
+                        cancelAndDismiss(operationId, "The unreadable request was forgotten. Your list is saved. Please review it again before adding items.")
+                    } else finish(operationId, "Beta could not safely forget the unreadable request. Nothing was added. Please go back and try again.")
+                }
+            },
+            back = { cancelAndDismiss(operationId, "Your list is saved. Nothing was added.") },
+        ))
+        announce(UNREADABLE_FULFILLMENT_WARNING)
+    }
+
     private fun fail(operationId: Long, failure: SwiggyMcpResult.Failure) {
         if (!isCurrent(operationId)) return
+        if (failure.cartPlanUnchanged && !failure.reconnectRequired) {
+            reviewedRequest = null
+            quantityProposalGate.clear()
+            cancelAndDismiss(operationId, "Beta could not verify this cart review. Please review your list again. Nothing was changed.")
+            onEditRequest()
+            return
+        }
         if (failure.reconnectRequired) onReconnectRequired()
         finish(operationId, failure.userMessage)
     }
 
     private fun finish(operationId: Long, message: String) {
         if (!isCurrent(operationId)) return
+        clearDraft()
+        clearInterpretation()
         val completedMutation = mutationInFlight
         running = false
         stepDialog.show(
@@ -1506,9 +2941,9 @@ class SwiggyVoiceOrderCoordinator(
                 cancel = { stepDialog.dismiss() },
             )
         )
-        announce(message)
         if (completedMutation) setMutationInFlight(false)
-        notifyTerminal()
+        notifyTerminal(retainStatus = true)
+        announce(message)
     }
 
     private fun showNoSubstitution(
@@ -1518,7 +2953,7 @@ class SwiggyVoiceOrderCoordinator(
         recommendations: List<Recommendations>,
     ) {
         if (!isCurrent(operationId)) return
-        val unresolved = items.indices.filter { it !in draftSkipped && usableCandidates(items[it], recommendations[it]).isEmpty() }
+        val unresolved = items.indices.filter { it !in draftSkipped && usableCandidates(it, items[it], recommendations[it]).isEmpty() }
         val otherItemCount = items.size - draftSkipped.size - unresolved.size
         val message = "Check these ${if (unresolved.size == 1) "item details" else "items"}, or continue without them. Nothing has been added."
         stepDialog.show(
@@ -1529,12 +2964,22 @@ class SwiggyVoiceOrderCoordinator(
                 caption = "",
                 rows = unresolved.map { missingIndex ->
                     val item = items[missingIndex]
+                    val quantityIssue = swiggyIntentQuantityIssue(item, recommendations[missingIndex])
                     SwiggyStepRow(
                         title = displayItem(item),
                         detail = when {
+                            quantityIssue == "numeric_product_quantity_ambiguous" ->
+                                "The number may be part of the product name. Please edit your list to say how many packs you want. " +
+                                    "Nothing was added. You said: ${swiggyIntentQuantitySource(item).orEmpty()}"
+                            quantityIssue != null -> "Beta could not verify this quantity. Please check it in your list. Nothing was added."
                             swiggyNeedsExactHealthProduct(item) -> "Please name the exact product or brand. Beta will not guess a medicine from a symptom."
                             recommendations[missingIndex].usualProductUnavailable -> "Your usual product could not be verified as available here. Beta has not substituted a different brand or variant. You can edit this item or leave it out."
-                            else -> swiggyNoCandidateMessage(item, address)
+                            else -> swiggyNoCandidateMessage(
+                                item,
+                                address,
+                                recommendations[missingIndex].catalogueMatchUnverified ||
+                                    recommendations[missingIndex].candidates.isNotEmpty(),
+                            )
                         },
                         badge = "Not added",
                         tone = SwiggyStepTone.AMBER,
@@ -1633,6 +3078,8 @@ class SwiggyVoiceOrderCoordinator(
         }
         val completedMutation = mutationInFlight
         running = false
+        clearDraft()
+        clearInterpretation()
         if (completedMutation) setMutationInFlight(false)
         onVerified(selected.size)
         stepDialog.show(
@@ -1704,16 +3151,17 @@ class SwiggyVoiceOrderCoordinator(
         notifyTerminal()
     }
 
-    private fun completeAndDismiss(operationId: Long, message: String) {
+    private fun completeAndDismiss(operationId: Long, message: String, retainStatus: Boolean = false) {
         if (!isCurrent(operationId)) return
         val completedMutation = mutationInFlight
         running = false
         clearDraft()
-        intentReviewGate.clear()
+        clearInterpretation()
         stepDialog.dismiss()
-        announce(message)
         if (completedMutation) setMutationInFlight(false)
-        notifyTerminal()
+        if (retainStatus) notifyTerminal(retainStatus = true)
+        announce(message)
+        if (!retainStatus) notifyTerminal()
     }
 
     private fun cancelAndDismiss(operationId: Long, message: String) {
@@ -1729,6 +3177,8 @@ class SwiggyVoiceOrderCoordinator(
                 mutationInFlight = false
                 running = false
                 operationGeneration += 1
+                clearDraft()
+                clearInterpretation()
                 stepDialog.dismiss()
                 if (abandonedMutation) {
                     SwiggyCartMutationGuard.end(
@@ -1744,15 +3194,27 @@ class SwiggyVoiceOrderCoordinator(
         return running && operationGeneration == operationId
     }
 
+    private fun hasCurrentIntentConsent(operationId: Long, captured: GroceryIntentSelection.Enabled?): Boolean {
+        if (captured == null) return true // Standard matching does not send data to an intent provider.
+        if (activeIntentSelection == captured && readIntentSelection() == captured) return true
+        cancelAndDismiss(operationId, "Your list is saved. Nothing was changed.")
+        return false
+    }
+
     private fun setMutationInFlight(inFlight: Boolean) {
         if (mutationInFlight == inFlight) return
         mutationInFlight = inFlight
         if (inFlight) SwiggyCartMutationGuard.begin() else SwiggyCartMutationGuard.end()
     }
 
-    private fun notifyTerminal() {
+    private fun stopWithVisibleStatus(message: String) {
+        notifyTerminal(retainStatus = true)
+        announce(message)
+    }
+
+    private fun notifyTerminal(retainStatus: Boolean = false) {
         if (!mutationInFlight) {
-            onTerminal()
+            onTerminal(retainStatus)
         }
     }
 
@@ -1761,41 +3223,29 @@ class SwiggyVoiceOrderCoordinator(
     }
 
     private fun usableCandidates(
+        index: Int,
         item: ParsedItem,
         recommendation: Recommendations,
-    ): List<RecommendationCandidate> {
-        if (swiggyNeedsExactHealthProduct(item)) return emptyList()
-        return recommendation.candidates
-            .filter { it.spinId.isNotBlank() && isSwiggyCandidateCountCompatible(item, it) && isSwiggyCandidateAllowed(item, it) }
-            .take(MAX_CANDIDATES)
-    }
+    ): List<RecommendationCandidate> = if (contextPreparation != null)
+        contextBasket?.usable(index).orEmpty() else swiggyUsableCandidates(item, recommendation)
 
     private fun displayItem(item: ParsedItem): String {
-        return item.backendInputText().trim().replaceFirstChar { first ->
-            if (first.isLowerCase()) first.titlecase() else first.toString()
-        }
+        return swiggyDisplayItem(item)
     }
 
     private fun isAddressMismatch(message: String): Boolean {
         return message.contains("does not match the selected delivery address", ignoreCase = true)
     }
 
-    private fun RecommendationCandidate.toRequestedItem(item: ParsedItem): RequestedItem {
-        return RequestedItem(
-            spinId = spinId,
-            skuId = skuId,
-            quantity = swiggyRequestedCartQuantity(item, this),
-            displayName = candidateLabel(this),
-        )
-    }
-
-    private fun candidateLabel(candidate: RecommendationCandidate): String {
-        return swiggyCandidateLabel(candidate)
+    private fun currentReviewRequest(items: List<ParsedItem>): SwiggyCartReviewRequest? {
+        if (contextPreparation == null) return SwiggyCartReviewRequest.build(items, draftCandidates, draftSkipped, auditedBasket)
+        val basket = contextBasket ?: return null
+        if (basket.preparation !== contextPreparation || basket.items != items) return null
+        return SwiggyCartReviewRequest.buildContext(basket, draftCandidates, draftSkipped)
     }
 
     private companion object {
         const val MAX_ADDRESSES = 50
-        const val MAX_CANDIDATES = 5
         const val ADDRESS_CONFIRMATION_TTL_MS = 15 * 60 * 1000L
     }
 }

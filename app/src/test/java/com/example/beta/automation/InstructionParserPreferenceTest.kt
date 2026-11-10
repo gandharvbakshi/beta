@@ -36,6 +36,7 @@ class InstructionParserPreferenceTest {
                     Preference(
                         token = "mints",
                         preferredPhrase = "Impact Sugar Free Mint Candies Ice Mints",
+                        source = PreferenceSource.USER_OVERRIDE,
                         confidence = 1.0f
                     )
                 } else {
@@ -57,6 +58,7 @@ class InstructionParserPreferenceTest {
                 Preference(
                     token = "mints",
                     preferredPhrase = "Impact Sugar Free Mint Candies Ice Mints",
+                    source = PreferenceSource.USER_OVERRIDE,
                     confidence = 1.0f
                 )
             }
@@ -99,6 +101,7 @@ class InstructionParserPreferenceTest {
                 Preference(
                     token = "butter",
                     preferredPhrase = "unsalted butter",
+                    source = PreferenceSource.USER_OVERRIDE,
                     confidence = 0.9f
                 )
             },
@@ -107,11 +110,12 @@ class InstructionParserPreferenceTest {
 
         assertEquals("unsalted butter", items.single().query)
         assertEquals("unsalted butter", items.single().strictMatchPhrase)
-        assertTrue(logs.single().contains("PREFERENCE_APPLIED"))
+        assertEquals(listOf("PREFERENCE_APPLIED source=USER_OVERRIDE"), logs)
     }
 
     @Test
     fun applyPreferenceMergesStoredAndExplicitAvoidPhrases() {
+        val logs = mutableListOf<String>()
         val items = InstructionParser.applyPreferences(
             InstructionParser.parse("order lays not bingo"),
             lookup = {
@@ -119,13 +123,16 @@ class InstructionParserPreferenceTest {
                     token = "lays",
                     preferredPhrase = "lays classic salted chips",
                     avoidPhrases = listOf("too spicy"),
+                    source = PreferenceSource.USER_OVERRIDE,
                     confidence = 0.9f
                 )
-            }
+            },
+            log = { logs.add(it) },
         )
 
         assertEquals("lays classic salted chips", items.single().query)
         assertEquals(listOf("bingo", "too spicy"), items.single().avoidPhrases)
+        assertEquals(listOf("PREFERENCE_APPLIED source=USER_OVERRIDE"), logs)
     }
 
     @Test
@@ -139,7 +146,84 @@ class InstructionParserPreferenceTest {
 
         assertEquals("butter", items.single().query)
         assertEquals(null, items.single().strictMatchPhrase)
-        assertTrue(logs.single().contains("PREFERENCE_NONE"))
+        assertEquals(listOf("PREFERENCE_NONE"), logs)
+    }
+
+    @Test
+    fun seededAndInferredPreferencesCannotRewriteGenericSourceRows() {
+        data class Case(val source: String, val preferred: String, val avoid: String)
+        val cases = listOf(
+            Case("order 2 rice without basmati", "sona masoori rice", "broken rice"),
+            Case("order 500 g milk without lactose", "A2 milk", "full cream"),
+            Case("order 1 l juice without added sugar", "mango juice", "pulp"),
+        )
+        val failures = mutableListOf<String>()
+
+        for (case in cases) {
+            val parsed = InstructionParser.parse(case.source).single()
+            val item = if (parsed.query == "rice") {
+                val amountStart = case.source.indexOf("2 rice")
+                parsed.copy(intentQuantityProvenance = IntentQuantityProvenance(
+                    origin = IntentQuantityOrigin.SOURCE_NUMERIC,
+                    primaryText = case.source,
+                    rawText = case.source,
+                    resolvedQuantity = parsed.quantity,
+                    local = IntentLocalAmount(
+                        source = case.source,
+                        startUtf16 = amountStart,
+                        endUtf16 = amountStart + 1,
+                        atom = "2",
+                        value = java.math.BigDecimal("2"),
+                        unit = "count",
+                    ),
+                    query = parsed.query,
+                    strictMatchPhrase = parsed.strictMatchPhrase,
+                    retailPackCount = parsed.retailPackCount,
+                    logicalPieceCount = parsed.logicalPieceCount,
+                    numericSourceQuery = parsed.query,
+                ))
+            } else parsed
+
+            for (source in listOf(PreferenceSource.SEEDED, PreferenceSource.INFERRED)) {
+                val actual = InstructionParser.applyPreferences(
+                    listOf(item),
+                    lookup = { token ->
+                        if (token == item.query) Preference(
+                            token = token,
+                            preferredPhrase = case.preferred,
+                            avoidPhrases = listOf(case.avoid),
+                            source = source,
+                            confidence = 1.0f,
+                        ) else null
+                    },
+                ).single()
+                if (actual != item) failures += "source=$source product=${item.query}"
+            }
+        }
+
+        assertTrue("Non-user preferences must not rewrite the request: $failures", failures.isEmpty())
+    }
+
+    @Test
+    fun explicitUserOverrideStillAppliesToAnUnownedGenericRow() {
+        val item = InstructionParser.parse("order 2 rice without basmati").single()
+        val actual = InstructionParser.applyPreferences(
+            listOf(item),
+            lookup = { token ->
+                Preference(
+                    token = token,
+                    preferredPhrase = "sona masoori rice",
+                    avoidPhrases = listOf("broken rice"),
+                    source = PreferenceSource.USER_OVERRIDE,
+                    confidence = 1.0f,
+                )
+            },
+        ).single()
+
+        assertEquals("sona masoori rice", actual.query)
+        assertEquals("sona masoori rice", actual.strictMatchPhrase)
+        assertEquals(item.quantity, actual.quantity)
+        assertEquals(listOf("basmati", "broken rice"), actual.avoidPhrases)
     }
 
     @Test

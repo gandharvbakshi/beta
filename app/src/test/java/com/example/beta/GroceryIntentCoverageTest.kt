@@ -1,10 +1,23 @@
 package com.example.beta
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GroceryIntentCoverageTest {
+    @Test fun aPartialWordCannotClaimTheRestOfItsMarkedSourceToken() {
+        val word = "तेल"
+        assertEquals(listOf(word), uncoveredGroceryIntentText(word, listOf("त")))
+        assertEquals(listOf(word), uncoveredGroceryIntentText(word, listOf("ल")))
+        assertEquals(listOf(word), uncoveredGroceryIntentSegmentsBySpan(word, listOf(GroceryIntentCoverageSpan(0, 1))))
+        assertEquals(listOf(word), uncoveredGroceryIntentSegmentsBySpan(word, listOf(
+            GroceryIntentCoverageSpan(0, 1), GroceryIntentCoverageSpan(1, word.length))))
+        assertTrue(uncoveredGroceryIntentText("a(milk)b", listOf("(milk)")).contains("milk"))
+        assertEquals(emptyList<String>(), uncoveredGroceryIntentText(word, listOf(word)))
+        val joined = "क्\u200dष"
+        assertEquals(listOf(joined), uncoveredGroceryIntentText(joined, listOf("क्", "ष")))
+    }
     @Test fun keepsSeparateResidualSpansAndDoesNotMaskPartiallyCitedCommands() {
         assertEquals(listOf("one samosa", "no sugar"), uncoveredGroceryIntentSegments(
             "one samosa and 2 milk and no sugar", listOf("2 milk"),
@@ -27,6 +40,16 @@ class GroceryIntentCoverageTest {
     fun doesNotCreateCourtesyPhrasesByJoiningUncoveredWords() {
         assertEquals(listOf("kar", "do"), uncoveredGroceryIntentText("kar milk do", listOf("milk")))
         assertEquals(listOf("daal", "do"), uncoveredGroceryIntentText("milk and daal do", listOf("milk")))
+    }
+
+    @Test fun completeSpokenBringPhrasesDoNotHideNumbersOrProducts() {
+        assertEquals(emptyList<String>(), uncoveredGroceryIntentText("milk bhi le aao", listOf("milk")))
+        assertEquals(emptyList<String>(), uncoveredGroceryIntentText("milk la do. Bas itna", listOf("milk")))
+        assertEquals(listOf("la", "do"), uncoveredGroceryIntentText("la milk do", listOf("milk")))
+        assertEquals(listOf("do"), uncoveredGroceryIntentText("milk la do do", listOf("milk")))
+        assertEquals(listOf("price", "sugar", "free"), uncoveredGroceryIntentText(
+            "milk le aao price sugar free", listOf("milk"),
+        ))
     }
 
     @Test
@@ -94,5 +117,101 @@ class GroceryIntentCoverageTest {
             emptyList<String>(),
             uncoveredGroceryIntentText("milk and omitted samosa", listOf("milk and omitted samosa")),
         )
+    }
+
+    @Test
+    fun spanCoverageDoesNotExpandAnOwnedQuoteToRepeatedOccurrences() {
+        val instruction = "milk and milk"
+        assertEquals(
+            listOf("milk"),
+            uncoveredGroceryIntentSegmentsBySpan(instruction, listOf(GroceryIntentCoverageSpan(0, 4))),
+        )
+    }
+
+    @Test
+    fun spanCoverageUsesUtf16OffsetsAndUnionsOverlappingRanges() {
+        val instruction = "🥛 milk and bread"
+        val start = instruction.indexOf("milk")
+        assertEquals(
+            listOf("bread"),
+            uncoveredGroceryIntentSegmentsBySpan(
+                instruction,
+                listOf(GroceryIntentCoverageSpan(start, start + 4), GroceryIntentCoverageSpan(start + 1, start + 4)),
+            ),
+        )
+    }
+
+    @Test
+    fun exactRangesMapToTheExistingSegmentStrings() {
+        val instruction = "rice and bread"
+        val bread = instruction.indexOf("bread")
+        val ranges = uncoveredGroceryIntentRangesBySpan(
+            instruction, listOf(GroceryIntentCoverageSpan(0, 4)),
+        )
+
+        assertEquals(listOf(GroceryIntentCoverageSpan(bread, instruction.length)), ranges)
+        assertEquals(listOf("bread"), ranges.map { instruction.substring(it.startUtf16, it.endUtf16) })
+        assertEquals(listOf("bread"), uncoveredGroceryIntentSegmentsBySpan(
+            instruction, listOf(GroceryIntentCoverageSpan(0, 4)),
+        ))
+    }
+
+    @Test
+    fun exactRangesUseUtf16OffsetsAfterEmojiAndUnicodeText() {
+        val instruction = "🥛 milk. अपरिचित"
+        val unknownStart = instruction.indexOf("अपरिचित")
+        val ranges = uncoveredGroceryIntentRangesBySpan(
+            instruction,
+            listOf(GroceryIntentCoverageSpan(instruction.indexOf("milk"), instruction.indexOf("milk") + 4)),
+        )
+
+        assertEquals(2, instruction.codePointCount(0, instruction.indexOf("milk")))
+        assertEquals(listOf(GroceryIntentCoverageSpan(unknownStart, instruction.length)), ranges)
+        assertEquals(listOf("अपरिचित"), ranges.map { instruction.substring(it.startUtf16, it.endUtf16) })
+    }
+
+    @Test
+    fun repeatedUnownedWordsKeepTheirOwnOffsetsAroundAnOwnedOccurrence() {
+        val instruction = "price milk price"
+        val first = instruction.indexOf("price")
+        val second = instruction.lastIndexOf("price")
+        val milk = instruction.indexOf("milk")
+        val ranges = uncoveredGroceryIntentRangesBySpan(
+            instruction, listOf(GroceryIntentCoverageSpan(milk, milk + "milk".length)),
+        )
+
+        assertEquals(listOf(
+            GroceryIntentCoverageSpan(first, first + "price".length),
+            GroceryIntentCoverageSpan(second, second + "price".length),
+        ), ranges)
+        assertEquals(listOf("price", "price"), ranges.map { instruction.substring(it.startUtf16, it.endUtf16) })
+    }
+
+    @Test
+    fun punctuationDoesNotMoveUncoveredTokenBoundaries() {
+        val instruction = "!rice,, milk!!! sugar?"
+        val milk = instruction.indexOf("milk")
+        val ranges = uncoveredGroceryIntentRangesBySpan(
+            instruction, listOf(GroceryIntentCoverageSpan(milk, milk + 4)),
+        )
+
+        assertEquals(listOf(
+            GroceryIntentCoverageSpan(instruction.indexOf("rice"), instruction.indexOf("rice") + 4),
+            GroceryIntentCoverageSpan(instruction.indexOf("sugar"), instruction.indexOf("sugar") + 5),
+        ), ranges)
+    }
+
+    @Test
+    fun outOfBoundsOrReversedOwnedSpansAreRejected() {
+        val instruction = "milk"
+        for (span in listOf(
+            GroceryIntentCoverageSpan(-1, 1),
+            GroceryIntentCoverageSpan(0, instruction.length + 1),
+            GroceryIntentCoverageSpan(3, 2),
+        )) {
+            assertThrows(IllegalArgumentException::class.java) {
+                uncoveredGroceryIntentRangesBySpan(instruction, listOf(span))
+            }
+        }
     }
 }

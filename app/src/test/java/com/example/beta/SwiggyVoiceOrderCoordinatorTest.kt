@@ -1,10 +1,15 @@
 package com.example.beta
 
 import com.example.beta.automation.Preference
+import com.example.beta.automation.PreferenceSource
+import com.example.beta.automation.IntentCartQuantityMode
 import com.example.beta.automation.Quantity
 import com.example.beta.automation.backendInputText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -203,26 +208,42 @@ class SwiggyVoiceOrderCoordinatorTest {
 
     @Test
     fun preparesTwentyFiveItemPromptWithinTheSwiggyItemLimit() {
-        val items = prepareSwiggyMcpItems(promptSlice(25), lookup = { null })
+        val instruction = promptSlice(25)
+        val items = prepareSwiggyMcpItems(instruction, lookup = { null })
+        val parserState = "itemCount=${items.size}; quantitySignals=${items.count { it.quantitySignal != null }}; " +
+            "proofRequired=${items.count { it.requiresIntentQuantityProof }}; " +
+            "quantities=${items.map { it.quantity }}"
 
-        assertEquals(25, items.size)
-        assertEquals("maggi", items.last().query)
-        assertEquals(Quantity.Count(2), items[0].quantity)
-        assertEquals(Quantity.Weight(500), items[7].quantity)
-        assertEquals(Quantity.Volume(750), items[8].quantity)
-        assertEquals(Quantity.Weight(1000), items[9].quantity)
-        assertEquals(null, swiggyMcpItemValidationMessage(promptSlice(25), items))
+        assertEquals(parserState, 25, items.size)
+        assertEquals(parserState, "maggi", items.last().query)
+        assertEquals(parserState, Quantity.Count(2), items[0].quantity)
+        assertEquals(parserState, Quantity.Weight(500), items[7].quantity)
+        assertEquals(parserState, Quantity.Volume(750), items[8].quantity)
+        assertEquals(parserState, Quantity.Weight(1000), items[9].quantity)
+        assertNotNull(parserState, swiggyMcpItemValidationMessage(instruction, items))
+
+        // Keep the 25-row denominator and all other entries, replacing only
+        // the unsupported numeric descriptor with a plain product request.
+        val controlInstruction = promptItems.take(25).mapIndexed { index, promptItem ->
+            if (index == 6) "paper towels" else promptItem.raw
+        }.joinToString(", ")
+        val controlItems = prepareSwiggyMcpItems(controlInstruction, lookup = { null })
+        assertEquals(25, controlItems.size)
+        assertEquals("paper towels", controlItems[6].query)
+        assertNull(swiggyMcpItemValidationMessage(controlInstruction, controlItems))
     }
 
     @Test
-    fun deduplicatesRepeatedCategoryMentionsInFirstSeenOrder() {
+    fun preservesRepeatedCategoryMentionsInFirstSeenOrder() {
+        val instruction = "doodh, milk, cleaning spray, cleaning spray, frozen peas"
         val items = prepareSwiggyMcpItems(
-            instruction = "doodh, milk, cleaning spray, cleaning spray, frozen peas",
+            instruction = instruction,
             lookup = { null },
         )
 
-        assertEquals(listOf("milk", "cleaning spray", "frozen peas"), items.map { it.query })
-        assertEquals(3, items.size)
+        assertEquals(listOf("milk", "milk", "cleaning spray", "cleaning spray", "frozen peas"), items.map { it.query })
+        assertEquals(listOf("doodh", "milk", "cleaning spray", "cleaning spray", "frozen peas"), items.map { it.rawText })
+        assertNotNull(swiggyMcpItemValidationMessage(instruction, items))
     }
 
     @Test
@@ -235,6 +256,7 @@ class SwiggyVoiceOrderCoordinatorTest {
                         token = "milk",
                         preferredPhrase = "organic whole milk",
                         avoidPhrases = listOf("regular"),
+                        source = PreferenceSource.USER_OVERRIDE,
                         confidence = 1.0f,
                     )
                 } else {
@@ -289,6 +311,40 @@ class SwiggyVoiceOrderCoordinatorTest {
     }
 
     @Test
+    fun catalogueUnverifiedMessageIsSpecificWhileLegacyAndSafetyMessagesKeepPriority() {
+        val address = SwiggyMcpClient.SwiggyAddress(
+            id = "home",
+            label = "10 Test Road, Bengaluru",
+            normalizedLabel = "10 Test Road, Bengaluru",
+            shortLabel = "Home",
+        )
+        val genericItem = com.example.beta.automation.ParsedItem(rawText = "milk", query = "milk")
+
+        assertEquals(
+            "Beta could not confirm the product or pack you asked for from Swiggy's results. Edit this item or leave it out. Nothing was added.",
+            swiggyNoCandidateMessage(genericItem, address, hasUnverifiedResults = true),
+        )
+        assertEquals(
+            "No confirmed match for milk at Home. You can edit it or leave it out.",
+            swiggyNoCandidateMessage(genericItem, address),
+        )
+
+        val safetyPriorityCases = listOf(
+            com.example.beta.automation.ParsedItem(rawText = "lowfat milk", query = "lowfat milk") to
+                "I could not verify lower-fat milk from the product label. I have not swapped it for regular or full-cream milk. You can edit this item or leave it out.",
+            com.example.beta.automation.ParsedItem(
+                rawText = "2 samosas", query = "samosa", quantity = com.example.beta.automation.Quantity.Count(2),
+            ) to "I could not verify the exact number of prepared samosas here. I have not substituted a frozen bag or a larger pack. You can edit this item or leave it out.",
+            com.example.beta.automation.ParsedItem(
+                rawText = "sugar-free ready-to-drink tea", query = "sugar-free ready-to-drink tea", avoidPhrases = listOf("sugar"),
+            ) to "I could not verify a ready-to-drink tea or coffee with your sugar preference. I have not swapped it for powder or sweetened tea. You can edit this item or leave it out.",
+        )
+        safetyPriorityCases.forEach { (item, expected) ->
+            assertEquals(expected, swiggyNoCandidateMessage(item, address, hasUnverifiedResults = true))
+        }
+    }
+
+    @Test
     fun rejectsMissingDuplicateAndMismatchedPlanChanges() {
         val selected = listOf(
             SwiggyMcpClient.RequestedItem("milk", 2, "Whole milk"),
@@ -332,11 +388,83 @@ class SwiggyVoiceOrderCoordinatorTest {
                 safePlan.changes.last(),
             ),
         )
+        val unselectedPlan = safePlan.copy(changes = listOf(
+            safePlan.changes.first().copy(spinId = "unselected"), safePlan.changes.last(),
+        ))
+        val removalPlan = safePlan.copy(changes = listOf(
+            safePlan.changes.first().copy(fromQuantity = 2, toQuantity = 1), safePlan.changes.last(),
+        ))
 
         assertTrue(isSafeSwiggyCartPlan(safePlan, selected))
         assertFalse(isSafeSwiggyCartPlan(missingSpinIdPlan, selected))
         assertFalse(isSafeSwiggyCartPlan(duplicateSpinIdPlan, selected))
         assertFalse(isSafeSwiggyCartPlan(mismatchedQuantityPlan, selected))
+        assertFalse(isSafeSwiggyCartPlan(unselectedPlan, selected))
+        assertFalse(isSafeSwiggyCartPlan(removalPlan, selected))
+    }
+
+    @Test
+    fun cartPlanChecksAbsoluteTargetsAndRelativeIncrementsDifferently() {
+        val target = SwiggyMcpClient.RequestedItem("milk", 3, "Whole milk")
+        val targetPlan = SwiggyMcpClient.CartPlan(listOf(
+            SwiggyMcpClient.CartPlanChange("milk", "increase", "Whole milk", 2, 3),
+        ))
+        assertTrue(isSafeSwiggyCartPlan(targetPlan, listOf(target)))
+        assertTrue(isSafeSwiggyCartPlan(targetPlan.copy(changes = listOf(
+            targetPlan.changes.single().copy(fromQuantity = 1, toQuantity = 3),
+        )), listOf(target.copy(quantity = 2), target)))
+
+        val increment = target.copy(quantity = 1, quantityMode = IntentCartQuantityMode.INCREMENT)
+        val sameQuantityAsTargetButIncrement = target.copy(quantityMode = IntentCartQuantityMode.INCREMENT)
+        assertFalse("target total is not a delta", isSafeSwiggyCartPlan(targetPlan, listOf(sameQuantityAsTargetButIncrement)))
+        assertFalse("legacy missing mode remains a target", isSafeSwiggyCartPlan(
+            targetPlan, listOf(target.copy(quantity = 1)),
+        ))
+
+        val incrementPlan = targetPlan.copy(changes = listOf(
+            SwiggyMcpClient.CartPlanChange("milk", "increase", "Whole milk", 2, 3),
+        ))
+        assertTrue(isSafeSwiggyCartPlan(incrementPlan, listOf(increment)))
+        assertFalse(isSafeSwiggyCartPlan(incrementPlan.copy(changes = emptyList()), listOf(increment)))
+        assertFalse(isSafeSwiggyCartPlan(incrementPlan.copy(changes = listOf(
+            incrementPlan.changes.single().copy(fromQuantity = 20, toQuantity = 21),
+        )), listOf(increment)))
+        assertFalse(isSafeSwiggyCartPlan(incrementPlan.copy(changes = listOf(
+            incrementPlan.changes.single().copy(fromQuantity = 3, toQuantity = 2),
+        )), listOf(increment)))
+        assertFalse(isSafeSwiggyCartPlan(incrementPlan, listOf(
+            increment,
+            increment.copy(quantityMode = IntentCartQuantityMode.TARGET),
+        )))
+
+        val mixedSelection = listOf(
+            target,
+            SwiggyMcpClient.RequestedItem("soap", 1, "Soap", quantityMode = IntentCartQuantityMode.INCREMENT),
+            SwiggyMcpClient.RequestedItem("bread", 2, "Bread", quantityMode = IntentCartQuantityMode.INCREMENT),
+        )
+        val missingOneIncrement = SwiggyMcpClient.CartPlan(listOf(
+            SwiggyMcpClient.CartPlanChange("milk", "increase", "Whole milk", 2, 3),
+            SwiggyMcpClient.CartPlanChange("soap", "increase", "Soap", 1, 2),
+        ))
+        assertFalse(isSafeSwiggyCartPlan(missingOneIncrement, mixedSelection))
+    }
+
+    @Test
+    fun unprovedIncrementCannotBeCopiedToRequestedItem() {
+        val candidate = SwiggyMcpClient.RecommendationCandidate("milk", "Milk", skuId = "milk-sku")
+        val target = swiggyRequestedItemFromParsedItem(
+            candidate, com.example.beta.automation.ParsedItem(rawText = "milk", query = "milk"),
+        )
+        val increment = runCatching { swiggyRequestedItemFromParsedItem(
+            candidate, com.example.beta.automation.ParsedItem(
+                rawText = "one more milk", query = "milk", quantity = Quantity.Count(1),
+                cartQuantityMode = IntentCartQuantityMode.INCREMENT,
+            ),
+        ) }
+
+        assertEquals(IntentCartQuantityMode.TARGET, target.quantityMode)
+        assertTrue(increment.exceptionOrNull() is IllegalArgumentException)
+        assertEquals("milk-sku", target.skuId)
     }
 
     @Test
@@ -364,7 +492,7 @@ class SwiggyVoiceOrderCoordinatorTest {
     }
 
     @Test
-    fun countQueriesSearchForTheRequestedCountAndDoNotMultiplyMatchingPacks() {
+    fun bare_count_search_preserves_quantity_but_needs_piece_role_review() {
         val sixEggs = com.example.beta.automation.ParsedItem(
             rawText = "6 eggs",
             query = "eggs",
@@ -384,14 +512,21 @@ class SwiggyVoiceOrderCoordinatorTest {
         )
 
         assertEquals("eggs", swiggyRecommendationQuery(sixEggs))
-        assertTrue(isSwiggyCandidateCountCompatible(sixEggs, sixPack))
+        assertFalse(isSwiggyCandidateCountCompatible(sixEggs, sixPack))
         assertFalse(isSwiggyCandidateCountCompatible(sixEggs, thirtyPack))
         assertFalse(isSwiggyCandidateCountCompatible(sixEggs, twelveEggPack))
-        assertEquals(1, swiggyRequestedCartQuantity(sixEggs, sixPack))
+        assertTrue(resolveSwiggyCartQuantity(sixEggs, sixPack) is SwiggyCartQuantityResolution.Held)
+        assertThrows(IllegalArgumentException::class.java) { swiggyRequestedCartQuantity(sixEggs, sixPack) }
+
+        val explicitPieces = sixEggs.copy(logicalPieceCount = true)
+        assertTrue(isSwiggyCandidateCountCompatible(explicitPieces, sixPack))
+        assertFalse(isSwiggyCandidateCountCompatible(explicitPieces, thirtyPack))
+        assertFalse(isSwiggyCandidateCountCompatible(explicitPieces, twelveEggPack))
+        assertEquals(1, swiggyRequestedCartQuantity(explicitPieces, sixPack))
     }
 
     @Test
-    fun unpackedCountRequestsStillUseTheRequestedCartQuantity() {
+    fun bare_count_with_simple_weighted_offer_requires_pack_confirmation() {
         val toothpaste = com.example.beta.automation.ParsedItem(
             rawText = "3 toothpaste",
             query = "toothpaste",
@@ -402,8 +537,12 @@ class SwiggyVoiceOrderCoordinatorTest {
             label = "Colgate Strong Teeth Toothpaste · 150 g",
         )
 
-        assertTrue(isSwiggyCandidateCountCompatible(toothpaste, tube))
-        assertEquals(3, swiggyRequestedCartQuantity(toothpaste, tube))
+        val resolution = resolveSwiggyCartQuantity(toothpaste, tube)
+        assertTrue(resolution is SwiggyCartQuantityResolution.RetailProposal)
+        assertEquals(3, (resolution as SwiggyCartQuantityResolution.RetailProposal).cartUnits)
+        assertEquals("150 g", resolution.packSize)
+        assertFalse(isSwiggyCandidateCountCompatible(toothpaste, tube))
+        assertThrows(IllegalArgumentException::class.java) { swiggyRequestedCartQuantity(toothpaste, tube) }
     }
 
     @Test

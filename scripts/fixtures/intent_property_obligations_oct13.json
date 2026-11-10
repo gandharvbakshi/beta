@@ -1,0 +1,509 @@
+[
+  {
+    "id": "dairy_scope",
+    "instruction": "2 milk, 1 curd, 3 rice. The dairy items should be low-fat.",
+    "rows": [
+      {
+        "source": "2 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      },
+      {
+        "source": "1 curd",
+        "identity": "curd",
+        "name": "curd",
+        "required": [
+          "low_fat"
+        ]
+      },
+      {
+        "source": "3 rice",
+        "identity": "rice",
+        "name": "rice"
+      }
+    ],
+    "members": [
+      [
+        0,
+        1
+      ]
+    ]
+  },
+  {
+    "id": "no_added_sugar_not_sugar_free",
+    "instruction": "1 peanut butter. The peanut butter should have no added sugar, not sugar-free.",
+    "rows": [
+      {
+        "source": "1 peanut butter",
+        "identity": "peanut butter",
+        "name": "peanut butter",
+        "required": [
+          "no_added_sugar"
+        ],
+        "excluded": [
+          "sugar_free"
+        ]
+      }
+    ],
+    "members": [
+      [
+        0
+      ]
+    ]
+  },
+  {
+    "id": "omitted_member",
+    "instruction": "2 milk, 1 curd, 3 rice. The dairy items should be low-fat.",
+    "rows": [
+      {
+        "source": "2 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      },
+      {
+        "source": "3 rice",
+        "identity": "rice",
+        "name": "rice"
+      }
+    ],
+    "issue": "property_incomplete_source_coverage"
+  },
+  {
+    "id": "cropped_member",
+    "instruction": "1 almond milk, 1 curd. The dairy items should be low-fat.",
+    "rows": [
+      {
+        "source": "milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      },
+      {
+        "source": "1 curd",
+        "identity": "curd",
+        "name": "curd",
+        "required": [
+          "low_fat"
+        ]
+      }
+    ],
+    "issue": "property_cropped_primary"
+  },
+  {
+    "id": "unknown_ghee",
+    "instruction": "1 ghee, 1 milk. The dairy items should be low-fat.",
+    "rows": [
+      {
+        "source": "1 ghee",
+        "identity": "ghee",
+        "name": "ghee"
+      },
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      }
+    ],
+    "issue": "property_scope_unknown"
+  },
+  {
+    "id": "property_leaks_to_rice",
+    "instruction": "1 milk, 1 rice. The dairy items should be low-fat.",
+    "rows": [
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      },
+      {
+        "source": "1 rice",
+        "identity": "rice",
+        "name": "rice",
+        "required": [
+          "low_fat"
+        ]
+      }
+    ],
+    "issue": "property_scope_mismatch"
+  },
+  {
+    "id": "descriptor_unknown",
+    "instruction": "1 flavoured yogurt, 1 mango yogurt. Every flavoured yogurt needs no added sugar.",
+    "rows": [
+      {
+        "source": "1 flavoured yogurt",
+        "identity": "flavoured yogurt",
+        "name": "flavoured yogurt",
+        "required": [
+          "no_added_sugar"
+        ]
+      },
+      {
+        "source": "1 mango yogurt",
+        "identity": "mango yogurt",
+        "name": "mango yogurt"
+      }
+    ],
+    "issue": "property_scope_unknown"
+  },
+  {
+    "id": "independent_same_property",
+    "instruction": "1 milk, 1 curd. Milk should be low-fat; curd should be low-fat.",
+    "rows": [
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      },
+      {
+        "source": "1 curd",
+        "identity": "curd",
+        "name": "curd",
+        "required": [
+          "low_fat"
+        ]
+      }
+    ],
+    "members": [
+      [
+        0
+      ],
+      [
+        1
+      ]
+    ]
+  },
+  {
+    "id": "full_cream_conflict",
+    "instruction": "1 full cream milk. Milk should be low-fat.",
+    "rows": [
+      {
+        "source": "1 full cream milk",
+        "identity": "full cream milk",
+        "name": "full cream milk",
+        "required": [
+          "low_fat"
+        ]
+      }
+    ],
+    "issue": "property_source_conflict"
+  },
+  {
+    "id": "utf16_offsets",
+    "instruction": "🙂; 1 milk. Milk should be low-fat.",
+    "rows": [
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      }
+    ],
+    "members": [
+      [
+        0
+      ]
+    ],
+    "source_start_utf16": 12
+  },
+  {
+    "id": "conditional_unowned",
+    "instruction": "1 milk. Milk should be low-fat if available.",
+    "rows": [
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      }
+    ],
+    "members": []
+  },
+  {
+    "id": "opposite_polarity",
+    "instruction": "1 milk. Milk should not be low-fat.",
+    "rows": [
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      }
+    ],
+    "issue": "property_scope_mismatch"
+  },
+  {
+    "id": "ambiguous_dhaniya",
+    "instruction": "1 dhaniya, 2 tomato. All vegetables should be organic.",
+    "rows": [
+      {
+        "source": "1 dhaniya",
+        "identity": "dhaniya",
+        "name": "dhaniya"
+      },
+      {
+        "source": "2 tomato",
+        "identity": "tomato",
+        "name": "tomato",
+        "required": [
+          "organic"
+        ]
+      }
+    ],
+    "issue": "property_scope_unknown"
+  },
+  {
+    "id": "ambiguous_pepper",
+    "instruction": "1 green pepper, 1 onion. All vegetables should be organic.",
+    "rows": [
+      {
+        "source": "1 green pepper",
+        "identity": "green pepper",
+        "name": "green pepper"
+      },
+      {
+        "source": "1 onion",
+        "identity": "onion",
+        "name": "onion",
+        "required": [
+          "organic"
+        ]
+      }
+    ],
+    "issue": "property_scope_unknown"
+  },
+  {
+    "id": "ambiguous_peas",
+    "instruction": "1 kg peas. All pulses should be organic.",
+    "rows": [
+      {
+        "source": "1 kg peas",
+        "identity": "peas",
+        "name": "peas",
+        "required": [
+          "organic"
+        ]
+      }
+    ],
+    "issue": "property_scope_unknown"
+  },
+  {
+    "id": "negative_local_not_positive",
+    "instruction": "1 milk, 1 non organic curd. Milk should be organic.",
+    "rows": [
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "organic"
+        ]
+      },
+      {
+        "source": "1 non organic curd",
+        "identity": "non organic curd",
+        "name": "curd",
+        "required": [
+          "organic"
+        ]
+      }
+    ],
+    "issue": "property_source_identity_unproven"
+  },
+  {
+    "id": "negative_tag_not_positive",
+    "instruction": "1 milk. Milk should be sweetened.",
+    "rows": [
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "not_sweetened"
+        ]
+      }
+    ],
+    "issue": "property_source_identity_unproven"
+  },
+  {
+    "id": "whole_milk_lowfat_conflict",
+    "instruction": "1 low fat milk. Milk should be whole.",
+    "rows": [
+      {
+        "source": "1 low fat milk",
+        "identity": "low fat milk",
+        "name": "low fat milk",
+        "required": [
+          "whole"
+        ]
+      }
+    ],
+    "issue": "property_source_conflict"
+  },
+  {
+    "id": "mango_plain_conflict",
+    "instruction": "1 mango yogurt. Yogurt should be plain.",
+    "rows": [
+      {
+        "source": "1 mango yogurt",
+        "identity": "mango yogurt",
+        "name": "mango yogurt",
+        "required": [
+          "plain"
+        ]
+      }
+    ],
+    "issue": "property_scope_unknown"
+  },
+  {
+    "id": "selector_negation_hindi",
+    "instruction": "1 milk. Milk nahi organic chahiye.",
+    "rows": [
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "organic"
+        ]
+      }
+    ],
+    "issue": "property_selector_unproven"
+  },
+  {
+    "id": "selector_negation_english",
+    "instruction": "1 milk. Milk doesn't need organic.",
+    "rows": [
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "organic"
+        ]
+      }
+    ],
+    "issue": "property_selector_unproven"
+  },
+  {
+    "id": "cocoa_butter_not_dairy",
+    "instruction": "1 cocoa butter. All dairy should be organic.",
+    "rows": [
+      {
+        "source": "1 cocoa butter",
+        "identity": "cocoa butter",
+        "name": "cocoa butter",
+        "required": [
+          "organic"
+        ]
+      }
+    ],
+    "issue": "property_scope_unknown"
+  },
+  {
+    "id": "butter_is_not_peanut_butter",
+    "instruction": "1 peanut butter. Butter should be unsalted.",
+    "rows": [
+      {
+        "source": "1 peanut butter",
+        "identity": "peanut butter",
+        "name": "peanut butter",
+        "required": [
+          "unsalted"
+        ]
+      }
+    ],
+    "issue": "property_scope_unknown"
+  },
+  {
+    "id": "no_automatic_sweetener_inference",
+    "instruction": "1 sugar-free biscuits. Biscuits should be sweetened.",
+    "rows": [
+      {
+        "source": "1 sugar-free biscuits",
+        "identity": "sugar-free biscuits",
+        "name": "sugar-free biscuits",
+        "required": [
+          "sweetened"
+        ]
+      }
+    ],
+    "members": [
+      [
+        0
+      ]
+    ]
+  },
+  {
+    "id": "hindi_hona_chahiye",
+    "instruction": "1 milk. Milk low-fat hona chahiye.",
+    "rows": [
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      }
+    ],
+    "members": [
+      [
+        0
+      ]
+    ]
+  },
+  {
+    "id": "astral_descriptor",
+    "instruction": "1 𝒌 milk. Milk should be low-fat.",
+    "rows": [
+      {
+        "source": "1 𝒌 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      }
+    ],
+    "issue": "property_source_identity_unproven"
+  },
+  {
+    "id": "uncovered_number",
+    "instruction": "²; 1 milk. Milk should be low-fat.",
+    "rows": [
+      {
+        "source": "1 milk",
+        "identity": "milk",
+        "name": "milk",
+        "required": [
+          "low_fat"
+        ]
+      }
+    ],
+    "issue": "property_incomplete_source_coverage"
+  }
+]

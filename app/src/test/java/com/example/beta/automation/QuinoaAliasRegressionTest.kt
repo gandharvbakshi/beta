@@ -15,7 +15,7 @@ class QuinoaAliasRegressionTest {
                 "quinoa",
                 "quinoa",
                 "quinoa",
-                "packs paper towels",
+                "paper towels",
                 "coral",
             ),
             items.map { it.query },
@@ -26,7 +26,10 @@ class QuinoaAliasRegressionTest {
         assertEquals("2 quinoa", items[1].backendInputText())
         assertEquals(Quantity.Default, items[2].quantity)
         assertEquals("quinoa", items[2].backendInputText())
-        assertEquals("2 packs paper towels", items[3].backendInputText())
+        assertEquals("2 paper towels", items[3].backendInputText())
+        assertEquals(Quantity.Count(2), items[3].quantity)
+        assertEquals("2 packs paper towels", items[3].rawText)
+        assertEquals(items[3].rawText, items[3].intentQuantityProvenance?.primaryText)
         assertEquals("coral", items[4].query)
         assertEquals("quinoa", InstructionParser.parse("quinoa").single().query)
     }

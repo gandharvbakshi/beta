@@ -1,10 +1,66 @@
 package com.example.beta
 
 import com.example.beta.automation.ParsedItem
+import com.example.beta.automation.Quantity
+import java.math.BigDecimal
 import org.junit.Assert.*
 import org.junit.Test
 
 class SwiggyProductFormTest {
+    @Test fun typedPackContentsKeepTheNounAndCountInTheStrictCataloguePhrase() {
+        val item = typedContentsItem(
+            name = "BrandA cough drops",
+            form = "lozenges",
+            source = "one pack of BrandA cough drops with 24 lozenges",
+        )
+        assertTrue(item.strictMatchPhrase.orEmpty().contains("lozenges"))
+        assertTrue(item.strictMatchPhrase.orEmpty().contains("24 pieces"))
+        assertEquals(Quantity.Count(1), item.quantity)
+        assertTrue(swiggyMatchesProductIdentity(item, "BrandA Cough Drops 24 lozenges"))
+        assertTrue(swiggyMatchesProductIdentity(item, "BrandA Cough Drops lozenge 24 pieces"))
+        listOf(
+            "BrandA Cough Drops 24 tablets",
+            "BrandA Cough Drops 24 capsules",
+            "BrandA Cough Drops 24 pieces",
+            "BrandA Cough Drops lozenges",
+            "BrandA Cough Drops 25 lozenges",
+            "BrandA Cough Drops 24 lozenges pack of 2",
+        ).forEach { label -> assertFalse(label, swiggyMatchesProductIdentity(item, label)) }
+    }
+
+    @Test fun typedPackContentsPreserveBoundedSingularPluralFormsWithoutCrossTypeSubstitution() {
+        val forms = listOf(
+            "lozenge" to "lozenges",
+            "tablet" to "tablets",
+            "capsule" to "capsules",
+            "sachet" to "sachets",
+            "pellet" to "pellets",
+            "egg" to "eggs",
+            "battery" to "batteries",
+        )
+        forms.forEach { (singular, plural) ->
+            val item = typedContentsItem("BrandA item", plural, "one BrandA item pack of 24 $plural")
+            assertEquals("$plural -> purchase quantity", Quantity.Count(1), item.quantity)
+            assertTrue("$plural -> strict type", item.strictMatchPhrase.orEmpty().contains(plural))
+            assertTrue("$plural -> strict pack count", item.strictMatchPhrase.orEmpty().contains("24 pieces"))
+            assertTrue("$plural catalogue label", swiggyMatchesProductIdentity(item, "BrandA item 24 $plural"))
+            assertTrue("$singular measured label", swiggyMatchesProductIdentity(item, "BrandA item 24 $singular"))
+            assertTrue("$singular catalogue label",
+                swiggyMatchesProductIdentity(item, "BrandA item $singular 24 pieces"))
+            val otherType = forms.first { it.second != plural }.second
+            assertFalse("$plural cannot become $otherType",
+                swiggyMatchesProductIdentity(item, "BrandA item 24 $otherType"))
+            assertFalse("$plural cannot become generic pieces",
+                swiggyMatchesProductIdentity(item, "BrandA item 24 pieces"))
+            assertFalse("$plural cannot lose its contents count",
+                swiggyMatchesProductIdentity(item, "BrandA item $plural"))
+            assertFalse("$plural cannot change the contents count",
+                swiggyMatchesProductIdentity(item, "BrandA item 25 $plural"))
+            assertFalse("$plural cannot infer a multipack",
+                swiggyMatchesProductIdentity(item, "BrandA item 24 $plural pack of 2"))
+        }
+    }
+
     @Test fun packContentsAreAnExactCountNotAnInferredPackSize() {
         val item = ParsedItem(rawText = "one pack of 25 lozenges", query = "Vicks cough drops 25 pieces", strictMatchPhrase = "Vicks cough drops 25 pieces")
         assertTrue(swiggyMatchesProductIdentity(item, "Vicks Cough Drops 25 lozenges"))
@@ -94,3 +150,16 @@ class SwiggyProductFormTest {
         }
     }
 }
+
+private fun typedContentsItem(name: String, form: String, source: String): ParsedItem =
+    GroceryIntentItem(
+        name = name,
+        quantity = BigDecimal.ONE,
+        quantityUnit = "pack",
+        packValue = BigDecimal("24"),
+        packUnit = "piece",
+        required = listOf(form),
+        excluded = emptyList(),
+        sourceText = source,
+        needsClarification = false,
+    ).toParsedItem()

@@ -38,8 +38,11 @@ class InstructionParserNoisyTest {
     }
 
     @Test
-    fun parse_dedupesRepeatedItems() {
-        assertQueries("butter and butter", listOf("butter"))
+    fun parse_preservesRepeatedItemsInSourceOrder() {
+        val items = InstructionParser.parse("butter and butter")
+
+        assertEquals(listOf("butter", "butter"), items.map { it.query })
+        assertEquals(listOf("butter", "butter"), items.map { it.rawText })
     }
 
     @Test

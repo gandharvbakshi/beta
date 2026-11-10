@@ -1,0 +1,353 @@
+{
+  "version": "identity-noun-aliases-v1",
+  "pairs": [
+    [
+      "aaloo",
+      "potato"
+    ],
+    [
+      "aata",
+      "atta"
+    ],
+    [
+      "aataa",
+      "atta"
+    ],
+    [
+      "adrak",
+      "ginger"
+    ],
+    [
+      "aloo",
+      "potato"
+    ],
+    [
+      "amrood",
+      "guava"
+    ],
+    [
+      "anda",
+      "eggs"
+    ],
+    [
+      "andaa",
+      "eggs"
+    ],
+    [
+      "ande",
+      "eggs"
+    ],
+    [
+      "baale hannu",
+      "banana"
+    ],
+    [
+      "baalehannu",
+      "banana"
+    ],
+    [
+      "bale hannu",
+      "banana"
+    ],
+    [
+      "balehannu",
+      "banana"
+    ],
+    [
+      "banana elaichi",
+      "elaichi banana"
+    ],
+    [
+      "bananas elaichi",
+      "elaichi banana"
+    ],
+    [
+      "bell pepper",
+      "capsicum"
+    ],
+    [
+      "bell peppers",
+      "capsicum"
+    ],
+    [
+      "bendekayi",
+      "bhindi"
+    ],
+    [
+      "benne",
+      "butter"
+    ],
+    [
+      "bhindi",
+      "bhindi"
+    ],
+    [
+      "chaawal",
+      "rice"
+    ],
+    [
+      "chawal",
+      "rice"
+    ],
+    [
+      "cheeni",
+      "sugar"
+    ],
+    [
+      "daalimbe",
+      "pomegranate"
+    ],
+    [
+      "dahi",
+      "curd"
+    ],
+    [
+      "dalchini",
+      "cinnamon"
+    ],
+    [
+      "dalimbe",
+      "pomegranate"
+    ],
+    [
+      "doodh",
+      "milk"
+    ],
+    [
+      "elaichi",
+      "cardamom"
+    ],
+    [
+      "elaichi banana",
+      "elaichi banana"
+    ],
+    [
+      "elaichi bananas",
+      "elaichi banana"
+    ],
+    [
+      "elaichi kela",
+      "elaichi banana"
+    ],
+    [
+      "elaichi kele",
+      "elaichi banana"
+    ],
+    [
+      "elaichi litchi",
+      "elaichi litchi"
+    ],
+    [
+      "elaichi lychee",
+      "elaichi lychee"
+    ],
+    [
+      "gaajar",
+      "carrot"
+    ],
+    [
+      "gajar",
+      "carrot"
+    ],
+    [
+      "gud",
+      "jaggery"
+    ],
+    [
+      "gur",
+      "jaggery"
+    ],
+    [
+      "haalu",
+      "milk"
+    ],
+    [
+      "haldi",
+      "turmeric"
+    ],
+    [
+      "hari mirch",
+      "green chilli"
+    ],
+    [
+      "hasiru menasinakaayi",
+      "green chilli"
+    ],
+    [
+      "hasiru menasinakayi",
+      "green chilli"
+    ],
+    [
+      "hing",
+      "asafoetida"
+    ],
+    [
+      "kali mirch",
+      "black pepper"
+    ],
+    [
+      "keen waa",
+      "quinoa"
+    ],
+    [
+      "keenwa",
+      "quinoa"
+    ],
+    [
+      "keenwaa",
+      "quinoa"
+    ],
+    [
+      "kela",
+      "banana"
+    ],
+    [
+      "kela elaichi",
+      "elaichi banana"
+    ],
+    [
+      "kele",
+      "banana"
+    ],
+    [
+      "kele elaichi",
+      "elaichi banana"
+    ],
+    [
+      "kheera",
+      "cucumber"
+    ],
+    [
+      "khira",
+      "cucumber"
+    ],
+    [
+      "kittale",
+      "orange"
+    ],
+    [
+      "kittale hannu",
+      "orange"
+    ],
+    [
+      "laal mirch",
+      "red chilli"
+    ],
+    [
+      "lahsun",
+      "garlic"
+    ],
+    [
+      "lehsun",
+      "garlic"
+    ],
+    [
+      "litchi elaichi",
+      "elaichi litchi"
+    ],
+    [
+      "lychee elaichi",
+      "elaichi lychee"
+    ],
+    [
+      "makhan",
+      "butter"
+    ],
+    [
+      "makkhan",
+      "butter"
+    ],
+    [
+      "mamra",
+      "puffed rice"
+    ],
+    [
+      "methi",
+      "fenugreek"
+    ],
+    [
+      "mozz a rela",
+      "mozzarella"
+    ],
+    [
+      "murmura",
+      "puffed rice"
+    ],
+    [
+      "namak",
+      "salt"
+    ],
+    [
+      "nariyal",
+      "coconut"
+    ],
+    [
+      "nariyal paani",
+      "coconut water"
+    ],
+    [
+      "nariyal pani",
+      "coconut water"
+    ],
+    [
+      "neembu",
+      "lemon"
+    ],
+    [
+      "nimbu",
+      "lemon"
+    ],
+    [
+      "palak",
+      "spinach"
+    ],
+    [
+      "pyaaz",
+      "onion"
+    ],
+    [
+      "pyaz",
+      "onion"
+    ],
+    [
+      "santra",
+      "orange"
+    ],
+    [
+      "santre",
+      "orange"
+    ],
+    [
+      "seb",
+      "apple"
+    ],
+    [
+      "sebu",
+      "apple"
+    ],
+    [
+      "shimla mirch",
+      "capsicum"
+    ],
+    [
+      "shunti",
+      "ginger"
+    ],
+    [
+      "sooji",
+      "semolina"
+    ],
+    [
+      "suji",
+      "semolina"
+    ],
+    [
+      "tamaatar",
+      "tomato"
+    ],
+    [
+      "tamatar",
+      "tomato"
+    ]
+  ]
+}

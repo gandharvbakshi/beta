@@ -5,6 +5,57 @@ plugins {
     id("com.google.firebase.crashlytics")
 }
 
+abstract class GenerateBackendEndpointAsset : DefaultTask() {
+    @get:Input abstract val backendUrl: Property<String>
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction fun generate() {
+        val target = outputDirectory.file("beta_backend_config.json").get().asFile
+        target.parentFile.mkdirs()
+        target.writeText(groovy.json.JsonOutput.toJson(mapOf(
+            "version" to 1,
+            "backend_base_url" to backendUrl.get().trim().trimEnd('/'),
+        )), Charsets.UTF_8)
+    }
+}
+
+// These opt-in replay tests consume local offline JSON files and write their reports in place.
+// Include the selected paths in Test task inputs; when one is active, do not reuse cached results.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    // Shared source-contract fixtures live outside src/test. Their contents
+    // must invalidate unit-test results just like Kotlin test sources do.
+    val prospectiveMarket = providers.environmentVariable("BETA_PROSPECTIVE_MARKET_PROVIDER").orElse("")
+    inputs.files(rootProject.fileTree("scripts/fixtures") {
+        if (prospectiveMarket.get().isNotBlank()) include("nov07_prospective_market_manifest.json",
+            "nov07_prospective_market_instructions.json", "nov07_prospective_market_shelf.json")
+        else include("**/*.json")
+    })
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    val replayFile = providers.environmentVariable("BETA_INTENT_REPLAY_FILE").orElse("")
+    val replayV2File = providers.environmentVariable("BETA_INTENT_V2_REPLAY_FILE").orElse("")
+    val catalogueReplayFiles = providers.environmentVariable("BETA_CATALOGUE_REPLAY_FILES").orElse("")
+    inputs.property("betaIntentReplayFile", replayFile)
+    inputs.property("betaIntentV2ReplayFile", replayV2File)
+    inputs.property("betaCatalogueReplayFiles", catalogueReplayFiles)
+    val contextDiagnosticFiles = listOf("BETA_CONTEXT_DIAGNOSTIC_FILE", "BETA_CONTEXT_RUNTIME_DIAGNOSTIC_FILE",
+        "BETA_CONTEXT_RUNTIME_CASES_FILE", "BETA_CONTEXT_COMPLETE_DRAFT_FILE",
+        "BETA_CONTEXT_COMPLETE_DRAFT_REPORT_FILE", "BETA_CONTEXT_NAME_READING_FILE",
+        "BETA_CONTEXT_NAME_READING_REPORT_FILE", "BETA_CONTEXT_PHONE_REPLAY_FILES",
+        "BETA_INTERPRETED_REPLAY_FILE", "BETA_INTERPRETED_REPLAY_CASES_FILE", "BETA_CONTROLLED_SHELF_PROVIDER",
+        "BETA_CONTROLLED_SHELF_RUN", "BETA_PROSPECTIVE_MARKET_PROVIDER", "BETA_PROSPECTIVE_MARKET_RUN",
+        "BETA_PROSPECTIVE_MARKET_MANIFEST_SHA256", "BETA_PROSPECTIVE_MARKET_MODEL_SHA256",
+        "BETA_PROSPECTIVE_MARKET_BASELINE_SHA256"
+    ).associateWith { providers.environmentVariable(it).orElse("") }
+    contextDiagnosticFiles.forEach { (name, path) -> inputs.property(name, path) }
+
+    val hasOfflineReplay = replayFile.map(String::isNotBlank)
+        .zip(replayV2File.map(String::isNotBlank)) { legacy, v2 -> legacy || v2 }
+        .zip(catalogueReplayFiles.map(String::isNotBlank)) { intentReplay, catalogueReplay -> intentReplay || catalogueReplay }
+        .map { replay -> replay || contextDiagnosticFiles.values.any { it.get().isNotBlank() } }
+    outputs.upToDateWhen { !hasOfflineReplay.get() }
+    outputs.doNotCacheIf("Offline replay tests consume local files and update reports") { hasOfflineReplay.get() }
+}
+
 android {
     namespace = "com.example.beta"
     compileSdk = 36
@@ -28,8 +79,28 @@ android {
     val hostedBackendDefault = "https://beta-backend-staging-kvuem5t7mq-el.a.run.app"
     val feedbackApiKey = optionalConfigValue("BETA_FEEDBACK_API_KEY")
     val backendApiKey = optionalConfigValue("BETA_BACKEND_API_KEY")
+    val intentV2Enabled = configValue("BETA_INTENT_V2_ENABLED", "false").equals("true", ignoreCase = true)
+    val intentContextEnabled = configValue("BETA_INTENT_CONTEXT_ENABLED", "false").equals("true", ignoreCase = true)
+    val intentInterpretedEnabled = configValue("BETA_INTENT_INTERPRETED_ENABLED", "false").equals("true", ignoreCase = true)
+    val publicOpenAiEnabled = configValue("BETA_INTENT_PUBLIC_OPENAI_ENABLED", "false").equals("true", ignoreCase = true)
+    if (listOf(intentV2Enabled, intentContextEnabled, intentInterpretedEnabled).count { it } > 1) {
+        throw org.gradle.api.GradleException("BETA_INTENT_V2_ENABLED, BETA_INTENT_CONTEXT_ENABLED, and BETA_INTENT_INTERPRETED_ENABLED are mutually exclusive.")
+    }
+    if (publicOpenAiEnabled && !intentInterpretedEnabled) {
+        throw org.gradle.api.GradleException("BETA_INTENT_PUBLIC_OPENAI_ENABLED requires BETA_INTENT_INTERPRETED_ENABLED.")
+    }
     val debugBackendUrl = configValue("BETA_BACKEND_DEBUG_URL", configValue("BETA_BACKEND_RELEASE_URL", hostedBackendDefault))
     val releaseBackendUrl = configValue("BETA_BACKEND_RELEASE_URL", hostedBackendDefault)
+
+    androidComponents.onVariants { variant ->
+        val generateEndpoint = tasks.register<GenerateBackendEndpointAsset>(
+            "generate${variant.name.replaceFirstChar(Char::uppercaseChar)}BackendEndpointAsset"
+        ) {
+            backendUrl.set(if (variant.buildType == "release") releaseBackendUrl else debugBackendUrl)
+            outputDirectory.set(layout.buildDirectory.dir("generated/backendEndpoint/${variant.name}"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(generateEndpoint, GenerateBackendEndpointAsset::outputDirectory)
+    }
 
     fun isHostedBackendUrl(url: String): Boolean {
         val normalized = url.lowercase()
@@ -47,6 +118,11 @@ android {
     }
 
     defaultConfig {
+        // Explicit, OFF-default contract rollout. Never silently negotiate down.
+        buildConfigField("boolean", "BETA_INTENT_V2_ENABLED", intentV2Enabled.toString())
+        buildConfigField("boolean", "BETA_INTENT_CONTEXT_ENABLED", intentContextEnabled.toString())
+        buildConfigField("boolean", "BETA_INTENT_INTERPRETED_ENABLED", intentInterpretedEnabled.toString())
+        buildConfigField("boolean", "BETA_INTENT_PUBLIC_OPENAI_ENABLED", publicOpenAiEnabled.toString())
         // Owner approved checkout release; server retains an emergency kill switch.
         buildConfigField("boolean", "BETA_SWIGGY_CHECKOUT_ENABLED",
             configValue("BETA_SWIGGY_CHECKOUT_ENABLED", "true").equals("true", ignoreCase = true).toString())
@@ -79,21 +155,11 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField(
-                "String",
-                "BETA_BACKEND_BASE_URL",
-                buildConfigString(debugBackendUrl)
-            )
             buildConfigField("String", "BETA_FEEDBACK_API_KEY", buildConfigString(feedbackApiKey))
             buildConfigField("String", "BETA_BACKEND_API_KEY", buildConfigString(backendApiKey))
         }
         release {
             isMinifyEnabled = false
-            buildConfigField(
-                "String",
-                "BETA_BACKEND_BASE_URL",
-                buildConfigString(releaseBackendUrl)
-            )
             buildConfigField("String", "BETA_FEEDBACK_API_KEY", buildConfigString(feedbackApiKey))
             buildConfigField("String", "BETA_BACKEND_API_KEY", buildConfigString(backendApiKey))
             signingConfigs.findByName("release")?.let {

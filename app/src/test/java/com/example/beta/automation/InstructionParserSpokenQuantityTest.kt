@@ -51,14 +51,13 @@ class InstructionParserSpokenQuantityTest {
     }
 
     @Test
-    fun parse_merges_repeated_counted_queries_by_sum() {
+    fun parse_preserves_repeated_counted_queries_withoutSumming() {
         val items = InstructionParser.parse("two milk, three milk, milk")
 
-        assertEquals(2, items.size)
-        assertEquals("milk", items[0].query)
-        assertEquals(Quantity.Count(5), items[0].quantity)
-        assertEquals("milk", items[1].query)
-        assertEquals(Quantity.Default, items[1].quantity)
+        assertEquals(listOf("milk", "milk", "milk"), items.map { it.query })
+        assertEquals(listOf(Quantity.Count(2), Quantity.Count(3), Quantity.Default), items.map { it.quantity })
+        assertEquals(listOf("two milk", "three milk", "milk"), items.map { it.intentQuantityProvenance?.primaryText ?: it.rawText })
+        assertEquals(listOf("two milk", "three milk"), items.take(2).map { it.intentQuantityProvenance?.local?.source })
     }
 
     @Test

@@ -28,7 +28,7 @@ class InstructionParserLongListStressTest {
     }
 
     @Test
-    fun parse_dedupes_repeated_categories_and_applyPreferences_overrides_matches() {
+    fun parse_preserves_repeated_categories_and_applyPreferences_overrides_each_row() {
         val parsed = InstructionParser.parse(
             "baby diapers, dish soap, frozen peas, baby diapers, dish soap, paracetamol, tomatoes, 24 pack paper towels"
         )
@@ -38,11 +38,20 @@ class InstructionParserLongListStressTest {
                 "baby diapers",
                 "dish soap",
                 "frozen peas",
+                "baby diapers",
+                "dish soap",
                 "paracetamol",
                 "tomatoes",
                 "24 pack paper towels",
             ),
             parsed.map { it.query },
+        )
+        assertEquals(
+            listOf(
+                "baby diapers", "dish soap", "frozen peas", "baby diapers", "dish soap",
+                "paracetamol", "tomatoes", "24 pack paper towels",
+            ),
+            parsed.map { it.rawText },
         )
 
         val preferred = InstructionParser.applyPreferences(
@@ -52,12 +61,14 @@ class InstructionParserLongListStressTest {
                     "baby diapers" -> Preference(
                         token = "baby diapers",
                         preferredPhrase = "premium baby diapers",
+                        source = PreferenceSource.USER_OVERRIDE,
                         confidence = 0.9f,
                     )
 
                     "dish soap" -> Preference(
                         token = "dish soap",
                         preferredPhrase = "gentle dish soap",
+                        source = PreferenceSource.USER_OVERRIDE,
                         confidence = 0.9f,
                     )
 
@@ -71,6 +82,8 @@ class InstructionParserLongListStressTest {
                 "premium baby diapers",
                 "gentle dish soap",
                 "frozen peas",
+                "premium baby diapers",
+                "gentle dish soap",
                 "paracetamol",
                 "tomatoes",
                 "24 pack paper towels",
@@ -78,6 +91,49 @@ class InstructionParserLongListStressTest {
             preferred.map { it.query },
         )
         assertEquals(Quantity.Default, preferred.last().quantity)
+    }
+
+    @Test
+    fun sourceOwnedReceiptGuardStillBlocksEvenAnExplicitPreferenceOverride() {
+        val source = "2 eggs"
+        val parsed = InstructionParser.parse(source).single()
+        val item = parsed.copy(
+            intentQuantityProvenance = IntentQuantityProvenance(
+                origin = IntentQuantityOrigin.SOURCE_NUMERIC,
+                primaryText = source,
+                rawText = source,
+                resolvedQuantity = parsed.quantity,
+                local = IntentLocalAmount(
+                    source = source,
+                    startUtf16 = 0,
+                    endUtf16 = 1,
+                    atom = "2",
+                    value = java.math.BigDecimal("2"),
+                    unit = "count",
+                ),
+                query = parsed.query,
+                strictMatchPhrase = parsed.strictMatchPhrase,
+                retailPackCount = parsed.retailPackCount,
+                logicalPieceCount = parsed.logicalPieceCount,
+                sourceCountRole = IntentSourceCountRole.REQUESTED_PIECES,
+                numericSourceQuery = parsed.query,
+            ),
+        )
+
+        val actual = InstructionParser.applyPreferences(
+            listOf(item),
+            lookup = { token -> Preference(
+                token = token,
+                preferredPhrase = "large brown eggs",
+                source = PreferenceSource.USER_OVERRIDE,
+                confidence = 1.0f,
+            ) },
+        ).single()
+
+        assertEquals(item.query, actual.query)
+        assertEquals(item.strictMatchPhrase, actual.strictMatchPhrase)
+        assertEquals(item.quantity, actual.quantity)
+        assertEquals(item.intentQuantityProvenance, actual.intentQuantityProvenance)
     }
 
     @Test

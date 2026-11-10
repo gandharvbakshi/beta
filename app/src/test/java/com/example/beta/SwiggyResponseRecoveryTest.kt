@@ -19,6 +19,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SwiggyResponseRecoveryTest {
+    @Test fun unchangedCartIsATypedPlanOnlyOutcomeNotNestedTextOrWriteSuccess() {
+        fun failure(path: String, code: Int, body: String) = SwiggyMcpClient.readSwiggyHttpResponse(
+            path, response(body.toResponseBody(), code),
+        ) { error("An error response must not be parsed as success") } as SwiggyMcpResult.Failure
+        val valid = """{"detail":{"reason":"cart_no_changes"}}"""
+        for (body in listOf(valid, """{"reason":"cart_no_changes"}""")) {
+            val unchanged = failure("/swiggy/cart/plan", 409, body)
+            assertTrue(unchanged.cartPlanUnchanged)
+            assertNoAlreadyInCartClaim(unchanged.userMessage)
+        }
+        for (path in listOf("/swiggy/cart/apply", "/swiggy/checkout/place", "/swiggy/cart/check"))
+            assertFalse(failure(path, 409, valid).cartPlanUnchanged)
+        for (code in listOf(400, 401, 403, 404, 422, 429, 502))
+            assertFalse(failure("/swiggy/cart/plan", code, valid).cartPlanUnchanged)
+        for (body in listOf(
+            """{"detail":{"reason":"cart_changed_replan_required"}}""",
+            """{"detail":{"message":"cart_no_changes"}}""",
+            """{"metadata":{"reason":"cart_no_changes"}}""",
+            """{"reason":"cart_no_changes","detail":{"reason":"other"}}""",
+            """{"detail":{"reason":"other","reason":"cart_no_changes"}}""",
+            """{"detail":{"reason":"cart_no_changes","reconnectRequired":true}}""",
+            valid + "{}",
+        )) {
+            val malformed = failure("/swiggy/cart/plan", 409, body)
+            assertFalse(malformed.cartPlanUnchanged)
+            assertNoAlreadyInCartClaim(malformed.userMessage)
+        }
+    }
+
     @Test fun truncatedResponseReachesFailureWithoutParsingOrRetrying() {
         for (path in listOf("/swiggy/recommendations/batch", "/swiggy/cart/apply", "/swiggy/intent")) {
             var parses = 0
@@ -115,6 +144,11 @@ class SwiggyResponseRecoveryTest {
             assertTrue(result.userMessage.contains("review the cart"))
             assertTrue(SwiggyMcpClient.swiggyRetryable("/swiggy/status", code))
         }
+    }
+
+    private fun assertNoAlreadyInCartClaim(message: String) {
+        assertFalse(message.contains("already has those quantities", ignoreCase = true))
+        assertFalse(message.contains("already in your cart", ignoreCase = true))
     }
 
     private fun response(body: ResponseBody, code: Int = 200) = Response.Builder()

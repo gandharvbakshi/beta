@@ -1,0 +1,362 @@
+{
+  "schema": "swiggy-form-contradiction-v1",
+  "scope": "Reject-only helper parity, not full identity or catalogue qualification.",
+  "cases": [
+    {
+      "id": "fresh_plain",
+      "requests": [
+        "fresh spinach"
+      ],
+      "exclusions": [
+        "dried"
+      ],
+      "fields": [
+        "Spinach 250 g"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "fresh_dry",
+      "requests": [
+        "fresh spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Dry Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "fresh_dehydrated",
+      "requests": [
+        "fresh spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Dehydrated Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "fresh_frozen",
+      "requests": [
+        "fresh spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Frozen Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "fresh_brand_frozen",
+      "requests": [
+        "fresh spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Fresh Frozen Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "fresh_powder",
+      "requests": [
+        "fresh spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Spinach Powder 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "fresh_tinned",
+      "requests": [
+        "fresh spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Tinned Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "fresh_flakes",
+      "requests": [
+        "fresh coconut"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Coconut Flakes 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "fresh_instant",
+      "requests": [
+        "fresh tea"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Instant Tea 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "fresh_pickled",
+      "requests": [
+        "fresh mango"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Pickled Mango 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "explicit_frozen",
+      "requests": [
+        "fresh frozen spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Frozen Spinach 250 g"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "explicit_dry",
+      "requests": [
+        "fresh dry yeast"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Active Dry Yeast 250 g"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "explicit_other_form_not_permission",
+      "requests": [
+        "fresh frozen spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Dry Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "query_strict_no_union",
+      "requests": [
+        "fresh spinach",
+        "fresh frozen spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Frozen Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "strict_query_no_union",
+      "requests": [
+        "fresh frozen spinach",
+        "fresh spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Frozen Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "brand_not_form",
+      "requests": [
+        "FreshToHome spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Frozen Spinach 250 g"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "fuzzy_brand_not_form",
+      "requests": [
+        "Fresho spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Frozen Spinach 250 g"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "ordinary_unchanged",
+      "requests": [
+        "spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Frozen Spinach 250 g"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "bare_dried",
+      "requests": [
+        "spinach"
+      ],
+      "exclusions": [
+        "dried"
+      ],
+      "fields": [
+        "Dehydrated Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "dried_only_not_frozen",
+      "requests": [
+        "spinach"
+      ],
+      "exclusions": [
+        "dried"
+      ],
+      "fields": [
+        "Frozen Spinach 250 g"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "version_wrapper",
+      "requests": [
+        "spinach"
+      ],
+      "exclusions": [
+        "the frozen version"
+      ],
+      "fields": [
+        "Frozen Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "one_wrapper",
+      "requests": [
+        "spinach"
+      ],
+      "exclusions": [
+        "dried one"
+      ],
+      "fields": [
+        "Dry Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "compound_scope",
+      "requests": [
+        "spinach"
+      ],
+      "exclusions": [
+        "dried fruit"
+      ],
+      "fields": [
+        "Dry Spinach 250 g"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "negated_source",
+      "requests": [
+        "non frozen spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Frozen Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "negated_source_article",
+      "requests": [
+        "fresh spinach not the dried"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Dried Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "negated_source_suffix",
+      "requests": [
+        "fresh frozen free spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Frozen Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "candidate_negation_not_proof",
+      "requests": [
+        "fresh spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Never Frozen Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "other_claim_not_form_negation",
+      "requests": [
+        "fresh no added sugar milk powder"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Milk Powder 250 g"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "raw_fields_no_substring_hide",
+      "requests": [
+        "fresh spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Dryad Fresh Spinach 250 g",
+        "Dry"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "unicode_compatibility_form",
+      "requests": [
+        "fresh spinach"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Ｆｒｏｚｅｎ Spinach 250 g"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "freshener_not_fresh",
+      "requests": [
+        "freshener"
+      ],
+      "exclusions": [],
+      "fields": [
+        "Frozen Freshener 250 g"
+      ],
+      "allowed": true
+    }
+  ]
+}

@@ -8,8 +8,10 @@ import org.junit.Test
 class FeedbackPayloadTest {
     @Test
     fun appConfigBuildsFeedbackEndpointFromBaseUrl() {
-        assertTrue(AppConfig.feedbackUrl.endsWith("/feedback"))
-        assertFalse(AppConfig.feedbackUrl.contains("//feedback"))
+        val config = BackendEndpointConfig.read(
+            """{"version":1,"backend_base_url":"https://example.test"}""".byteInputStream())
+        assertTrue(config.path("/feedback").endsWith("/feedback"))
+        assertFalse(config.path("/feedback").contains("//feedback"))
     }
 
     @Test

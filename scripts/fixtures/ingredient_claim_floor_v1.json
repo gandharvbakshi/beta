@@ -1,0 +1,23 @@
+{
+  "schema": "deny-only-ingredient-claim-alarms-v1",
+  "claim": "Alarm parity only; not semantic intent or dietary proof",
+  "cases": [
+    {"text": "unsalted", "alarms": [{"operator": "absent", "operand": "salt"}]},
+    {"text": "no added salt", "alarms": [{"operator": "no_addition", "operand": "salt"}]},
+    {"text": "sugar-free", "alarms": [{"operator": "absent", "operand": "sugar"}]},
+    {"text": "without preservatives", "alarms": [{"operator": "absent", "operand": "preservatives"}]},
+    {"text": "no added sugar", "alarms": [{"operator": "no_addition", "operand": "sugar"}]},
+    {"text": "lactose free", "alarms": [{"operator": "absent", "operand": "lactose"}]},
+    {"text": "gluten-free", "alarms": [{"operator": "absent", "operand": "gluten"}]},
+    {"text": "unsweetened", "alarms": []},
+    {"text": "unflavoured", "alarms": []},
+    {"text": "not sugar free", "alarms": []},
+    {"text": "low salt", "alarms": []},
+    {"text": "unbuttered", "alarms": []},
+    {"text": "non-dairy", "alarms": []},
+    {"text": "Sugar Free tablets", "alarms": [{"operator": "absent", "operand": "sugar"}], "limitation": "Brand ambiguity: alarm cannot establish intended dietary meaning"},
+    {"text": "bread made with gluten-free oats", "alarms": [{"operator": "absent", "operand": "gluten"}], "limitation": "Scoped ingredient: alarm cannot establish whole-product meaning"},
+    {"text": "no preservatives added", "alarms": [], "limitation": "Existing grammar does not recognize this postfix operation"},
+    {"text": "bina cheeni", "alarms": [], "limitation": "Non-English intent still requires semantic audit"}
+  ]
+}

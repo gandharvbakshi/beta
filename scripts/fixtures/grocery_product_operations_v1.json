@@ -1,0 +1,203 @@
+{
+  "schema": "grocery-product-operations-v1",
+  "cases": [
+    {
+      "id": "replace_with",
+      "instruction": "One parsley. Please replace the parsley with one coriander.",
+      "items": [
+        {"name": "parsley", "source_text": "One parsley."},
+        {"name": "coriander", "source_text": "one coriander"}
+      ],
+      "expected_operations": [
+        {"kind": "replace", "target_row_index": 0, "replacement_row_index": 1,
+         "source": {"text": "Please replace the parsley with one coriander", "start_utf16": 13, "end_utf16": 58},
+         "target_mention": {"text": "parsley", "start_utf16": 32, "end_utf16": 39}}
+      ]
+    },
+    {
+      "id": "source_instead_of_target",
+      "instruction": "One milk. One oat milk instead of milk.",
+      "items": [
+        {"name": "milk", "source_text": "One milk."},
+        {"name": "oat milk", "source_text": "One oat milk"}
+      ],
+      "expected_operations": [
+        {"kind": "replace", "target_row_index": 0, "replacement_row_index": 1,
+         "source": {"text": "One oat milk instead of milk", "start_utf16": 10, "end_utf16": 38},
+         "target_mention": {"text": "milk", "start_utf16": 34, "end_utf16": 38}}
+      ]
+    },
+    {
+      "id": "instead_of_target_source",
+      "instruction": "One milk. Instead of milk, one oat milk.",
+      "items": [
+        {"name": "milk", "source_text": "One milk."},
+        {"name": "oat milk", "source_text": "one oat milk"}
+      ],
+      "expected_operations": [
+        {"kind": "replace", "target_row_index": 0, "replacement_row_index": 1,
+         "source": {"text": "Instead of milk, one oat milk", "start_utf16": 10, "end_utf16": 39},
+         "target_mention": {"text": "milk", "start_utf16": 21, "end_utf16": 25}}
+      ]
+    },
+    {
+      "id": "hinglish_ki_jagah",
+      "instruction": "One Amul doodh. Amul doodh ki jagah Amul oat doodh le lena.",
+      "items": [
+        {"name": "Amul doodh", "source_text": "One Amul doodh."},
+        {"name": "Amul oat doodh", "source_text": "Amul oat doodh"}
+      ],
+      "expected_operations": [
+        {"kind": "replace", "target_row_index": 0, "replacement_row_index": 1,
+         "source": {"text": "Amul doodh ki jagah Amul oat doodh le lena", "start_utf16": 16, "end_utf16": 58},
+         "target_mention": {"text": "Amul doodh", "start_utf16": 16, "end_utf16": 26}}
+      ]
+    },
+    {
+      "id": "hinglish_uski_jagah",
+      "instruction": "One milk. uski jagah one oat milk, milk nahi.",
+      "items": [
+        {"name": "milk", "source_text": "One milk."},
+        {"name": "oat milk", "source_text": "one oat milk"}
+      ],
+      "expected_operations": [
+        {"kind": "replace", "target_row_index": 0, "replacement_row_index": 1,
+         "source": {"text": "uski jagah one oat milk, milk nahi", "start_utf16": 10, "end_utf16": 44},
+         "target_mention": {"text": "milk", "start_utf16": 35, "end_utf16": 39}}
+      ]
+    },
+    {
+      "id": "hinglish_variable_whitespace",
+      "instruction": "One Amul doodh. Amul doodh   ki jagah   Amul oat doodh le lena.",
+      "items": [
+        {"name": "Amul doodh", "source_text": "One Amul doodh."},
+        {"name": "Amul oat doodh", "source_text": "Amul oat doodh"}
+      ],
+      "expected_operations": [
+        {"kind": "replace", "target_row_index": 0, "replacement_row_index": 1,
+         "source": {"text": "Amul doodh   ki jagah   Amul oat doodh le lena", "start_utf16": 16, "end_utf16": 62},
+         "target_mention": {"text": "Amul doodh", "start_utf16": 16, "end_utf16": 26}}
+      ]
+    },
+    {
+      "id": "supplementary_character_offsets",
+      "instruction": "😀. One parsley. Replace parsley with one coriander.",
+      "items": [
+        {"name": "parsley", "source_text": "One parsley."},
+        {"name": "coriander", "source_text": "one coriander"}
+      ],
+      "expected_operations": [
+        {"kind": "replace", "target_row_index": 0, "replacement_row_index": 1,
+         "source": {"text": "Replace parsley with one coriander", "start_utf16": 17, "end_utf16": 51},
+         "target_mention": {"text": "parsley", "start_utf16": 25, "end_utf16": 32}}
+      ]
+    },
+    {
+      "id": "independent_two_replacements",
+      "instruction": "One parsley. One basil. Replace parsley with one coriander. Replace basil with one mint.",
+      "items": [
+        {"name": "parsley", "source_text": "One parsley."},
+        {"name": "basil", "source_text": "One basil."},
+        {"name": "coriander", "source_text": "one coriander"},
+        {"name": "mint", "source_text": "one mint"}
+      ],
+      "expected_operations": [
+        {"kind": "replace", "target_row_index": 0, "replacement_row_index": 2,
+         "source": {"text": "Replace parsley with one coriander", "start_utf16": 24, "end_utf16": 58},
+         "target_mention": {"text": "parsley", "start_utf16": 32, "end_utf16": 39}},
+        {"kind": "replace", "target_row_index": 1, "replacement_row_index": 3,
+         "source": {"text": "Replace basil with one mint", "start_utf16": 60, "end_utf16": 87},
+         "target_mention": {"text": "basil", "start_utf16": 68, "end_utf16": 73}}
+      ]
+    },
+    {
+      "id": "ambiguous_duplicate_target",
+      "instruction": "one BrandA milk; one BrandB milk; replace milk with oat milk",
+      "items": [
+        {"name": "BrandA milk", "source_text": "one BrandA milk;"},
+        {"name": "BrandB milk", "source_text": "one BrandB milk;"},
+        {"name": "oat milk", "source_text": "oat milk"}
+      ],
+      "expected_operations": []
+    },
+    {
+      "id": "reused_chain_denied",
+      "instruction": "one milk; replace milk with oat milk; replace oat milk with soy milk",
+      "items": [
+        {"name": "milk", "source_text": "one milk;"},
+        {"name": "oat milk", "source_text": "oat milk"},
+        {"name": "soy milk", "source_text": "soy milk"}
+      ],
+      "expected_operations": []
+    },
+    {
+      "id": "conditional_denied",
+      "instruction": "one milk; replace milk with oat milk if available",
+      "items": [
+        {"name": "milk", "source_text": "one milk;"},
+        {"name": "oat milk", "source_text": "oat milk"}
+      ],
+      "expected_operations": []
+    },
+    {
+      "id": "digit_in_retained_identity",
+      "instruction": "one Maggi 2 minute noodles; replace noodles with Maggi 2 minute oats",
+      "items": [
+        {"name": "Maggi 2 minute noodles", "source_text": "one Maggi 2 minute noodles;"},
+        {"name": "Maggi 2 minute oats", "source_text": "Maggi 2 minute oats"}
+      ],
+      "expected_operations": [
+        {"kind": "replace", "target_row_index": 0, "replacement_row_index": 1,
+         "source": {"text": "replace noodles with Maggi 2 minute oats", "start_utf16": 28, "end_utf16": 68},
+         "target_mention": {"text": "noodles", "start_utf16": 36, "end_utf16": 43}}
+      ]
+    },
+    {
+      "id": "digit_identity_cannot_be_dropped",
+      "instruction": "one Maggi 2 minute noodles; replace noodles with Maggi Minute oats",
+      "items": [
+        {"name": "Maggi 2 minute noodles", "source_text": "one Maggi 2 minute noodles;"},
+        {"name": "Maggi Minute oats", "source_text": "Maggi Minute oats"}
+      ],
+      "expected_operations": []
+    },
+    {
+      "id": "required_excluded_packaging_preserved",
+      "instruction": "one organic milk; replace milk with organic oat milk",
+      "items": [
+        {"name": "organic milk", "source_text": "one organic milk;", "packaging": "bottle",
+         "required": ["organic"], "excluded": ["powder"]},
+        {"name": "organic oat milk", "source_text": "organic oat milk", "packaging": "bottle",
+         "required": ["organic"], "excluded": ["powder"]}
+      ],
+      "expected_operations": [
+        {"kind": "replace", "target_row_index": 0, "replacement_row_index": 1,
+         "source": {"text": "replace milk with organic oat milk", "start_utf16": 18, "end_utf16": 52},
+         "target_mention": {"text": "milk", "start_utf16": 26, "end_utf16": 30}}
+      ]
+    },
+    {
+      "id": "required_excluded_packaging_loss_denied",
+      "instruction": "one organic milk; replace milk with oat milk",
+      "items": [
+        {"name": "organic milk", "source_text": "one organic milk;", "packaging": "bottle",
+         "required": ["organic"], "excluded": ["powder"]},
+        {"name": "oat milk", "source_text": "oat milk", "packaging": "carton",
+         "required": [], "excluded": []}
+      ],
+      "expected_operations": []
+    },
+    {
+      "id": "old_amount_not_inherited",
+      "instruction": "two 500 ml milk packs; replace milk with oat milk",
+      "items": [
+        {"name": "milk", "source_text": "two 500 ml milk packs;", "quantity": 2,
+         "quantity_unit": "pack", "quantity_text": "two", "pack_value": 500,
+         "pack_unit": "ml", "pack_text": "500 ml"},
+        {"name": "oat milk", "source_text": "oat milk", "quantity": null,
+         "quantity_unit": "unspecified"}
+      ],
+      "expected_operations": []
+    }
+  ]
+}

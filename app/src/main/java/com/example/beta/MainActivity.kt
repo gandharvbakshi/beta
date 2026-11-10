@@ -9,10 +9,13 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.View
+import android.view.accessibility.AccessibilityManager
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -20,6 +23,8 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import androidx.core.widget.doAfterTextChanged
 import com.example.beta.SwiggyMcpClient.SwiggyMcpResult
 
@@ -36,6 +41,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var swiggyConnectionPanel: View
     private lateinit var swiggyConnectionStatus: TextView
     private lateinit var swiggyConnectionDetail: TextView
+    private lateinit var swiggyKeptNote: TextView
+    private lateinit var swiggyConnectionProgress: View
+    private lateinit var mainScroll: ScrollView
     private lateinit var swiggySelectedAddress: TextView
     private lateinit var swiggyChangeAddressAction: Button
     private lateinit var swiggyConnectionAction: Button
@@ -48,6 +56,11 @@ class MainActivity : ComponentActivity() {
     private val swiggyConnectionState get() = connectionSession.state
     private val swiggyMcpRequestGeneration get() = connectionSession.generation
     private var swiggyConnectionOperationInFlight = false
+    private var openingSwiggyBrowser = false
+    private var retrySwiggySignIn = false
+    private var finishingSwiggySignIn = false
+    private var lastConnectionScreen: SwiggyConnectionSession.Screen? = null
+    private var revealComposerAfterConnection = false
     private var connectionDetailOverride: String? = null
     private var resumeSwiggyOrderAfterStatus = false
     private var pendingSwiggyInstruction: String? = null
@@ -63,8 +76,17 @@ class MainActivity : ComponentActivity() {
     private val draftHandler = Handler(Looper.getMainLooper())
     private var draftPersistenceBlocked = false
     private var draftRestored = false
+    private var persistedComposerText = ""
+    private var retainedSwiggyOrderStatus = false
+    private var lastVoiceInputState = OrderVoiceInputController.State.IDLE
     private val persistDraftRunnable = Runnable { persistGroceryDraft() }
     private var applyingSpeechText = false
+    private var recoveryVoiceRequested = false
+    private var scopedVoiceResult: ((String?) -> Unit)? = null
+    private data class VoicePermissionAttempt(val epoch: Long, val recovery: Boolean)
+    private var pendingVoicePermission: VoicePermissionAttempt? = null
+    private var recoveryVoiceEpoch = 0L
+    private var composerInstructionEpoch = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,6 +106,9 @@ class MainActivity : ComponentActivity() {
         swiggyConnectionPanel = findViewById(R.id.swiggyConnectionPanel)
         swiggyConnectionStatus = findViewById(R.id.swiggyConnectionStatus)
         swiggyConnectionDetail = findViewById(R.id.swiggyConnectionDetail)
+        swiggyKeptNote = findViewById(R.id.swiggyKeptNote)
+        swiggyConnectionProgress = findViewById(R.id.swiggyConnectionProgress)
+        mainScroll = findViewById(R.id.mainScroll)
         swiggySelectedAddress = findViewById(R.id.swiggySelectedAddress)
         swiggyChangeAddressAction = findViewById(R.id.swiggyChangeAddressAction)
         swiggyConnectionAction = findViewById(R.id.swiggyConnectionAction)
@@ -91,18 +116,43 @@ class MainActivity : ComponentActivity() {
 
         draftStore = SwiggyDraftStore(applicationContext)
         draftStore.load()?.let { restored ->
+            persistedComposerText = restored
             orderCommandInput.setText(restored)
             orderCommandInput.setSelection(restored.length)
             draftRestored = true
             orderInputStatus.text = "Your saved list is here. Continue to check the address and products again."
             Log.i("BetaAgent", "GROCERY_DRAFT_RESTORED")
         }
+        // Restore presentation only. The encrypted draft remains authoritative;
+        // saved state must never restart a request or revive a submitted list.
+        savedInstanceState?.getString(RETAINED_ORDER_STATUS)?.takeIf {
+            it.isNotBlank() && draftRestored && !SwiggyCartMutationGuard.isInFlight()
+        }?.let { message ->
+            retainedSwiggyOrderStatus = true
+            orderInputStatus.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_NONE
+            orderInputStatus.text = message
+            orderInputStatus.post {
+                orderInputStatus.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            }
+        }
+        var lastComposerText = orderCommandInput.text?.toString().orEmpty()
         orderCommandInput.doAfterTextChanged {
+            val currentText = orderCommandInput.text?.toString().orEmpty()
+            if (currentText != lastComposerText) {
+                lastComposerText = currentText
+                if (retainedSwiggyOrderStatus) {
+                    retainedSwiggyOrderStatus = false
+                    orderInputStatus.setText(R.string.order_input_help)
+                }
+            }
+            composerInstructionEpoch += 1
             // A retry must never submit an earlier version after the user edits it.
             pendingSwiggyInstruction = null
             resumeSwiggyOrderAfterStatus = false
-            if (!applyingSpeechText && ::voiceInputController.isInitialized && voiceInputController.isActive) {
-                voiceInputController.cancel()
+            if (!applyingSpeechText) {
+                if (::voiceInputController.isInitialized && voiceInputController.isActive) voiceInputController.cancel()
+                recoveryVoiceRequested = false
+                recoveryVoiceEpoch += 1
             }
             draftHandler.removeCallbacks(persistDraftRunnable)
             // Text cannot be edited during a mutation. Clearing it in the
@@ -116,12 +166,17 @@ class MainActivity : ComponentActivity() {
         voiceInputController = OrderVoiceInputController(
             context = this,
             onStateChanged = ::renderVoiceInputState,
-            onPartialResult = { partial ->
-                setRecognizedSpeechText(partial)
-            },
+            onPartialResult = ::handlePartialSpeechText,
             onFinalResult = { instruction ->
-                setRecognizedSpeechText(instruction)
-                submitOrderInstruction(instruction, source = "voice")
+                val scopedResult = scopedVoiceResult
+                scopedVoiceResult = null
+                recoveryVoiceRequested = false
+                recoveryVoiceEpoch += 1
+                if (scopedResult != null) scopedResult(instruction)
+                else {
+                    setRecognizedSpeechText(instruction)
+                    submitOrderInstruction(instruction, source = "voice")
+                }
             },
             onRecognitionError = ::handleVoiceInputError,
         )
@@ -150,7 +205,7 @@ class MainActivity : ComponentActivity() {
                 updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED)
             },
             onAddressChanged = ::renderSwiggySelectedAddress,
-            onTerminal = ::resetSwiggyOrderInputStatus,
+            onTerminal = { retainStatus -> resetSwiggyOrderInputStatus(retainStatus) },
             onVerified = ::onSwiggyCartVerified,
             beforeApply = ::prepareDraftForCartApply,
             onCheckoutRequested = { swiggyCheckoutCoordinator.start(it) },
@@ -160,7 +215,12 @@ class MainActivity : ComponentActivity() {
                 orderCommandInput.setSelection(orderCommandInput.text.length)
                 orderCommandInput.announceForAccessibility("Edit this list or use the microphone to say a new list.")
             },
-        )
+            onInstructionEdited = ::saveConfirmedInstructionEdit,
+            onRecoveryVoiceRequested = ::beginRecoveryVoice,
+        ).apply {
+            onScopedInstructionEdited = ::saveScopedInstructionEdit
+            onScopedVoiceRequested = ::beginScopedRecoveryVoice
+        }
         SwiggyCartMutationGuard.register(this) { inFlight ->
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -172,14 +232,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        microphonePermissionResult = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                startVoiceRecognition()
-            } else {
-                Toast.makeText(this, R.string.voice_microphone_required, Toast.LENGTH_LONG).show()
-            }
-            BetaTelemetry.instance?.logPermissionResult("microphone", granted)
-        }
+        microphonePermissionResult = registerForActivityResult(ActivityResultContracts.RequestPermission(), ::handleMicrophonePermissionResult)
 
         locationPermissionResult = registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
@@ -192,7 +245,10 @@ class MainActivity : ComponentActivity() {
         }
 
         orderVoiceInputButton.setOnClickListener {
-            checkMicrophoneAndStartVoice()
+            if (recoveryVoiceRequested && voiceInputController.isActive) {
+                voiceInputController.cancel()
+                finishRecoveryVoice(RECOVERY_VOICE_STOPPED)
+            } else checkMicrophoneAndStartVoice()
         }
         orderSubmitButton.setOnClickListener {
             submitOrderInstruction(orderCommandInput.text?.toString().orEmpty(), source = "text")
@@ -207,8 +263,10 @@ class MainActivity : ComponentActivity() {
         }
 
         swiggyConnectionAction.setOnClickListener {
+            if (swiggyConnectionOperationInFlight || isSwiggyMutationInFlight()) return@setOnClickListener
             if (connectionSession.presentation == SwiggyConnectionSession.Presentation.RETRY) {
-                refreshSwiggyConnectionStatus(resumePendingOrder = true)
+                if (retrySwiggySignIn) startSwiggyConnection()
+                else refreshSwiggyConnectionStatus(resumePendingOrder = false)
                 return@setOnClickListener
             }
             if (connectionSession.presentation == SwiggyConnectionSession.Presentation.CHECKING) return@setOnClickListener
@@ -236,7 +294,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         BetaTelemetry.instance?.onAppResume()
-        refreshSwiggyConnectionStatus(resumePendingOrder = true)
+        refreshSwiggyConnectionStatus(resumePendingOrder = false)
         val checkoutActive = swiggyCheckoutCoordinator.onResume()
         if (!swiggyOrderCoordinator.onHostResumed(checkoutActive)) maybeShowFeedbackPrompt()
     }
@@ -249,14 +307,34 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        composerInstructionEpoch += 1
+        // A backgrounded command must not restart merely because the app returns.
+        pendingSwiggyInstruction = null
+        resumeSwiggyOrderAfterStatus = false
         if (::swiggyCheckoutCoordinator.isInitialized) swiggyCheckoutCoordinator.onPause()
         if (::swiggyOfflineDemo.isInitialized) swiggyOfflineDemo.onPause()
         if (::swiggyOrderCoordinator.isInitialized) swiggyOrderCoordinator.onHostPaused()
         if (::voiceInputController.isInitialized) voiceInputController.cancel()
+        if (recoveryVoiceRequested && pendingVoicePermission == null) finishRecoveryVoice(RECOVERY_VOICE_STOPPED)
         if (::textToSpeech.isInitialized) textToSpeech.stop()
         draftHandler.removeCallbacks(persistDraftRunnable)
         if (::draftStore.isInitialized) persistGroceryDraft()
         super.onPause()
+    }
+
+    override fun onStop() {
+        // Permission result delivered to a recreated/backgrounded Activity is not a new mic request.
+        recoveryVoiceRequested = false
+        scopedVoiceResult = null
+        recoveryVoiceEpoch += 1
+        super.onStop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (retainedSwiggyOrderStatus && !isSwiggyMutationInFlight()) {
+            outState.putString(RETAINED_ORDER_STATUS, orderInputStatus.text.toString())
+        }
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
@@ -275,12 +353,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkMicrophoneAndStartVoice() {
+        if (pendingVoicePermission != null) return
+        val attempt = VoicePermissionAttempt(recoveryVoiceEpoch, recoveryVoiceRequested)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             startVoiceRecognition()
             return
         }
         val preferences = getSharedPreferences(VOICE_PERMISSION_PREFERENCES, MODE_PRIVATE)
         if (preferences.getBoolean(VOICE_PERMISSION_EXPLAINED, false)) {
+            pendingVoicePermission = attempt
             microphonePermissionResult.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
@@ -288,32 +369,86 @@ class MainActivity : ComponentActivity() {
             .setTitle(R.string.microphone_prompt_title)
             .setMessage(R.string.microphone_prompt_message)
             .setPositiveButton(R.string.microphone_prompt_allow) { _, _ ->
+                if (attempt.epoch != recoveryVoiceEpoch) return@setPositiveButton
                 preferences.edit().putBoolean(VOICE_PERMISSION_EXPLAINED, true).apply()
+                pendingVoicePermission = attempt
                 microphonePermissionResult.launch(Manifest.permission.RECORD_AUDIO)
             }
-            .setNegativeButton(R.string.common_not_now, null)
+            .setNegativeButton(R.string.common_not_now) { _, _ ->
+                if (recoveryVoiceRequested) finishRecoveryVoice(RECOVERY_VOICE_PERMISSION)
+            }
+            .setOnCancelListener { if (recoveryVoiceRequested) finishRecoveryVoice(RECOVERY_VOICE_STOPPED) }
             .show()
+    }
+
+    private fun handleMicrophonePermissionResult(granted: Boolean) {
+        val attempt = pendingVoicePermission
+        pendingVoicePermission = null
+        BetaTelemetry.instance?.logPermissionResult("microphone", granted)
+        // No locally initiated current request means a stale or recreation-delivered result.
+        if (attempt == null || attempt.epoch != recoveryVoiceEpoch || isFinishing || isDestroyed) return
+        if (attempt.recovery) {
+            if (!recoveryVoiceRequested) return
+            if (granted) startVoiceRecognition() else finishRecoveryVoice(RECOVERY_VOICE_PERMISSION)
+        } else if (granted) startVoiceRecognition()
+        else Toast.makeText(this, R.string.voice_microphone_required, Toast.LENGTH_LONG).show()
     }
 
     private fun startVoiceRecognition() {
         textToSpeech.stop()
-        voiceInputController.toggle()
+        if (recoveryVoiceRequested) voiceInputController.start() else voiceInputController.toggle()
+    }
+
+    private fun beginRecoveryVoice() {
+        // Coordinator has already saved exact editor text and invalidated every old request.
+        voiceInputController.cancel()
+        scopedVoiceResult = null
+        recoveryVoiceRequested = true
+        val epoch = ++recoveryVoiceEpoch
+        orderCommandInput.clearFocus()
+        (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)?.hideSoftInputFromWindow(orderCommandInput.windowToken, 0)
+        mainScroll.post {
+            if (epoch != recoveryVoiceEpoch || !recoveryVoiceRequested || isFinishing || isDestroyed) return@post
+            mainScroll.scrollTo(0, (orderComposerCard.top - 16 * resources.displayMetrics.density).toInt().coerceAtLeast(0))
+            checkMicrophoneAndStartVoice()
+        }
+    }
+
+    private fun finishRecoveryVoice(message: String) {
+        val scopedResult = scopedVoiceResult
+        scopedVoiceResult = null
+        recoveryVoiceRequested = false
+        recoveryVoiceEpoch += 1
+        if (scopedResult != null) {
+            scopedResult(null)
+            return
+        }
+        orderInputStatus.text = message
+        val accessibility = getSystemService(ACCESSIBILITY_SERVICE) as? AccessibilityManager
+        if (accessibility?.isTouchExplorationEnabled == true) {
+            orderInputStatus.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null)
+        }
     }
 
     private fun renderVoiceInputState(state: OrderVoiceInputController.State) {
+        val enteredState = state != lastVoiceInputState
+        lastVoiceInputState = state
         when (state) {
             OrderVoiceInputController.State.IDLE -> {
                 orderVoiceInputButton.contentDescription = getString(R.string.order_voice_start)
-                orderInputStatus.setText(R.string.order_input_help)
+                if (!retainedSwiggyOrderStatus) orderInputStatus.setText(R.string.order_input_help)
             }
             OrderVoiceInputController.State.LISTENING -> {
                 orderVoiceInputButton.contentDescription = getString(R.string.order_voice_stop)
-                orderInputStatus.setText(R.string.voice_listening)
-                orderInputStatus.announceForAccessibility(orderInputStatus.text)
+                if (!retainedSwiggyOrderStatus) {
+                    orderInputStatus.setText(R.string.voice_listening)
+                }
+                if (enteredState) orderVoiceInputButton.announceForAccessibility(getString(R.string.voice_listening))
             }
             OrderVoiceInputController.State.PROCESSING -> {
                 orderVoiceInputButton.contentDescription = getString(R.string.order_voice_stop)
-                orderInputStatus.setText(R.string.voice_processing)
+                if (!retainedSwiggyOrderStatus) orderInputStatus.setText(R.string.voice_processing)
+                else if (enteredState) orderVoiceInputButton.announceForAccessibility(getString(R.string.voice_processing))
             }
         }
     }
@@ -328,7 +463,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun handlePartialSpeechText(text: String) {
+        // A tentative transcript must not overwrite the saved typed recovery list.
+        if (!recoveryVoiceRequested) setRecognizedSpeechText(text)
+    }
+
     private fun handleVoiceInputError(error: OrderVoiceInputController.Error) {
+        if (recoveryVoiceRequested) {
+            finishRecoveryVoice(when (error) {
+                OrderVoiceInputController.Error.NO_MATCH -> RECOVERY_VOICE_STOPPED
+                OrderVoiceInputController.Error.PERMISSION -> RECOVERY_VOICE_PERMISSION
+                else -> RECOVERY_VOICE_UNAVAILABLE
+            })
+            return
+        }
         val messageRes = when (error) {
             OrderVoiceInputController.Error.UNAVAILABLE -> R.string.voice_unavailable
             OrderVoiceInputController.Error.NO_MATCH -> R.string.voice_no_order_heard
@@ -337,12 +485,22 @@ class MainActivity : ComponentActivity() {
             OrderVoiceInputController.Error.PERMISSION -> R.string.voice_microphone_required
             OrderVoiceInputController.Error.OTHER -> R.string.voice_no_order_heard
         }
-        orderInputStatus.setText(messageRes)
-        Toast.makeText(this, messageRes, Toast.LENGTH_LONG).show()
+        if (!retainedSwiggyOrderStatus) orderInputStatus.setText(messageRes)
+        val accessibility = getSystemService(ACCESSIBILITY_SERVICE) as? AccessibilityManager
+        if (retainedSwiggyOrderStatus && accessibility?.isTouchExplorationEnabled == true) {
+            orderVoiceInputButton.announceForAccessibility(getString(messageRes))
+        } else Toast.makeText(this, messageRes, Toast.LENGTH_LONG).show()
     }
 
-    private fun resetSwiggyOrderInputStatus() {
-        if (!::orderInputStatus.isInitialized || isSwiggyMutationInFlight()) return
+    private fun resetSwiggyOrderInputStatus(retainStatus: Boolean = false) {
+        if (!::orderInputStatus.isInitialized) return
+        if (retainStatus) {
+            retainedSwiggyOrderStatus = true
+            if (!isSwiggyMutationInFlight()) draftPersistenceBlocked = false
+            return
+        }
+        if (isSwiggyMutationInFlight()) return
+        retainedSwiggyOrderStatus = false
         draftPersistenceBlocked = false
         if (draftRestored) {
             orderInputStatus.text = "Your saved list is here. Continue to check the address and products again."
@@ -353,12 +511,66 @@ class MainActivity : ComponentActivity() {
 
     private fun persistGroceryDraft(): Boolean {
         if (draftPersistenceBlocked || isSwiggyMutationInFlight()) return true
-        val saved = draftStore.save(orderCommandInput.text?.toString().orEmpty())
+        // The runnable reads CURRENT composer text on the UI thread, never a
+        // captured pre-edit value. Equal text must not erase revision metadata.
+        val text = orderCommandInput.text?.toString().orEmpty()
+        val saved = draftStore.withStoreLock {
+            val stored = draftStore.loadIncludingEmpty()
+            // A failed write read-back may already have committed a newer
+            // instruction. An unchanged old composer is not a new user request.
+            if (text == persistedComposerText && draftStore.hasStoredRecord() && stored != text) false
+            else draftStore.saveComposer(text)
+        }
+        if (saved) persistedComposerText = text
         if (!saved) {
             Log.w("BetaAgent", "GROCERY_DRAFT_SAVE_FAILED")
             orderInputStatus.text = "Your list could not be saved on this phone. Keep Beta open and try again."
         }
         return saved
+    }
+
+    /** Commit the confirmed edit before another request; never overwrite a newer composer draft. */
+    private fun saveConfirmedInstructionEdit(original: String, edited: String): Boolean {
+        if (isFinishing || isDestroyed || draftPersistenceBlocked || isSwiggyMutationInFlight() ||
+            orderCommandInput.text?.toString() != original) return false
+        draftHandler.removeCallbacks(persistDraftRunnable)
+        if (!draftStore.saveConfirmedComposerEdit(original, edited)) {
+            Log.w("BetaAgent", "GROCERY_DRAFT_SAVE_FAILED")
+            return false
+        }
+        orderCommandInput.setText(edited)
+        persistedComposerText = edited
+        orderCommandInput.setSelection(edited.length)
+        draftHandler.removeCallbacks(persistDraftRunnable) // Already durably saved; don't write it twice.
+        draftRestored = false
+        return true
+    }
+
+    private fun saveScopedInstructionEdit(
+        expected: GroceryIntentRecoveryRecord,
+        updated: GroceryIntentRecoveryRecord,
+    ): Boolean {
+        if (isFinishing || isDestroyed || draftPersistenceBlocked || isSwiggyMutationInFlight()) return false
+        val composer = orderCommandInput.text?.toString()
+        if (composer != expected.instruction && composer != updated.instruction) return false
+        // No delayed lifecycle/debounce write may interleave the commit and the
+        // composer adoption; both happen synchronously on the Activity thread.
+        draftHandler.removeCallbacks(persistDraftRunnable)
+        if (!draftStore.compareAndSetRecovery(expected, updated)) return false
+        orderCommandInput.setText(updated.instruction)
+        persistedComposerText = updated.instruction
+        orderCommandInput.setSelection(updated.instruction.length)
+        draftHandler.removeCallbacks(persistDraftRunnable)
+        draftRestored = false
+        return true
+    }
+
+    private fun beginScopedRecoveryVoice(result: (String?) -> Unit) {
+        voiceInputController.cancel()
+        scopedVoiceResult = result
+        recoveryVoiceRequested = true
+        recoveryVoiceEpoch += 1
+        checkMicrophoneAndStartVoice()
     }
 
     private fun prepareDraftForCartApply(): Boolean {
@@ -370,12 +582,18 @@ class MainActivity : ComponentActivity() {
             return false
         }
         orderCommandInput.setText("")
+        persistedComposerText = ""
         draftRestored = false
         return true
     }
 
     private fun submitOrderInstruction(rawInstruction: String, source: String) {
-        val instruction = rawInstruction.trim()
+        retainedSwiggyOrderStatus = false
+        recoveryVoiceRequested = false
+        recoveryVoiceEpoch += 1
+        // Continue must not turn an exact saved revision into a new request just
+        // because an explicit phrase edit retained leading/trailing whitespace.
+        val instruction = if (draftStore.loadRecovery()?.instruction == rawInstruction) rawInstruction else rawInstruction.trim()
         if (instruction.isBlank()) {
             orderInputStatus.setText(R.string.order_input_required)
             orderCommandInput.requestFocus()
@@ -408,29 +626,15 @@ class MainActivity : ComponentActivity() {
     private fun configurePrimaryExperience() {
         if (!::swiggyConnectionPanel.isInitialized) return
         swiggyConnectionPanel.visibility = View.VISIBLE
-        // Draft editing is local and remains available even when a status read fails.
-        orderComposerCard.visibility = View.VISIBLE
-        if (connectionSession.presentation != SwiggyConnectionSession.Presentation.CONFIRMED) {
-            agentStatusText.text = if (connectionSession.presentation == SwiggyConnectionSession.Presentation.RETRY) {
-                "Connection check interrupted"
-            } else getString(R.string.swiggy_connection_checking)
-            primaryNoteText.text = "You can edit your list. Beta will check the connection before continuing."
-            renderSwiggyConnectionPanel()
-            return
-        }
-
-        when (swiggyConnectionState) {
-            SwiggyMcpClient.ConnectionState.READY -> updateSetupStatus(
+        // Claude Design: keep the local draft intact, but put connection recovery first.
+        val ready = connectionSession.canUseConnection
+        orderComposerCard.visibility = if (ready) View.VISIBLE else View.GONE
+        agentStatusText.visibility = if (ready) View.VISIBLE else View.GONE
+        primaryNoteText.visibility = if (ready) View.VISIBLE else View.GONE
+        if (ready) {
+            updateSetupStatus(
                 statusRes = R.string.swiggy_connection_ready,
                 noteRes = R.string.swiggy_primary_note_ready,
-            )
-            SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED -> updateSetupStatus(
-                statusRes = R.string.swiggy_connection_reconnect,
-                noteRes = R.string.swiggy_primary_note_disconnected,
-            )
-            SwiggyMcpClient.ConnectionState.DISCONNECTED -> updateSetupStatus(
-                statusRes = R.string.swiggy_connection_status,
-                noteRes = R.string.swiggy_primary_note_disconnected,
             )
         }
         renderSwiggyConnectionPanel()
@@ -439,49 +643,116 @@ class MainActivity : ComponentActivity() {
     private fun renderSwiggyConnectionPanel(detailOverride: String? = null) {
         if (!::swiggyConnectionPanel.isInitialized) return
         if (detailOverride != null) connectionDetailOverride = detailOverride
-        swiggyConnectionAction.visibility = View.VISIBLE
         renderSwiggySelectedAddress(selectedSwiggyAddressLabel)
         findViewById<Button>(R.id.swiggyCheckoutAction).isEnabled =
             connectionSession.canUseConnection && !isSwiggyMutationInFlight() && !swiggyConnectionOperationInFlight
-        if (connectionSession.presentation != SwiggyConnectionSession.Presentation.CONFIRMED) {
-            val retry = connectionSession.presentation == SwiggyConnectionSession.Presentation.RETRY
-            swiggyConnectionStatus.text = if (retry) "Connection check interrupted" else getString(R.string.swiggy_connection_checking)
-            swiggyConnectionDetail.text = connectionDetailOverride ?: if (retry) {
-                "Beta could not check Swiggy just now. Your list and saved address are unchanged. Try again."
-            } else "Checking your connection. You can still edit your list."
-            swiggyConnectionAction.text = if (retry) "Try connection again" else "Checking…"
-            swiggyConnectionAction.isEnabled = retry && !isSwiggyMutationInFlight() && !swiggyConnectionOperationInFlight
-            swiggyConnectionAction.contentDescription = swiggyConnectionAction.text
-            return
+        val screen = connectionSession.screen(
+            openingSwiggyBrowser,
+            getSharedPreferences(CONNECTION_PREFERENCES, MODE_PRIVATE).getBoolean(CONNECTION_ATTEMPT_PENDING, false),
+        )
+        val busy = screen == SwiggyConnectionSession.Screen.CHECKING || screen == SwiggyConnectionSession.Screen.OPENING_BROWSER
+        val ready = screen == SwiggyConnectionSession.Screen.CONNECTED
+        if (!ready && screen != SwiggyConnectionSession.Screen.CHECKING) revealComposerAfterConnection = true
+        swiggyConnectionAction.visibility = if (busy) View.GONE else View.VISIBLE
+        swiggyConnectionProgress.visibility = if (busy) View.VISIBLE else View.GONE
+        swiggyOfflineDemoAction.visibility = if (screen == SwiggyConnectionSession.Screen.FIRST_TIME) View.VISIBLE else View.GONE
+        swiggyKeptNote.visibility = if (ready) View.GONE else View.VISIBLE
+        swiggyKeptNote.text = when {
+            selectedSwiggyAddressLabel == null -> getString(R.string.swiggy_connection_design_kept_no_address)
+            orderCommandInput.text.isNullOrBlank() -> getString(R.string.swiggy_connection_design_kept_address, selectedSwiggyAddressLabel)
+            else -> getString(R.string.swiggy_connection_design_kept_draft_address, selectedSwiggyAddressLabel)
         }
-        when (swiggyConnectionState) {
-            SwiggyMcpClient.ConnectionState.READY -> {
+        when (screen) {
+            SwiggyConnectionSession.Screen.CONNECTED -> {
                 swiggyConnectionStatus.setText(R.string.swiggy_connection_ready)
                 swiggyConnectionDetail.text = connectionDetailOverride
                     ?: getString(R.string.swiggy_connection_ready_detail)
                 swiggyConnectionAction.setText(R.string.swiggy_connection_disconnect)
             }
-            SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED -> {
-                swiggyConnectionStatus.setText(R.string.swiggy_connection_reconnect)
-                swiggyConnectionDetail.text = connectionDetailOverride
-                    ?: getString(R.string.swiggy_connection_reconnect_detail)
+            SwiggyConnectionSession.Screen.EXPIRED -> {
+                swiggyConnectionStatus.setText(R.string.swiggy_connection_design_expired_title)
+                swiggyConnectionDetail.setText(R.string.swiggy_connection_design_expired_detail)
                 swiggyConnectionAction.setText(R.string.swiggy_connection_reconnect_action)
             }
-            SwiggyMcpClient.ConnectionState.DISCONNECTED -> {
+            SwiggyConnectionSession.Screen.FIRST_TIME -> {
                 swiggyConnectionStatus.setText(R.string.swiggy_connection_status)
-                swiggyConnectionDetail.text = connectionDetailOverride
-                    ?: getString(R.string.swiggy_connection_detail)
+                swiggyConnectionDetail.setText(R.string.swiggy_connection_detail)
                 swiggyConnectionAction.setText(R.string.swiggy_connection_action)
             }
+            SwiggyConnectionSession.Screen.CHECKING -> {
+                swiggyConnectionStatus.setText(R.string.swiggy_connection_checking)
+                swiggyConnectionDetail.setText(if (finishingSwiggySignIn) R.string.swiggy_connection_finishing else R.string.swiggy_connection_design_checking_detail)
+            }
+            SwiggyConnectionSession.Screen.OPENING_BROWSER -> {
+                swiggyConnectionStatus.setText(R.string.swiggy_connection_connecting)
+                swiggyConnectionDetail.setText(R.string.swiggy_connection_browser_detail)
+            }
+            SwiggyConnectionSession.Screen.SIGN_IN_PENDING -> {
+                swiggyConnectionStatus.setText(R.string.swiggy_connection_design_pending_title)
+                swiggyConnectionDetail.setText(R.string.swiggy_connection_design_pending_detail)
+                swiggyConnectionAction.setText(R.string.swiggy_connection_design_pending_action)
+            }
+            SwiggyConnectionSession.Screen.RETRY -> {
+                swiggyConnectionStatus.setText(if (retrySwiggySignIn) R.string.swiggy_connection_design_connect_retry_title else R.string.swiggy_connection_design_retry_title)
+                swiggyConnectionDetail.setText(R.string.swiggy_connection_design_retry_detail)
+                swiggyConnectionAction.setText(R.string.swiggy_connection_design_retry_action)
+            }
         }
+        swiggyConnectionAction.setBackgroundResource(if (ready) R.drawable.beta_btn_secondary else R.drawable.beta_btn_primary)
+        swiggyConnectionAction.setTextColor(ContextCompat.getColor(this, if (ready) R.color.beta_text_primary else R.color.white))
+        swiggyConnectionAction.minHeight = ((if (ready) 56 else 64) * resources.displayMetrics.density).toInt()
+        swiggyConnectionAction.textSize = if (ready) 18f else 19f
         swiggyConnectionAction.isEnabled = !isSwiggyMutationInFlight() && !swiggyConnectionOperationInFlight
-        swiggyConnectionAction.contentDescription = swiggyConnectionAction.text
+        swiggyConnectionAction.contentDescription = null // Speak its actual label, then the action hint.
+        val actionHint = if (ready) getString(R.string.swiggy_connection_disconnect) else getString(
+            if (screen == SwiggyConnectionSession.Screen.RETRY && !retrySwiggySignIn)
+                R.string.swiggy_connection_design_retry_description else R.string.swiggy_connection_design_action_description,
+        )
+        ViewCompat.replaceAccessibilityAction(swiggyConnectionAction, AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK, actionHint, null)
+        if (lastConnectionScreen != screen) {
+            lastConnectionScreen = screen
+            if (!ready) {
+                orderCommandInput.clearFocus()
+                getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(orderCommandInput.windowToken, 0)
+                focusSwiggyConnectionCard()
+            } else if (revealComposerAfterConnection) {
+                revealComposerAfterConnection = false
+                orderCommandInput.clearFocus()
+                mainScroll.post {
+                    if (isFinishing || isDestroyed || !connectionSession.canUseConnection) return@post
+                    mainScroll.smoothScrollTo(0, (orderComposerCard.top - 16 * resources.displayMetrics.density).toInt().coerceAtLeast(0))
+                    focusForTalkBack(orderInputStatus)
+                }
+            }
+        }
+    }
+
+    private fun focusSwiggyConnectionCard() {
+        mainScroll.post {
+            if (isFinishing || isDestroyed || connectionSession.canUseConnection) return@post
+            mainScroll.scrollTo(0, (swiggyConnectionPanel.top - 16 * resources.displayMetrics.density).toInt().coerceAtLeast(0))
+            focusForTalkBack(swiggyConnectionStatus)
+        }
+    }
+
+    private fun focusForTalkBack(view: View) {
+        if (getSystemService(AccessibilityManager::class.java)?.isTouchExplorationEnabled == true) {
+            // Accessibility focus reads the current text once; no duplicate live-region announcement.
+            view.performAccessibilityAction(AccessibilityNodeInfoCompat.ACTION_ACCESSIBILITY_FOCUS, null)
+        }
     }
 
     private fun handleSwiggyVoiceInstruction(instruction: String) {
         if (SwiggyCartMutationGuard.isInFlight()) {
             announceSwiggy(getString(R.string.swiggy_cart_update_in_progress))
             return
+        }
+        if (!connectionSession.canUseConnection) {
+            pendingSwiggyInstruction = null
+            resumeSwiggyOrderAfterStatus = false
+            configurePrimaryExperience()
+            focusSwiggyConnectionCard()
+            return // Saved locally only; authentication is never submission consent.
         }
         pendingSwiggyInstruction = instruction
         Log.i("BetaAgent", "SWIGGY_MCP_VOICE_INSTRUCTION_RECEIVED")
@@ -495,6 +766,7 @@ class MainActivity : ComponentActivity() {
         val statusRequest = connectionSession.beginStatus() ?: return
         val requestGeneration = swiggyMcpRequestGeneration
         connectionDetailOverride = null
+        retrySwiggySignIn = false
         Log.i(
             "BetaAgent",
             "SWIGGY_MCP_STATUS_REQUEST_STARTED generation=$requestGeneration resumePending=$resumePendingOrder",
@@ -509,6 +781,7 @@ class MainActivity : ComponentActivity() {
                 }
                 val shouldResumePendingOrder = resumeSwiggyOrderAfterStatus
                 resumeSwiggyOrderAfterStatus = false
+                finishingSwiggySignIn = false
                 when (result) {
                     is SwiggyMcpResult.Success -> {
                         Log.i(
@@ -541,36 +814,42 @@ class MainActivity : ComponentActivity() {
     ) {
         val previousState = swiggyConnectionState
         if (state != SwiggyMcpClient.ConnectionState.READY && ::swiggyOrderCoordinator.isInitialized) {
-            swiggyOrderCoordinator.clearRememberedAddress()
+            swiggyOrderCoordinator.requireRememberedAddressRevalidation()
         }
         connectionSession.confirm(state)
         connectionDetailOverride = detailOverride
         configurePrimaryExperience()
-        swiggyConnectionStatus.announceForAccessibility(swiggyConnectionStatus.text)
-        if (state == SwiggyMcpClient.ConnectionState.READY && previousState != state) {
+        if (state == SwiggyMcpClient.ConnectionState.READY) {
             val connectionPreferences = getSharedPreferences(CONNECTION_PREFERENCES, MODE_PRIVATE)
             if (connectionPreferences.getBoolean(CONNECTION_ATTEMPT_PENDING, false)) {
                 BetaTelemetry.instance?.logEvent("swiggy_connect_completed")
                 connectionPreferences.edit().putBoolean(CONNECTION_ATTEMPT_PENDING, false).apply()
+                if (!orderCommandInput.text.isNullOrBlank()) orderInputStatus.setText(R.string.swiggy_connection_design_reconnect_ready)
             }
-            BetaTelemetry.instance?.maybeLogOnboardingCompleted()
-            showAnalyticsConsentDialog(force = false)
+            if (previousState != state) {
+                BetaTelemetry.instance?.maybeLogOnboardingCompleted()
+                showAnalyticsConsentDialog(force = false)
+            }
         }
     }
 
     private fun startSwiggyConnection() {
         if (swiggyConnectionOperationInFlight || isSwiggyMutationInFlight()) return
+        pendingSwiggyInstruction = null
+        resumeSwiggyOrderAfterStatus = false
+        pendingLocationSwiggyInstruction = null
+        swiggyOrderCoordinator.requireRememberedAddressRevalidation()
         connectionSession.invalidate()
         swiggyConnectionOperationInFlight = true
+        openingSwiggyBrowser = true
+        retrySwiggySignIn = false
         BetaTelemetry.instance?.logEvent("swiggy_connect_started")
         getSharedPreferences(CONNECTION_PREFERENCES, MODE_PRIVATE)
             .edit()
             .putBoolean(CONNECTION_ATTEMPT_PENDING, true)
             .apply()
         val requestGeneration = swiggyMcpRequestGeneration
-        swiggyConnectionAction.isEnabled = false
-        swiggyConnectionStatus.setText(R.string.swiggy_connection_connecting)
-        swiggyConnectionDetail.setText(R.string.swiggy_connection_browser_detail)
+        configurePrimaryExperience()
         SwiggyMcpClient.connect(this) { result ->
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -579,6 +858,7 @@ class MainActivity : ComponentActivity() {
                     return@runOnUiThread
                 }
                 swiggyConnectionOperationInFlight = false
+                openingSwiggyBrowser = false
                 when (result) {
                     is SwiggyMcpResult.Success -> {
                         val authUrl = result.value.authorizationUrl
@@ -588,10 +868,8 @@ class MainActivity : ComponentActivity() {
                                 mapOf("reason" to "invalid_authorization_link"),
                             )
                             clearPendingConnectionAttempt()
-                            updateSwiggyConnectionUi(
-                                SwiggyMcpClient.ConnectionState.DISCONNECTED,
-                                getString(R.string.swiggy_connection_invalid_link),
-                            )
+                            retrySwiggySignIn = true
+                            showSwiggyConnectionFailure(SwiggyMcpResult.Failure("Sign-in unavailable"))
                         }
                     }
                     is SwiggyMcpResult.Failure -> {
@@ -600,6 +878,7 @@ class MainActivity : ComponentActivity() {
                             mapOf("reason" to if (result.reconnectRequired) "reconnect_required" else "backend_failure"),
                         )
                         clearPendingConnectionAttempt()
+                        retrySwiggySignIn = true
                         showSwiggyConnectionFailure(result)
                     }
                 }
@@ -631,11 +910,14 @@ class MainActivity : ComponentActivity() {
         // A browser callback requests a fresh server check; it is not proof of login.
         connectionSession.invalidate()
         swiggyConnectionOperationInFlight = false
+        openingSwiggyBrowser = false
+        pendingSwiggyInstruction = null
+        resumeSwiggyOrderAfterStatus = false
+        pendingLocationSwiggyInstruction = null
+        swiggyOrderCoordinator.requireRememberedAddressRevalidation()
         if (data.getQueryParameter("status") == "connected") {
-            swiggyOrderCoordinator.clearRememberedAddress()
-            swiggyConnectionStatus.setText(R.string.swiggy_connection_checking)
-            swiggyConnectionDetail.setText(R.string.swiggy_connection_finishing)
-            refreshSwiggyConnectionStatus(resumePendingOrder = true)
+            finishingSwiggySignIn = true
+            refreshSwiggyConnectionStatus(resumePendingOrder = false)
         } else {
             BetaTelemetry.instance?.logEvent("swiggy_connect_failed", mapOf("reason" to "oauth_callback"))
             clearPendingConnectionAttempt()
@@ -656,7 +938,15 @@ class MainActivity : ComponentActivity() {
             Log.w("BetaAgent", "SWIGGY_ORDER_HANDOFF_REJECTED")
             return
         }
+        // A new authored handoff replaces unconfirmed preparation, including a
+        // retained failed-save editor, BEFORE onResume can reopen the old one.
+        if (isSwiggyMutationInFlight() || swiggyCheckoutCoordinator.isActive() || !swiggyOrderCoordinator.cancel()) {
+            announceSwiggy("Please finish checking your existing order before starting another cart.")
+            return
+        }
+        val epoch = ++composerInstructionEpoch
         orderCommandInput.post {
+            if (epoch != composerInstructionEpoch || isFinishing || isDestroyed) return@post
             orderCommandInput.setText(instruction)
             draftHandler.removeCallbacks(persistDraftRunnable)
             if (persistGroceryDraft()) handleSwiggyVoiceInstruction(instruction)
@@ -747,7 +1037,7 @@ class MainActivity : ComponentActivity() {
     private fun continuePendingLocationAwareSwiggyOrder() {
         val instruction = pendingLocationSwiggyInstruction?.takeIf { it.isNotBlank() } ?: return
         pendingLocationSwiggyInstruction = null
-        if (!isFinishing && !isDestroyed) {
+        if (!isFinishing && !isDestroyed && connectionSession.canUseConnection) {
             swiggyOrderCoordinator.start(instruction)
         }
     }
@@ -777,7 +1067,11 @@ class MainActivity : ComponentActivity() {
                         }
                         swiggyConnectionOperationInFlight = false
                         when (result) {
-                            is SwiggyMcpResult.Success -> updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.DISCONNECTED)
+                            is SwiggyMcpResult.Success -> {
+                                clearPendingConnectionAttempt()
+                                swiggyOrderCoordinator.clearRememberedAddress()
+                                updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.DISCONNECTED)
+                            }
                             is SwiggyMcpResult.Failure -> showSwiggyConnectionFailure(result)
                         }
                     }
@@ -803,8 +1097,9 @@ class MainActivity : ComponentActivity() {
         swiggyLocationPrompt?.dismiss()
         swiggyLocationPrompt = null
         if (::swiggyOrderCoordinator.isInitialized) {
-            swiggyOrderCoordinator.cancel()
-            swiggyOrderCoordinator.clearRememberedAddress()
+            if (reason == "activity_destroyed" && isChangingConfigurations) swiggyOrderCoordinator.detachForConfigurationChange()
+            else swiggyOrderCoordinator.cancel()
+            swiggyOrderCoordinator.requireRememberedAddressRevalidation()
         }
         Log.i("BetaAgent", "SWIGGY_MCP_PENDING_WORK_CANCELLED reason=$reason")
     }
@@ -830,17 +1125,21 @@ class MainActivity : ComponentActivity() {
         // Shopping feedback must not overwrite authentication instructions or cover
         // the basket/address actions with a second, long toast.
         if (::orderInputStatus.isInitialized) orderInputStatus.text = message
-        speak(message)
+        val accessibility = getSystemService(AccessibilityManager::class.java)
+        if (!retainedSwiggyOrderStatus || accessibility?.isTouchExplorationEnabled != true) speak(message)
     }
 
     private fun showSwiggyConnectionFailure(result: SwiggyMcpResult.Failure) {
+        pendingSwiggyInstruction = null
+        resumeSwiggyOrderAfterStatus = false
+        swiggyOrderCoordinator.requireRememberedAddressRevalidation()
         if (result.reconnectRequired) {
-            updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED, result.userMessage)
+            clearPendingConnectionAttempt()
+            updateSwiggyConnectionUi(SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED)
         } else {
             connectionSession.fail(reconnectRequired = false)
             connectionDetailOverride = null
             configurePrimaryExperience()
-            swiggyConnectionStatus.announceForAccessibility(swiggyConnectionStatus.text)
         }
     }
 
@@ -848,7 +1147,7 @@ class MainActivity : ComponentActivity() {
         selectedSwiggyAddressLabel = label?.trim()?.takeIf { it.isNotBlank() }
         if (!::swiggySelectedAddress.isInitialized || !::swiggyChangeAddressAction.isInitialized) return
         val visible = selectedSwiggyAddressLabel != null &&
-            swiggyConnectionState == SwiggyMcpClient.ConnectionState.READY
+            connectionSession.canUseConnection
         swiggySelectedAddress.visibility = if (visible) View.VISIBLE else View.GONE
         swiggyChangeAddressAction.visibility = if (visible) View.VISIBLE else View.GONE
         if (visible) {
@@ -864,7 +1163,9 @@ class MainActivity : ComponentActivity() {
         if (swiggyOrderCoordinator.isActive() || swiggyCheckoutCoordinator.isActive()) return
         AlertDialog.Builder(this)
             .setTitle("Beta settings")
-            .setItems(arrayOf("Usage analytics", "Enhanced list understanding")) { _, which ->
+            .setItems(arrayOf("Usage analytics", if (GroceryIntentPreferences.eligiblePublicOptionAudience() != null ||
+                GroceryIntentPreferences.isInterpretedTestAudience())
+                getString(R.string.matching_settings_title) else "Enhanced list understanding")) { _, which ->
                 if (which == 0) showAnalyticsConsentDialog(force = true) else showIntentSettings()
             }
             .setNegativeButton("Close", null)
@@ -872,6 +1173,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showIntentSettings() {
+        val internalTest = GroceryIntentPreferences.isInterpretedTestAudience()
+        if (internalTest || GroceryIntentPreferences.eligiblePublicOptionAudience() != null) {
+            PublicMatchingSettingsDialog(
+                this,
+                read = { GroceryIntentPreferences.getSelection(this) },
+                allow = { GroceryIntentPreferences.savePublicOpenAiConsent(this) },
+                useStandard = { GroceryIntentPreferences.setMode(this, GroceryIntentPreferences.Mode.OFF) },
+                internalAllow = if (internalTest) { mode -> GroceryIntentPreferences.setInterpretedDevelopmentMode(this, mode) } else null,
+            ).show()
+            return
+        }
         val modes = GroceryIntentPreferences.availableModes()
         val labels = modes.map { mode ->
             when (mode) {
@@ -1009,7 +1321,6 @@ class MainActivity : ComponentActivity() {
     private fun updateSetupStatus(statusRes: Int, noteRes: Int) {
         if (::agentStatusText.isInitialized) {
             agentStatusText.setText(statusRes)
-            agentStatusText.contentDescription = getString(statusRes)
         }
         if (::primaryNoteText.isInitialized) {
             primaryNoteText.setText(noteRes)
@@ -1017,6 +1328,10 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val RETAINED_ORDER_STATUS = "retained_order_status"
+        private const val RECOVERY_VOICE_STOPPED = "Voice input stopped. Your typed list is saved below. Tap the microphone to try again, or tap Continue."
+        private const val RECOVERY_VOICE_PERMISSION = "Beta can't use the microphone right now. Your typed list is saved below. You can change it and tap Continue."
+        private const val RECOVERY_VOICE_UNAVAILABLE = "Voice input isn't working right now. Your typed list is saved below. You can change it and tap Continue."
         private const val SWIGGY_LOCATION_PREFERENCES = "swiggy_location_preferences"
         private const val SWIGGY_LOCATION_PERMISSION_ASKED = "location_permission_asked"
         private const val VOICE_PERMISSION_PREFERENCES = "voice_permission_preferences"

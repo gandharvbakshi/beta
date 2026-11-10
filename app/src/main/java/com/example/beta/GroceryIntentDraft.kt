@@ -3,6 +3,9 @@ package com.example.beta
 import com.example.beta.automation.ParsedItem
 import com.example.beta.automation.ProductLexicon
 import com.example.beta.automation.Quantity
+import com.example.beta.automation.IntentQuantityProvenance
+import com.example.beta.automation.IntentQuantityOrigin
+import com.example.beta.automation.IntentSourceCountRole
 import java.math.BigDecimal
 
 /** A strictly validated, review-only response from the optional grocery-intent endpoint. */
@@ -17,7 +20,12 @@ data class GroceryIntentResponse(
         private val responseKeys = setOf("accepted", "draft", "model", "promptVersion", "latencyMs", "usage")
 
         fun parse(body: String, originalInstruction: String): GroceryIntentResponse {
-            val root = JsonParser(body).parseStrict().asObject("response")
+            return parseValue(JsonParser(body).parseStrict(), originalInstruction)
+        }
+
+        /** Shared envelope validation; callers must explicitly negotiate any adapter. */
+        internal fun parseValue(value: JsonValue, originalInstruction: String): GroceryIntentResponse {
+            val root = value.asObject("response")
             require(root.keys == responseKeys) { "Unexpected intent response fields" }
             require(root.getValue("accepted").asBoolean("accepted")) { "Intent was not accepted" }
             val draft = GroceryIntentDraft.parse(root.getValue("draft"), originalInstruction)
@@ -80,23 +88,127 @@ data class GroceryIntentDraft(
     }
 
     /** Review preparation only. Uncited text must remain a blocking acknowledgement at cart review. */
-    internal fun prepareForReview(): GroceryIntentPreparation {
-        val grounding = groceryIntentGrounding(instruction, items)
-        if (grounding.rejected.isNotEmpty()) throw IntentNeedsReviewException(grounding.rejected)
-        val flagged = items.filter { it.needsClarification }
-        if (modelNeedsClarification || flagged.isNotEmpty()) {
-            throw IntentNeedsReviewException(
+    internal fun prepareForReview(): GroceryIntentPreparation =
+        assessReview(collectHolds = false, measuredListLookup = true).requirePrepared()
+
+    /** Same ordered checks, but retain independent failures for a context review.
+     * Failed rows never enter toParsedItem or acquire quantity provenance. */
+    internal fun assessForContextReview(collectHolds: Boolean = true): GroceryIntentDraftAssessment =
+        assessReview(collectHolds, measuredListLookup = false)
+
+    private fun assessReview(collectHolds: Boolean, measuredListLookup: Boolean): GroceryIntentDraftAssessment {
+        // A model can return the exact native noun or its independently attested category.
+        // Validate the SAME literal user wording in both cases. No other field is rewritten.
+        val envelope = if (measuredListLookup) compileMeasuredProduceList(instruction, items) else null
+        val rows = envelope?.mapIndexed { index, term -> items[index].copy(name = term.sourceNoun) } ?: items
+        val holds = mutableListOf<GroceryIntentDraftHold>()
+        fun check(kind: GroceryIntentDraftCheck, action: () -> Unit) {
+            try {
+                action()
+            } catch (hold: IntentNeedsReviewException) {
+                if (!collectHolds) throw hold
+                holds += GroceryIntentDraftHold(kind, java.util.Collections.unmodifiableList(hold.affectedSourceText.toList()))
+            }
+        }
+        var composites = emptyMap<Int, CompositeRetailReceipt>()
+        check(GroceryIntentDraftCheck.COMPOSITE) { composites = compositeV1Receipts(instruction, rows) }
+        lateinit var grounding: GroceryIntentGroundingResult
+        check(GroceryIntentDraftCheck.GROUNDING) {
+            grounding = groceryIntentGrounding(instruction, rows)
+            if (grounding.rejected.isNotEmpty()) throw IntentNeedsReviewException(grounding.rejected,
+                localEditOnly = grounding.issues.isNotEmpty() &&
+                    grounding.issues.all { it.kind in setOf(GroceryIntentGroundingIssueKind.LEXICAL_UNVERIFIED,
+                        GroceryIntentGroundingIssueKind.PACK_EVIDENCE, GroceryIntentGroundingIssueKind.SOURCE_FORM_UNPROVEN) } &&
+                    grounding.issues.map { it.sourceText }.toSet() == grounding.rejected.toSet())
+        }
+        check(GroceryIntentDraftCheck.NUMERIC_OWNERSHIP) {
+            val local = rows.filter { it.legacyNumericOwnershipIssue() != null }.map { it.sourceText }
+            val combined = splitPhysicalTotalConflicts(instruction, rows) + legacyNumericSourceCollisions(instruction, rows)
+            val rejected = (local + combined).distinct()
+            if (rejected.isNotEmpty()) throw IntentNeedsReviewException(rejected, localEditOnly = combined.isEmpty())
+        }
+        check(GroceryIntentDraftCheck.MODEL_CLARIFICATION) {
+            val flagged = items.filter { it.needsClarification }
+            if (modelNeedsClarification || flagged.isNotEmpty()) throw IntentNeedsReviewException(
                 (flagged.map { it.sourceText } + if (modelNeedsClarification && flagged.isEmpty()) listOf(instruction) else emptyList()).distinct(),
             )
         }
-        return GroceryIntentPreparation(
-            items.map(GroceryIntentItem::toParsedItem),
-            (uncoveredGroceryIntentSegments(instruction, items.map { it.sourceText }) + grounding.review).distinct(),
+        val quantityReviews = groceryIntentQuantityInterpretationReviews(instruction, rows)
+        if (holds.isNotEmpty()) return GroceryIntentDraftAssessment(null, holds, grounding, quantityReviews)
+        val ordinaryItems = rows.mapIndexed { index, item ->
+            val parsed = item.toParsedItem(emptySet(), compositeReceipt = composites[index])
+            if (item.sourceText in grounding.unprovenIdentityScope) {
+                parsed.copy(unprovenIdentityScope = true)
+            } else parsed.withLegacySourceEvidence(instruction)
+        }
+        // A closed list receipt can explain only the gaps it covers. It never clears a
+        // previous hold, changes an amount, or retargets an existing query-bound proof.
+        val measured = envelope?.takeIf { terms -> grounding.review.isEmpty() && quantityReviews.isEmpty() && ordinaryItems.all {
+            !it.unprovenIdentityScope && !it.requiresIntentQuantityProof && it.intentQuantityProvenance == null &&
+                it.quantity is Quantity.Weight && it.query == it.strictMatchPhrase && it.avoidPhrases.isEmpty()
+        } && ordinaryItems.indices.all { terms[it].namesSameCommodity(ordinaryItems[it].query) } }
+        if (measured == null && rows != items) return assessReview(collectHolds, measuredListLookup = false)
+        val preparation = GroceryIntentPreparation(
+            ordinaryItems.mapIndexed { index, original -> measured?.get(index)?.category?.let { name ->
+                original.copy(query = name, strictMatchPhrase = name, measuredProduceSubject = name)
+            } ?: original },
+            ((if (measured == null) uncoveredGroceryIntentSegments(instruction, items.map { it.sourceText })
+                else emptyList()) + grounding.review +
+                quantityReviews).distinct(),
+            itemReviewConcerns = grounding.review.map {
+                GroceryIntentItemReviewConcern(GroceryIntentItemReviewKind.IDENTITY_OR_PROPERTY, it)
+            } + quantityReviews.map {
+                GroceryIntentItemReviewConcern(GroceryIntentItemReviewKind.QUANTITY_INTERPRETATION, it)
+            },
         )
+        return GroceryIntentDraftAssessment(preparation, emptyList(), grounding, quantityReviews)
     }
 }
 
-internal data class GroceryIntentPreparation(val items: List<ParsedItem>, val unresolvedText: List<String>)
+internal enum class GroceryIntentDraftCheck { COMPOSITE, GROUNDING, NUMERIC_OWNERSHIP, MODEL_CLARIFICATION }
+
+internal data class GroceryIntentDraftHold(val check: GroceryIntentDraftCheck, val affectedSourceText: List<String>) {
+    override fun toString(): String = "GroceryIntentDraftHold(check=$check, <redacted>)"
+}
+
+/** Internal check result, not a search/cart request. A null preparation means
+ * item conversion/source-evidence and all dependent checks were NOT evaluated. */
+internal class GroceryIntentDraftAssessment(
+    val preparation: GroceryIntentPreparation?,
+    holds: List<GroceryIntentDraftHold>,
+    val grounding: GroceryIntentGroundingResult,
+    quantityReviews: List<String>,
+) {
+    val holds: List<GroceryIntentDraftHold> = java.util.Collections.unmodifiableList(holds.toList())
+    val quantityReviews: List<String> = java.util.Collections.unmodifiableList(quantityReviews.toList())
+    init { require((preparation == null) == holds.isNotEmpty()) }
+
+    fun requirePrepared(): GroceryIntentPreparation = preparation
+        ?: throw IntentNeedsReviewException(holds.first().affectedSourceText)
+
+    override fun toString(): String = "GroceryIntentDraftAssessment(<redacted>)"
+}
+
+internal data class GroceryIntentPreparation(
+    val items: List<ParsedItem>,
+    val unresolvedText: List<String>,
+    val excludedText: List<String> = emptyList(),
+    val sharedGroupNotes: List<String> = emptyList(),
+    val fulfillmentConstraints: List<String> = emptyList(),
+    val inputRepair: GroceryIntentInputRepair? = null,
+    val recoverySnapshot: GroceryIntentRecoverySnapshot? = null,
+    // Whole-list concerns: display text is not an item/scope identifier. Context
+    // review must retain these independently of uncovered conversational text.
+    val itemReviewConcerns: List<GroceryIntentItemReviewConcern> = emptyList(),
+    // Retained independently of editable rows: deleting/replacing every item
+    // must not downgrade an interpreted basket into a legacy request.
+    val auditedBasket: AuditedIntentBasket? = null,
+)
+
+internal enum class GroceryIntentItemReviewKind { IDENTITY_OR_PROPERTY, QUANTITY_INTERPRETATION }
+internal data class GroceryIntentItemReviewConcern(val kind: GroceryIntentItemReviewKind, val text: String) {
+    override fun toString(): String = "GroceryIntentItemReviewConcern(kind=$kind, <redacted>)"
+}
 
 data class GroceryIntentItem(
     val name: String,
@@ -109,13 +221,57 @@ data class GroceryIntentItem(
     val sourceText: String,
     val needsClarification: Boolean,
 ) {
-    internal fun toParsedItem(): ParsedItem {
-        val nameAndTags = (listOf(name) + required.map(::requiredPhrase))
+    internal fun toParsedItem(): ParsedItem = toParsedItem(emptySet())
+
+    internal fun toParsedItem(
+        deduplicateForms: Set<String>,
+        legacySourceProofs: Boolean = true,
+        contentsSource: SourceContainerContentsReceipt? = if (legacySourceProofs) sourceContainerContentsReceipt() else null,
+        compositeReceipt: CompositeRetailReceipt? = null,
+    ): ParsedItem {
+        require(contentsSource == null || contentsSource == sourceContainerContentsReceipt())
+        require(compositeReceipt == null || legacySourceProofs && contentsSource == null &&
+            compositeReceipt == legacyCompositeRetailReceipt())
+        // Query rendering alone may omit a repeated, whole-word packaging form.
+        // Keep required evidence intact for validation and review confidence.
+        val purchaseUnit = sourcePacketOfferSyntax(sourceText)?.packaging
+            ?: contentsSource?.container?.takeIf { it in setOf("pack", "packet") }
+        val queryRequired = required.filterNot { form ->
+            // Omit only the source-owned generic tag contribution, never text
+            // inside a product name or a later history/preference phrase.
+            form == purchaseUnit || form in deduplicateForms &&
+                Regex("(?<![\\p{L}\\p{N}\\p{M}_])${Regex.escape(form)}(?![\\p{L}\\p{N}\\p{M}_])", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(name)
+        }
+        val nameAndTags = (listOf(name) + queryRequired.map(::requiredPhrase))
             .map(ProductLexicon::canonicalizeAliasesPreservingText).distinct()
         val pack = packValue?.let { normalizePack(it, packUnit) }
-        val query = (nameAndTags + listOfNotNull(pack?.let { "${it.first} ${it.second}" })).joinToString(" ")
+        val genericWrapper = if (legacySourceProofs) legacyGenericContainerReceipt() else null
+        val namedRetail = if (legacySourceProofs) legacyRetailCountReceipt() else null
+        val sourceIdentity = if (legacySourceProofs) sourceRetailIdentityConstraint(sourceText) else null
+        // Canonical source identity is shared by both adapters. V2 still owns
+        // its provenance; corrections/shared fields cannot pass this local
+        // receipt unless all proposed count/identity fields match the source.
+        val sourcePieceIdentity = legacySourcePieceReceipt()
+        val sourcePieces = sourcePieceIdentity.takeIf { legacySourceProofs }
+        val sourceIdentityQuery = sourceIdentity?.literalQuery()?.let { literal ->
+            // A grounded brand/shared modifier may live outside the item's quote.
+            // Constrain that identity with the source; never replace or erase it.
+            if (intentEvidenceTokens(literal).containsAll(intentEvidenceTokens(nameAndTags.joinToString(" ")))) literal
+            else (nameAndTags + literal).distinct().joinToString(" ")
+        }
+        val baseQuery = compositeReceipt?.literalQuery() ?: namedRetail?.literalQuery() ?: genericWrapper?.literalQuery() ?: sourcePieceIdentity?.literalIdentity()
+            ?: sourceIdentityQuery
+            ?: (nameAndTags + listOfNotNull(pack?.let { "${it.first} ${it.second}" })).joinToString(" ")
+        // Preserve positive source forms independently of amount/role parsing.
+        // V2 already validates its scoped properties; this legacy adapter must
+        // not erase a source form merely because its size appears after it.
+        val missingSourceForms = if (legacySourceProofs && compositeReceipt == null)
+            groceryIntentPositiveSourceFormTokens(sourceText, baseQuery, excluded).orEmpty() - intentEvidenceTokens(baseQuery) else emptySet()
+        val query = (listOf(baseQuery) + missingSourceForms.sorted()).joinToString(" ")
+        val contentsProof = contentsSource?.withQuery(query)
         val quantityValue = quantity?.let { normalizeQuantity(it, quantityUnit) }
-        val parsedQuantity = when (quantityUnit) {
+        val parsedQuantity = if (legacySourceProofs && legacyImplicitUnitDefault()) Quantity.Default else when (quantityUnit) {
             "count", "pack", "piece" -> quantityValue?.let { Quantity.Count(it) } ?: Quantity.Default
             "g", "kg" -> quantityValue?.let { Quantity.Weight(it) } ?: Quantity.Default
             "ml", "l" -> quantityValue?.let { Quantity.Volume(it) } ?: Quantity.Default
@@ -134,8 +290,28 @@ data class GroceryIntentItem(
             // The language model already performed spelling/category normalization. Never
             // fuzz away a remaining name-only descriptor or silently strip its pack measure.
             strictMatchPhrase = query,
-            retailPackCount = quantityUnit == "pack",
-        )
+            retailPackCount = namedRetail != null || genericWrapper == null && (quantityUnit == "pack" || contentsProof != null),
+            containerContentsProof = contentsProof,
+            logicalPieceCount = sourcePieces != null,
+            requiresIntentQuantityProof = sourcePieces != null || genericWrapper != null || namedRetail != null,
+            intentQuantityProvenance = namedRetail?.let {
+                IntentQuantityProvenance(
+                    origin = IntentQuantityOrigin.LOCAL, primaryText = sourceText, rawText = sourceText,
+                    resolvedQuantity = parsedQuantity, local = it.count.copy(unit = "pack"), query = query, strictMatchPhrase = query,
+                    retailPackCount = true, logicalPieceCount = false,
+                    opaqueNumericLabels = groceryIntentOpaqueNumericLabels(query), unitSize = it.size,
+                    retailContainer = it.packaging, sourceCountRole = IntentSourceCountRole.NAMED_RETAIL,
+                )
+            } ?: genericWrapper?.let {
+                IntentQuantityProvenance(
+                    origin = IntentQuantityOrigin.LOCAL, primaryText = sourceText, rawText = sourceText,
+                    resolvedQuantity = parsedQuantity, local = it.count, query = query, strictMatchPhrase = query,
+                    retailPackCount = false, logicalPieceCount = false,
+                    opaqueNumericLabels = groceryIntentOpaqueNumericLabels(query), unitSize = it.size,
+                    sourceCountRole = IntentSourceCountRole.GENERIC_WRAPPERS, genericContainerReceipt = it,
+                )
+            } ?: sourcePieces?.provenance(parsedQuantity, query),
+        ).let { parsed -> if (compositeReceipt == null) parsed else parsed.withCompositeRetailReceipt(compositeReceipt) }
     }
 
     companion object {
@@ -158,7 +334,6 @@ data class GroceryIntentItem(
             val packValue = obj.getValue("pack_value").nullableDecimal("pack_value")
             val packUnit = obj.getValue("pack_unit").asString("pack_unit")
             require(packUnit in physicalUnits)
-            validateQuantity(quantity, quantityUnit)
             validatePack(packValue, packUnit)
             val required = obj.getValue("required").asArray("required").mapIndexed { tagIndex, tag ->
                 tag.asString("required[$tagIndex]").validateTag()
@@ -173,6 +348,9 @@ data class GroceryIntentItem(
             val sourceText = obj.getValue("source_text").asString("source_text").boundedText("source_text", 1, 6000)
             require(sourceText.none(Char::isISOControl))
             require(originalInstruction.contains(sourceText)) { "source_text is not an exact instruction quote" }
+            val sourcePieces = packValue == null && quantityUnit in setOf("count", "piece") &&
+                quantity != null && sourcePiecePurchaseAmount(sourceText, quantity) != null
+            validateQuantity(quantity, quantityUnit, sourcePieces)
             return GroceryIntentItem(
                 name, quantity, quantityUnit, packValue, packUnit, required, excluded, sourceText,
                 obj.getValue("needs_clarification").asBoolean("needs_clarification"),
@@ -183,7 +361,7 @@ data class GroceryIntentItem(
             require(it.isNotEmpty() && it.length <= 60 && tagPattern.matches(it)) { "Invalid tag" }
         }
 
-        private fun validateQuantity(value: BigDecimal?, unit: String) {
+        private fun validateQuantity(value: BigDecimal?, unit: String, sourcePieces: Boolean) {
             if (value == null) {
                 require(unit == "unspecified") { "A missing quantity must be unspecified" }
                 return
@@ -191,7 +369,7 @@ data class GroceryIntentItem(
             require(value > BigDecimal.ZERO && value.toDouble().isFinite()) { "Quantity must be positive and finite" }
             if (unit in setOf("count", "pack", "piece")) {
                 val count = value.exactInt("Discrete quantity")
-                require(count in 1..20) { "Discrete quantity is out of range" }
+                require(count in 1..(if (sourcePieces) 1000 else 20)) { "Discrete quantity is out of range" }
             } else {
                 normalizeQuantity(value, unit)
             }
@@ -230,7 +408,7 @@ data class GroceryIntentItem(
     }
 }
 
-class IntentNeedsReviewException(val affectedSourceText: List<String>) : IllegalArgumentException(
+class IntentNeedsReviewException(val affectedSourceText: List<String>, internal val localEditOnly: Boolean = false) : IllegalArgumentException(
     "Intent requires user clarification before product matching",
 )
 
@@ -261,7 +439,7 @@ private fun normalizePhysical(value: BigDecimal, unit: String): Pair<Int, String
     return canonicalValue.exactInt("Pack size").also { require(it > 0) { "Pack size is not representable exactly" } } to canonicalUnit
 }
 
-private fun normalizePack(value: BigDecimal, unit: String): Pair<Int, String> =
+internal fun normalizePack(value: BigDecimal, unit: String): Pair<Int, String> =
     if (unit == "piece") {
         value.exactInt("Per-pack piece count").also { require(it in 1..1_000_000) } to "pieces"
     } else {

@@ -2,4 +2,31 @@
 <resources>
     <item name="swiggyStepRowAction" type="id" />
     <item name="swiggyStepAcknowledgement" type="id" />
+    <item name="swiggyStepQuantityAcknowledgementCard" type="id" />
+    <item name="swiggyStepQuantityAcknowledgement" type="id" />
+    <item name="swiggyStepQuantityAcknowledgementHelper" type="id" />
+    <item name="swiggyStepQuantityAcknowledgementError" type="id" />
+    <item name="swiggyStepQuantityAcknowledgementJump" type="id" />
+    <item name="groceryIntentRecoveryGoToList" type="id" />
+    <item name="groceryIntentRecoveryEditor" type="id" />
+    <item name="groceryIntentRecoveryCheck" type="id" />
+    <item name="groceryIntentRecoveryWarning" type="id" />
+    <item name="groceryIntentRecoveryLeave" type="id" />
+    <item name="groceryIntentRecoverySay" type="id" />
+    <item name="groceryIntentRecoveryOriginalWords" type="id" />
+    <item name="groceryIntentRecoveryCancel" type="id" />
+    <item name="groceryIntentRecoveryWholeMessage" type="id" />
+    <item name="groceryIntentScopedTitle" type="id" />
+    <item name="groceryIntentScopedEditor" type="id" />
+    <item name="groceryIntentScopedVoice" type="id" />
+    <item name="groceryIntentScopedSave" type="id" />
+    <item name="groceryIntentScopedCancel" type="id" />
+    <item name="groceryIntentScopedChoose" type="id" />
+    <item name="groceryIntentScopedStatus" type="id" />
+    <item name="groceryIntentScopedWholeMessage" type="id" />
+    <item name="groceryIntentScopedEditorHeading" type="id" />
+    <item name="groceryIntentScopedOriginal" type="id" />
+    <item name="groceryIntentScopedOriginalToggle" type="id" />
+    <item name="internalMatchingGemini" type="id" />
+    <item name="internalMatchingDeepSeek" type="id" />
 </resources>

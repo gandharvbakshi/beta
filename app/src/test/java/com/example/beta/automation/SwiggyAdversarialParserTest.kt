@@ -1,5 +1,6 @@
 package com.example.beta.automation
 
+import com.example.beta.validCompositeRetailReceipt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -74,35 +75,76 @@ class SwiggyAdversarialParserTest {
 
     @Test
     fun pack_counts_match_safely_across_leading_and_trailing_numeric_or_spoken_forms() {
-        assertTrue(InstructionParser.isNumericBrandPrefix("24 mantra atta packs"))
+        val failures = mutableListOf<String>()
+        val brandPrefixRecognized = InstructionParser.isNumericBrandPrefix("24 mantra atta packs")
+        if (!brandPrefixRecognized) failures += "brand-prefix parserState=recognized:$brandPrefixRecognized"
+        data class Case(
+            val input: String,
+            val query: String,
+            val quantity: Quantity,
+            val needsReview: Boolean = false,
+        )
         val cases = listOf(
-            "5 milk pouch" to ("milk pouch" to Quantity.Count(5)),
-            "milk pouch 5" to ("milk pouch" to Quantity.Count(5)),
-            "milk pouch paanch" to ("milk pouch" to Quantity.Count(5)),
-            "5 milk pouch paanch" to ("milk pouch" to Quantity.Count(5)),
-            "do milk pouch 2" to ("milk pouch" to Quantity.Count(2)),
-            "500 ml milk packs 5" to ("500 ml milk" to Quantity.Count(5)),
-            "1 l milk packs 5" to ("1000 ml milk" to Quantity.Count(5)),
-            "2 x 500 ml milk packs paanch" to ("2 x 500 ml milk" to Quantity.Count(5)),
-            "5 star chocolate packs 2" to ("5 star chocolate" to Quantity.Count(2)),
-            "24 mantra atta packs 2" to ("24 mantra atta" to Quantity.Count(2)),
-            "5 milk tetra pack" to ("milk tetra pack" to Quantity.Count(5)),
-            "milk tetra pack 5" to ("milk tetra pack" to Quantity.Count(5)),
-            "milk tetra pack paanch" to ("milk tetra pack" to Quantity.Count(5)),
-            "5 milk tetra pack paanch" to ("milk tetra pack" to Quantity.Count(5)),
-            "milk tetta packs 5" to ("milk tetra pack" to Quantity.Count(5)),
-            "milk tetra packets paanch" to ("milk tetra pack" to Quantity.Count(5)),
+            Case("5 milk pouch", "milk pouch", Quantity.Count(5)),
+            Case("milk pouch 5", "milk pouch", Quantity.Count(5)),
+            Case("milk pouch paanch", "milk pouch", Quantity.Count(5)),
+            // Equal repeated amount atoms remain unresolved, even when they agree.
+            Case("5 milk pouch paanch", "milk pouch", Quantity.Count(5), needsReview = true),
+            Case("do milk pouch 2", "milk pouch", Quantity.Count(2), needsReview = true),
+            Case("500 ml milk packs 5", "500 ml milk", Quantity.Count(5)),
+            Case("1 l milk packs 5", "1000 ml milk", Quantity.Count(5)),
+            // The two outer-looking amounts do not prove whether the 2 is an inner pack role.
+            Case("2 x 500 ml milk packs paanch", "milk 2 x 500 ml", Quantity.Count(5)),
+            Case("5 star chocolate packs 2", "5 star chocolate", Quantity.Count(2)),
+            Case("24 mantra atta packs 2", "24 mantra atta", Quantity.Count(2)),
+            Case("5 milk tetra pack", "milk tetra pack", Quantity.Count(5)),
+            Case("milk tetra pack 5", "milk tetra pack", Quantity.Count(5)),
+            Case("milk tetra pack paanch", "milk tetra pack", Quantity.Count(5)),
+            Case("5 milk tetra pack paanch", "milk tetra pack", Quantity.Count(5), needsReview = true),
+            Case("milk tetta packs 5", "milk tetra pack", Quantity.Count(5)),
+            Case("milk tetra packets paanch", "milk tetra pack", Quantity.Count(5)),
         )
 
-        cases.forEach { (input, expected) ->
-            val (expectedQuery, expectedQuantity) = expected
-            val items = InstructionParser.parse(input)
-            assertEquals("$input item count", 1, items.size)
-            val item = items.single()
-            assertEquals("$input query quantity=${item.quantity} raw=${item.rawText}", expectedQuery, item.query)
-            assertEquals("$input quantity", expectedQuantity, item.quantity)
-            assertEquals("$input signal", null, item.quantitySignal)
+        cases.forEachIndexed { index, case ->
+            val items = InstructionParser.parse(case.input)
+            val parsed = items.singleOrNull()
+            val parserState = "itemCount=${items.size}, quantities=${items.map { it.quantity }}, " +
+                "signalCount=${items.count { it.quantitySignal != null }}, " +
+                "proofRequiredCount=${items.count { it.requiresIntentQuantityProof }}, " +
+                "queryMatches=${parsed?.query == case.query}, " +
+                "quantityMatches=${parsed?.quantity == case.quantity}, " +
+                "signalClear=${parsed?.quantitySignal == null}"
+            val failedChecks = mutableListOf<String>()
+            if (items.size != 1) {
+                failedChecks += "itemCount"
+            } else {
+                val item = items.single()
+                if (item.query != case.query) failedChecks += "query"
+                if (item.quantity != case.quantity) failedChecks += "quantity"
+                if ((item.quantitySignal != null) != case.needsReview) failedChecks += "quantitySignal"
+                if (case.input == "2 x 500 ml milk packs paanch") {
+                    val proof = item.intentQuantityProvenance
+                    val receipt = item.validCompositeRetailReceipt()
+                    if (item.rawText != case.input) failedChecks += "compositeRawText"
+                    if (!item.requiresIntentQuantityProof) failedChecks += "compositeProofRequired"
+                    if (proof?.sourceCountRole != IntentSourceCountRole.COMPOSITE_RETAIL_OFFER) {
+                        failedChecks += "compositeSourceCountRole"
+                    }
+                    if (receipt == null) {
+                        failedChecks += "compositeReceipt"
+                    } else {
+                        if (receipt.requestedCount.value.intValueExact() != 5) failedChecks += "compositeRequestedCount"
+                        if (receipt.skuFactor.value.intValueExact() != 2) failedChecks += "compositeFactor"
+                        if (receipt.innerMeasure.value.compareTo(java.math.BigDecimal("500")) != 0 ||
+                            receipt.innerMeasure.unit != "ml") failedChecks += "compositeInnerMeasure"
+                    }
+                }
+            }
+            if (failedChecks.isNotEmpty()) {
+                failures += "case[$index] failed=${failedChecks.joinToString()} parserState={$parserState}"
+            }
         }
+        assertTrue(failures.joinToString(separator = "\n"), failures.isEmpty())
     }
 
     @Test

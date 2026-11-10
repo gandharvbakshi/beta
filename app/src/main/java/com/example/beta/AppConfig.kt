@@ -1,7 +1,23 @@
 package com.example.beta
 
+import android.content.Context
+import java.net.URI
+
 object AppConfig {
-    val backendBaseUrl: String = BuildConfig.BETA_BACKEND_BASE_URL.trim().trimEnd('/')
+    @Volatile private var endpoint: BackendEndpointConfig? = null
+    private var installed = false
+
+    // Called before Application.onCreate/content providers. Invalid assets never choose a fallback host.
+    @Synchronized internal fun install(context: Context) {
+        if (installed) return
+        endpoint = runCatching {
+            context.assets.open(BackendEndpointConfig.ASSET_NAME).use(BackendEndpointConfig::read)
+        }.getOrNull()
+        installed = true
+    }
+
+    val backendBaseUrl: String
+        get() = endpoint?.baseUrl ?: throw BackendConfigurationUnavailableException()
     val backendApiKey: String = BuildConfig.BETA_BACKEND_API_KEY.trim()
 
     private fun backendPath(path: String): String = "$backendBaseUrl/${path.trimStart('/')}"
@@ -34,7 +50,5 @@ object AppConfig {
         get() = backendPath("swiggy/cart/apply")
 
     val isLocalBackend: Boolean
-        get() = backendBaseUrl.contains("10.0.2.2") ||
-            backendBaseUrl.contains("localhost") ||
-            backendBaseUrl.contains("127.0.0.1")
+        get() = URI(backendBaseUrl).host in setOf("10.0.2.2", "localhost", "127.0.0.1")
 }

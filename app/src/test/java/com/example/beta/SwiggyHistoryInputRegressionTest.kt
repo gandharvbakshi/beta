@@ -217,12 +217,13 @@ class SwiggyHistoryInputRegressionTest(
                 ),
                 arrayOf<Any>(
                     Scenario(
-                        name = "duplicate_counted_items_aggregate_before_product_search",
+                        name = "duplicate_counted_items_retain_both_source_rows_until_intent_is_resolved",
                         input = "2 milk, 3 milk",
-                        expectedQueries = listOf("milk"),
-                        expectedQuantities = listOf(Quantity.Count(5)),
-                        expectedBackendInputs = listOf("5 milk"),
-                        expectedRecommendationQueries = listOf("milk"),
+                        expectedQueries = listOf("milk", "milk"),
+                        expectedQuantities = listOf(Quantity.Count(2), Quantity.Count(3)),
+                        expectedBackendInputs = listOf("2 milk", "3 milk"),
+                        expectedRecommendationQueries = listOf("milk", "milk"),
+                        expectedValidationMessage = "One product appears with different quantities or preferences. Please combine it into one clear line; nothing was changed.",
                     ),
                 ),
                 arrayOf<Any>(

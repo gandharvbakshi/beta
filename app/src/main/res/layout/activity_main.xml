@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/mainScroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/beta_background"
@@ -76,17 +77,12 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="18dp"
-            android:accessibilityLiveRegion="polite"
-            android:background="@drawable/beta_pill_sage"
-            android:contentDescription="@string/swiggy_connection_status"
             android:fontFamily="sans-serif-medium"
-            android:paddingStart="16dp"
-            android:paddingTop="10dp"
-            android:paddingEnd="16dp"
-            android:paddingBottom="10dp"
+            android:drawableStart="@drawable/beta_status_dot"
+            android:drawablePadding="8dp"
             android:text="@string/swiggy_connection_status"
             android:textColor="@color/beta_success"
-            android:textSize="15sp" />
+            android:textSize="16sp" />
 
         <TextView
             android:id="@+id/mainPrimaryNote"
@@ -217,8 +213,50 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
+                android:accessibilityHeading="true"
                 android:text="@string/swiggy_connection_status"
                 android:textSize="24sp" />
+
+            <Button
+                android:id="@+id/swiggyConnectionAction"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:background="@drawable/beta_btn_primary"
+                android:contentDescription="@string/swiggy_connection_action"
+                android:fontFamily="sans-serif-medium"
+                android:minHeight="64dp"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:stateListAnimator="@null"
+                android:text="@string/swiggy_connection_action"
+                android:textAllCaps="false"
+                android:textColor="@color/white"
+                android:textSize="19sp" />
+
+            <LinearLayout
+                android:id="@+id/swiggyConnectionProgress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <ProgressBar
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:accessibilityLiveRegion="polite"
+                    android:text="@string/swiggy_connection_design_progress"
+                    android:textColor="@color/beta_text_primary"
+                    android:textSize="16sp" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/swiggyConnectionDetail"
@@ -227,7 +265,16 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="@string/swiggy_connection_detail"
-                android:textSize="16sp" />
+                android:textSize="17sp" />
+
+            <TextView
+                android:id="@+id/swiggyKeptNote"
+                style="@style/Beta.BodySoft"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/swiggy_primary_note_disconnected"
+                android:textSize="17sp" />
 
             <TextView
                 android:id="@+id/swiggySelectedAddress"
@@ -257,25 +304,10 @@
                 android:visibility="gone" />
 
             <Button
-                android:id="@+id/swiggyConnectionAction"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:background="@drawable/beta_btn_primary"
-                android:contentDescription="@string/swiggy_connection_action"
-                android:fontFamily="sans-serif-medium"
-                android:minHeight="56dp"
-                android:stateListAnimator="@null"
-                android:text="@string/swiggy_connection_action"
-                android:textAllCaps="false"
-                android:textColor="@color/white"
-                android:textSize="18sp" />
-
-            <Button
                 android:id="@+id/swiggyOfflineDemoAction"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="16dp"
                 android:background="@drawable/beta_btn_secondary"
                 android:contentDescription="@string/swiggy_offline_demo_action_description"
                 android:fontFamily="sans-serif-medium"

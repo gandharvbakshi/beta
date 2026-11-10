@@ -1,5 +1,6 @@
 package com.example.beta.automation
 
+import com.example.beta.validCompositeRetailReceipt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -185,7 +186,7 @@ class ElderlyEverydayCommandTest {
             RetailCase("1 samosa", "samosa", Quantity.Count(1), false),
             RetailCase("5 milk tetrapacks", "milk tetrapacks", Quantity.Count(5), true),
             RetailCase("milk packs paanch", "milk", Quantity.Count(5), true),
-            RetailCase("2x500ml milk packs paanch", "2x500ml milk", Quantity.Count(5), true),
+            RetailCase("2x500ml milk packs paanch", "milk 2 x 500 ml", Quantity.Count(5), true),
             RetailCase("24 pack paper towels", "24 pack paper towels", Quantity.Default, false),
         )
 
@@ -198,6 +199,23 @@ class ElderlyEverydayCommandTest {
                 if (item.quantity != case.expectedQuantity) add("quantity expected ${case.expectedQuantity} actual ${item.quantity}")
                 if (item.retailPackCount != case.expectedRetailPackCount) {
                     add("retailPackCount expected ${case.expectedRetailPackCount} actual ${item.retailPackCount}")
+                }
+                if (case.input == "2x500ml milk packs paanch") {
+                    val proof = item.intentQuantityProvenance
+                    val receipt = item.validCompositeRetailReceipt()
+                    if (item.rawText != case.input) add("rawText did not retain the original source")
+                    if (!item.requiresIntentQuantityProof) add("composite retail intent must require proof")
+                    if (proof?.sourceCountRole != IntentSourceCountRole.COMPOSITE_RETAIL_OFFER) {
+                        add("sourceCountRole was not COMPOSITE_RETAIL_OFFER")
+                    }
+                    if (receipt == null) {
+                        add("composite receipt did not validate")
+                    } else {
+                        if (receipt.requestedCount.value.intValueExact() != 5) add("requested count was not 5")
+                        if (receipt.skuFactor.value.intValueExact() != 2) add("SKU factor was not 2")
+                        if (receipt.innerMeasure.value.compareTo(java.math.BigDecimal("500")) != 0 ||
+                            receipt.innerMeasure.unit != "ml") add("inner measure was not 500 ml")
+                    }
                 }
             }
             errors.takeIf { it.isNotEmpty() }?.joinToString("; ")?.let { "${case.input}: $it" }

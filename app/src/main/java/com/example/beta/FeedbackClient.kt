@@ -11,12 +11,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
-import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
-import javax.net.ssl.HostnameVerifier
-import javax.net.ssl.SSLContext
-import javax.net.ssl.SSLSession
-import javax.net.ssl.X509TrustManager
 
 object FeedbackClient {
     private const val TAG = "BetaFeedback"
@@ -29,21 +24,6 @@ object FeedbackClient {
             .writeTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
-
-        if (BuildConfig.DEBUG || AppConfig.isLocalBackend) {
-            val trustManager = object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-                override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-            }
-            val sslContext = SSLContext.getInstance("SSL").apply {
-                init(null, arrayOf(trustManager), java.security.SecureRandom())
-            }
-            builder.sslSocketFactory(sslContext.socketFactory, trustManager)
-                .hostnameVerifier(object : HostnameVerifier {
-                    override fun verify(hostname: String, session: SSLSession): Boolean = true
-                })
-        }
 
         return builder.build()
     }
@@ -73,8 +53,14 @@ object FeedbackClient {
     }
 
     internal fun submitPayload(payload: JSONObject, callback: (Boolean, String) -> Unit) {
+        val feedbackUrl = try {
+            AppConfig.feedbackUrl
+        } catch (_: BackendConfigurationUnavailableException) {
+            callback(false, "backend_configuration_unavailable")
+            return
+        }
         val request = Request.Builder()
-            .url(AppConfig.feedbackUrl)
+            .url(feedbackUrl)
             .post(payload.toString().toRequestBody(jsonMediaType))
             .apply {
                 val feedbackKey = BuildConfig.BETA_FEEDBACK_API_KEY.trim()

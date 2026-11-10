@@ -54,4 +54,32 @@ class SwiggyConnectionSessionTest {
         assertFalse(session.canUseConnection)
         assertFalse(SwiggyConnectionSession().canUseConnection)
     }
+
+    @Test fun screenPrecedenceKeepsBrowserAndStatusWorkAheadOfOtherStates() {
+        val session = SwiggyConnectionSession()
+        assertEquals(SwiggyConnectionSession.Screen.CHECKING, session.screen(false, false))
+        assertEquals(SwiggyConnectionSession.Screen.OPENING_BROWSER, session.screen(true, true))
+
+        session.fail(reconnectRequired = false)
+        assertEquals(SwiggyConnectionSession.Screen.RETRY, session.screen(false, true))
+        assertEquals(SwiggyConnectionSession.Screen.RETRY, session.screen(false, false))
+
+        session.fail(reconnectRequired = true)
+        assertEquals(SwiggyConnectionSession.Screen.EXPIRED, session.screen(false, false))
+        assertEquals(SwiggyConnectionSession.Screen.SIGN_IN_PENDING, session.screen(false, true))
+
+        session.confirm(SwiggyMcpClient.ConnectionState.READY)
+        assertEquals(SwiggyConnectionSession.Screen.CONNECTED, session.screen(false, true))
+    }
+
+    @Test fun checkingStatusOutranksRetryExpiredAndPendingButNotBrowserOpening() {
+        val session = SwiggyConnectionSession()
+        session.fail(reconnectRequired = true)
+        val request = session.beginStatus()!!
+        assertEquals(SwiggyConnectionSession.Screen.CHECKING, session.screen(false, true))
+        assertEquals(SwiggyConnectionSession.Screen.OPENING_BROWSER, session.screen(true, true))
+        assertTrue(session.settleStatus(request))
+        session.confirm(SwiggyMcpClient.ConnectionState.RECONNECT_REQUIRED)
+        assertEquals(SwiggyConnectionSession.Screen.SIGN_IN_PENDING, session.screen(false, true))
+    }
 }

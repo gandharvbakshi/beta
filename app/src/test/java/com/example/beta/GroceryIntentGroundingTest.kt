@@ -35,9 +35,48 @@ class GroceryIntentGroundingTest {
         assertEquals(listOf("milk"), groceryIntentGroundingConcerns("milk", listOf(item("Amul milk", "milk"))))
     }
 
+    @Test fun legacySourceVariantWordsRemainVisibleEvenWhenCatalogueDoesNotProveFreshness() {
+        listOf("fresh paneer" to "paneer", "fresh coriander" to "coriander",
+            "white eggs" to "eggs", "whole cinnamon" to "cinnamon").forEach { (source, dropped) ->
+            assertEquals(listOf(source), groceryIntentGroundingConcerns(source, listOf(item(dropped, source))))
+            assertTrue(groceryIntentGroundingConcerns(source, listOf(item(source, source))).isEmpty())
+        }
+    }
+
     @Test fun knownTranslationsAndCategoryPluralsRemainSupported() {
         assertTrue(groceryIntentGroundingConcerns("do doodh aur aloo", listOf(item("milk", "do doodh"), item("potatoes", "aloo"))).isEmpty())
         assertTrue(groceryIntentGroundingConcerns("one yoghurt and chai patti", listOf(item("yogurt", "one yoghurt"), item("tea leaves", "chai patti"))).isEmpty())
+    }
+
+    @Test fun householdPestPluralTargetsMatchOnlyTheirKnownSingularForms() {
+        val targets = mapOf(
+            "cockroaches" to "cockroach", "mosquitoes" to "mosquito", "flies" to "fly", "ants" to "ant",
+            "insects" to "insect", "spiders" to "spider", "termites" to "termite",
+        )
+        targets.forEach { (plural, singular) ->
+            assertEquals(setOf(singular), intentEvidenceTokens(plural))
+            assertEquals(setOf(singular), intentEvidenceTokens(singular))
+            assertTrue(groceryIntentGroundingConcerns("spray for $plural",
+                listOf(item("$singular spray", "spray for $plural"))).isEmpty())
+            assertTrue(groceryIntentGroundingConcerns("spray for $singular",
+                listOf(item("$plural spray", "spray for $singular"))).isEmpty())
+        }
+        assertTrue(groceryIntentGroundingConcerns("spray for cockroaches",
+            listOf(item("cockroach spray", "spray for cockroaches"))).isEmpty())
+        assertTrue(groceryIntentGroundingConcerns("spray for cockroach",
+            listOf(item("cockroaches spray", "spray for cockroach"))).isEmpty())
+        assertEquals(listOf("spray for mosquitoes"), groceryIntentGroundingConcerns("spray for mosquitoes",
+            listOf(item("cockroach spray", "spray for mosquitoes"))))
+        assertEquals(listOf("spray for cockroaches"), groceryIntentGroundingConcerns("spray for cockroaches",
+            listOf(item("Acme cockroach spray", "spray for cockroaches"))))
+        assertEquals(listOf("spray for cockroaches"), groceryIntentGroundingConcerns("spray for cockroaches",
+            listOf(item("cockroach killer spray", "spray for cockroaches"))))
+
+        val protected = "organic spray for cockroaches"
+        assertTrue(groceryIntentGroundingConcerns(protected,
+            listOf(item("organic cockroach spray", protected))).isEmpty())
+        assertEquals(listOf(protected), groceryIntentGroundingConcerns(protected,
+            listOf(item("cockroach spray", protected))))
     }
 
     @Test fun explicitDietAndProductFormMustSurviveInProposedEvidence() {
@@ -96,6 +135,32 @@ class GroceryIntentGroundingTest {
         val protein = "two protein bars with 11 grams protein"
         assertEquals(listOf(protein), groceryIntentGroundingConcerns(protein,
             listOf(item("protein bars 11 grams protein", protein, listOf("high_protein")))))
+    }
+
+    @Test fun productCategoryDoesNotProveHighProteinAndSugarPropertiesStayDistinct() {
+        val proteinCategory = "one Acme protein bar"
+        assertEquals(listOf(proteinCategory), groceryIntentGroundingConcerns(proteinCategory,
+            listOf(item("Acme protein bar", proteinCategory, listOf("high_protein")))))
+
+        val explicitProtein = "one Acme high protein bar"
+        assertTrue(groceryIntentGroundingConcerns(explicitProtein,
+            listOf(item("Acme high protein bar", explicitProtein, listOf("high_protein")))).isEmpty())
+
+        val noAddedSugar = "one Meadow no added sugar yogurt"
+        assertTrue(groceryIntentGroundingConcerns(noAddedSugar,
+            listOf(item("Meadow no added sugar yogurt", noAddedSugar, listOf("no_added_sugar")))).isEmpty())
+        assertEquals(listOf(noAddedSugar), groceryIntentGroundingConcerns(noAddedSugar,
+            listOf(item("Meadow yogurt", noAddedSugar, listOf("sugar_free")))))
+    }
+
+    @Test fun highAndProteinFromDifferentItemsCannotCombineIntoHighProtein() {
+        val instruction = "one high fibre biscuit, one Acme protein bar"
+        val biscuit = "one high fibre biscuit"
+        val proteinBar = "one Acme protein bar"
+        assertEquals(listOf(proteinBar), groceryIntentGroundingConcerns(instruction, listOf(
+            item("high fibre biscuit", biscuit, listOf("high_fibre")),
+            item("Acme protein bar", proteinBar, listOf("high_protein")),
+        )))
     }
 
     @Test fun preparedIngredientMatchingKeepsItsFormAndRejectsDrySubstitution() {
