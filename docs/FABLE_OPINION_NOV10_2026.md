@@ -4,6 +4,8 @@ One read-only Fable consultation, at high effort, on the [evidence packet](FABLE
 
 ## The main disagreement
 
+**Important limitation of that consultation:** a separate November 9 engineering log records earlier synthetic final-review failures, not just excessive holds. Examples include barley becoming milk, counted apples becoming oranges, and uncounted dark chocolate becoming oranges; nutmeg could also become nutmeg powder. Later targeted checks stopped the four wrong counted-apple plans and four uncounted swaps, but a faithful bare dark-chocolate request still held in a restricted seller shape. There was no purchase. These particular counterexamples were not enumerated in the first packet; do not treat Fable's over-refusal diagnosis as proof that acceptance is safe. Simplification must preserve both the source-to-item and item-to-SKU checks. The owner's separate Cursor dossier includes these red/green comparisons and the flawed-oracle cases for the next independent review.
+
 Fable's diagnosis: we have too many places that can reject an entire basket, including places before a read-only search. Failing safely is preferable to ordering the wrong thing, but **a safe refusal is not a completed shopping trip**. A new evidence contract should *replace* duplicate interpretation, not add a further veto. This is particularly important for long lists: a single uncertain phrase should not prevent looking up the other seventeen rows.
 
 | Fable's recommendation | Our disposition and acceptance test |
