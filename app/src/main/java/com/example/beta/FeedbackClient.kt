@@ -23,7 +23,8 @@ object FeedbackClient {
             .connectTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
+            .retryOnConnectionFailure(false)
+            .followRedirects(false)
 
         return builder.build()
     }
@@ -72,21 +73,19 @@ object FeedbackClient {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                Log.w(TAG, "Feedback submit failed: ${e.message}")
-                callback(false, e.message ?: "network_error")
+                Log.w(TAG, "Feedback submit failed")
+                callback(false, "network_error")
             }
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
-                    val body = it.body?.string().orEmpty()
                     if (it.isSuccessful) {
-                        val feedbackId = runCatching {
-                            JSONObject(body).optString("feedback_id", "accepted")
-                        }.getOrDefault("accepted")
-                        Log.i(TAG, "Feedback accepted: $feedbackId")
-                        callback(true, feedbackId)
+                        val accepted = try {
+                            hasFeedbackReceipt(it.peekBody(4096L).string())
+                        } catch (_: IOException) { false }
+                        callback(accepted, if (accepted) "accepted" else "confirmation_missing")
                     } else {
-                        Log.w(TAG, "Feedback rejected: ${it.code} $body")
+                        Log.w(TAG, "Feedback rejected: ${it.code}")
                         callback(false, "http_${it.code}")
                     }
                 }
@@ -94,3 +93,8 @@ object FeedbackClient {
         })
     }
 }
+
+internal fun hasFeedbackReceipt(body: String): Boolean = try {
+    val receipt = JSONObject(body)
+    receipt.opt("accepted") == true && (receipt.opt("feedback_id") as? String)?.isNotBlank() == true
+} catch (_: org.json.JSONException) { false }
