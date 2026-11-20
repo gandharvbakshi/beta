@@ -24,7 +24,7 @@ This checkpoint does not change grocery matching, the cart, checkout, the backen
 - Full Android candidate run: **2,786 passed, 27 failed, 42 skipped** (2,855 total).
   The 27 failures affect seller quantity/contents, product identity, exclusion and dietary
   handling. A high unit-test pass rate is not an estimate of shopping success.
-- Last fresh controlled basket panel: OpenAI 5/16 ordinary baskets, DeepSeek 2/16;
+- November 19 fresh controlled basket panel: OpenAI 5/16 ordinary baskets, DeepSeek 2/16;
   neither completed the four mixed-safety baskets with all valid siblings. DeepSeek
   proposed eight four-packs for eight individual pieces in a preview. No purchase.
   The frozen panel is now spent; no percentage is claimed for live user orders.
@@ -32,6 +32,11 @@ This checkpoint does not change grocery matching, the cart, checkout, the backen
 ## What the owner can use, and how to learn
 
 Play Open Testing last verified at **0.3.4 (21)**; not a new pilot release.
+The signed Play 21 release came from `87585b1`. The November 20 GitHub shopping
+preview is **not** that Play source plus a feedback-only fix: 88 Android runtime
+and resource files differ between that release commit and `e34aae6`. The version
+name alone cannot identify a side-loaded build. Do not upload an old bundle or
+relabel the preview as a maintenance release.
 The working candidate's opt-in Analytics counts a committed list edit, phrase edit,
 product change, or removal, not individual keystrokes, text or product names. An
 optional prompt follows acknowledged order placement. Raw tester examples are only
@@ -45,6 +50,25 @@ baskets, safe holds, unavailable stock, and unsafe proposals. Review quantity/di
 errors first. Turn each distinct failure mechanism into a de-identified test with a
 similar negative control; never train automatically on a correction or count replay
 of that example as new evidence. Treat a lack of feedback as unknown, not success.
+
+## Latest shopping check
+
+On November 20's genuinely new simulated stock panel, Gemini and DeepSeek each
+completed **0 of 3 ordinary baskets and 0 of 1 mixed basket**. Neither made an
+incorrect selection on that panel; both left out available items. This is a small
+diagnostic sample, not a success rate for the app on Play.
+
+A subsequent private change taught the request reader that an ordinary product
+noun can be what the user is counting. On two **previously seen** five-item
+mixed baskets, DeepSeek selected 2/4 and 3/3 suitable items, holding all
+unsuitable items; Gemini selected none. Both read the three simple quantities
+in the second basket. Gemini's later seller check treated the listing’s “1 piece”
+as a size the shopper had asked for. The host safely held the items. Offline,
+changing only those three size readings recovered the exact three products,
+quantities and prices while preserving both dietary holds. This diagnoses
+the issue; it is not a passing shopping run. Keep testing
+that distinction before changing the shopping release or advertising improved
+matching. No orders, payments or cart changes were involved.
 
 ## Release gates
 
